@@ -23,6 +23,7 @@
 #include <vector>
 
 #define OK_STATUS "Copied"
+#define WHATSAPP_KEYWORD "WhatsApp"
 
 // Get current date/time, format is YYYY-MM-DD.HH:mm:ss
 const std::string currentDateTime() {
@@ -42,13 +43,19 @@ using seconds_fp = chrono::duration<double, chrono::seconds::period>;
 using minutes_fp = chrono::duration<double, chrono::minutes::period>;
 
 namespace fs {
-using namespace boost::filesystem;
-
-using Path = boost::filesystem::path;
+using namespace std::filesystem;
+using Path = std::filesystem::path;
 using Paths = std::vector<Path>;
 
 using MonthFiles = std::map<std::string, fs::Path>;
 using YearsMonthFiles = std::map<std::string, MonthFiles>;
+
+const std::string toLower(const std::string& data) {
+  std::string lower_str;
+  std::transform(data.cbegin(), data.cend(), std::back_inserter(lower_str),
+                 [](const unsigned char c) { return std::tolower(c); });
+  return std::move(lower_str);
+}
 }  // namespace fs
 
 struct YearMonthFile {
@@ -58,8 +65,18 @@ struct YearMonthFile {
   std::string ext{"ext"};
   fs::Path path{"unknown"};
   std::string status{"none"};
-
   fs::Path destination{"unknown"};
+
+  bool isWhatsAppFile() {
+    const auto lower_whatsapp_keyword = fs::toLower(WHATSAPP_KEYWORD);
+    for (const auto& name : path) {
+      const auto lower_name = fs::toLower(name.native());
+      if (lower_name == lower_whatsapp_keyword) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   std::string to_string() {
     return fmt::format("{}-{}-{}: \"{}\"", year, month, day, path.native());
@@ -72,12 +89,23 @@ struct YearMonthFile {
 using YearMonthFiles = std::vector<YearMonthFile>;
 
 using Filters = std::vector<std::string>;
+using FiltersList = std::vector<Filters>;
 
 Filters PICTURES_FILTER{".png", ".jpg", ".jpeg", ".bmp", ".dng"};
 Filters MOVIES_FILTER{".mp4", ".mkv", ".avi", ".mov", ".ogg",
                       ".m4v", ".wmv", ".3gp", ".m4a", ".webp"};
-
 Filters EXTENSION_FILTERS;
+
+FiltersList EXCEPTIONS_FILTER{{"WhatsApp", "Sent"},
+                              {"WhatsApp", "WhatsApp Animated Gifs"},
+                              {"WhatsApp", "WhatsApp Documents"},
+                              {"WhatsApp", "WhatsApp Stickers"},
+                              {"WhatsApp", "WhatsApp Video Notes"}};
+
+#define DEFAULT_VIDEOS_FOLDER_NAME \
+  fs::Path { "Videos" }
+#define DEFAULT_PHOTOS_FOLDER_NAME \
+  fs::Path { "Photos" }
 
 std::map<std::string, std::string> MONTHS{
     {"01", "JANVIER"}, {"02", "FEVRIER"},  {"03", "MARS"},
@@ -85,19 +113,72 @@ std::map<std::string, std::string> MONTHS{
     {"07", "JUILLET"}, {"08", "AOUT"},     {"09", "SEPTEMBRE"},
     {"10", "OCTOBRE"}, {"11", "NOVEMBRE"}, {"12", "DECEMBRE"}};
 
-void retrieveFiles(const fs::Path& source_folder, YearMonthFiles& files) {
+bool isHidden(const fs::Path& source) {
+  for (const auto& name : source) {
+    if (name.native().starts_with(".")) {
+      SPDLOG_DEBUG("Source file {} is hidden here {}", source.native(),
+                   name.native());
+      return true;
+    }
+  }
+  return false;
+}
+
+bool isException(const fs::Path& source) {
+  for (const auto& filter_keys : EXCEPTIONS_FILTER) {
+    std::size_t count{0};
+    for (const auto& keyword : filter_keys) {
+      if (std::find(source.begin(), source.end(), keyword) == source.end()) {
+        break;
+      }
+      ++count;
+    }
+    // This file is filtered
+    if (count == filter_keys.size()) {
+      SPDLOG_DEBUG("Source file {} filtered by filter list: [{}]",
+                   source.native(), fmt::join(filter_keys, ","));
+      return true;
+    }
+  }
+  return false;
+}
+
+struct ReadableSizeFilter {
+  std::uintmax_t size{};
+  std::uintmax_t minimum_size{200 * 1024};  // 200kB
+
+ public:
+  bool isToSmall() { return size < minimum_size; }
+
+ private:
+  friend std::ostream& operator<<(std::ostream& os, ReadableSizeFilter hr) {
+    int o{0};
+    double mantissa = hr.size;
+    for (; mantissa >= 1024.; ++o) {
+      mantissa /= 1024.;
+    }
+    os << std::ceil(mantissa * 10.) / 10. << "BKMGTPE"[o];
+    return o ? os << "B (" << hr.size << ')' : os;
+  }
+};
+
+// TODO: Manage copying all type of files (movies/pictures) in different deduced
+// folders (Videos/Photos)
+
+void retrieveFiles(const fs::Path& source_folder, YearMonthFiles& files,
+                   const bool use_exceptions_filter) {
   fs::Paths source_paths;
   for (auto& f : fs::directory_iterator(source_folder)) {
-    if (f.path().filename_is_dot() || f.path().filename_is_dot_dot()) {
+    if (f.path().filename().empty()) {
       continue;
     }
     // Add the file path to the list
     source_paths.push_back(f);
   }
 
-  for (auto& p : source_paths) {
+  for (const auto& p : source_paths) {
     if (fs::is_directory(p)) {
-      retrieveFiles(p, files);
+      retrieveFiles(p, files, use_exceptions_filter);
     } else {
       // If there is extension filters - check files extensions
       if (!EXTENSION_FILTERS.empty()) {
@@ -106,22 +187,38 @@ void retrieveFiles(const fs::Path& source_folder, YearMonthFiles& files) {
           continue;
         }
         // Check extension
-        const auto lower_ext =
-            boost::algorithm::to_lower_copy(p.extension().native());
-
+        const auto lower_ext = fs::toLower(p.extension().native());
+        // Check extension filtering
         if (std::find(EXTENSION_FILTERS.cbegin(), EXTENSION_FILTERS.cend(),
                       lower_ext) == EXTENSION_FILTERS.cend()) {
-          SPDLOG_ERROR("\"{}\" is filtered out... ({})", p.native(), lower_ext);
+          SPDLOG_ERROR("\"{}\" is filtered out by extension ({})", p.native(),
+                       lower_ext);
+          continue;
+        }
+        // Check hidden file/folder
+        if (isHidden(p)) {
+          SPDLOG_ERROR("\"{}\" is hidden", p.native());
+          continue;
+        }
+        // Check exceptions
+        if (use_exceptions_filter && isException(p)) {
+          SPDLOG_ERROR("\"{}\" is in exception filter", p.native());
+          continue;
+        }
+        // Check size
+        ReadableSizeFilter file_size(fs::file_size(p));
+        if (file_size.isToSmall()) {
+          SPDLOG_ERROR("\"{}\" is too small {}", p.native(), file_size);
           continue;
         }
       }
 
-      const std::time_t elapsed_time = fs::last_write_time(p);
-
+      const auto time = std::chrono::system_clock::to_time_t(
+          std::chrono::file_clock::to_sys(fs::last_write_time(p)));
       const std::string time_format("%F");
 
       std::ostringstream ss;
-      ss << std::put_time(std::localtime(&elapsed_time), time_format.c_str());
+      ss << std::put_time(std::localtime(&time), time_format.c_str());
 
       std::string time_str(ss.str());
 
@@ -173,6 +270,17 @@ int main(int argc, char** argv) {
                  "The destination folder to copy")
       ->required()
       ->check(CLI::ExistingDirectory);
+  const auto no_default_final_dest =
+      app.add_flag("--do-not-deduce-final-dest-folder",
+                   "Without this flag we are deducing automatically deduce "
+                   "last tree folder with 'Videos' or 'Photos'");
+
+  const auto no_exceptions_filter = app.add_flag(
+      "--do-not-filter-exceptions",
+      "Disabling hard coded exceptions like 'WhatsApp' 'Sent' data");
+
+  const bool use_default_final_dest = no_default_final_dest->count() == 0;
+  const bool use_exceptions_filter = no_exceptions_filter->count() == 0;
 
   CLI11_PARSE(app, argc, argv);
 
@@ -215,18 +323,30 @@ int main(int argc, char** argv) {
   assert(fs::exists(source_folder));
   assert(fs::exists(dest_folder));
 
+  // Manage default final folder if we are copying only movies or only
+  // pictures
+  if (use_default_final_dest && !copy_all) {
+    dest_folder = dest_folder / (copy_movies ? DEFAULT_VIDEOS_FOLDER_NAME
+                                             : DEFAULT_PHOTOS_FOLDER_NAME);
+  }
+
   SPDLOG_INFO("Listing files...");
 
   YearMonthFiles files;
-  retrieveFiles(source_folder, files);
+  retrieveFiles(source_folder, files, use_exceptions_filter);
 
   SPDLOG_INFO("Copying files...");
 
-  std::size_t count_copied{0};
+  std::size_t file_index{0};
   auto start = clock_type::now();
   for (auto& file : files) {
-    ++count_copied;
-    auto file_dest_folder = dest_folder / file.year / file.month;
+    ++file_index;
+
+    fs::Path file_dest_folder = dest_folder;
+    if (file.isWhatsAppFile()) {
+      file_dest_folder = file_dest_folder / WHATSAPP_KEYWORD;
+    }
+    file_dest_folder = file_dest_folder / file.year / file.month;
 
     if (!fs::exists(file_dest_folder)) {
       if (!fs::create_directories(file_dest_folder)) {
@@ -240,7 +360,6 @@ int main(int argc, char** argv) {
     }
 
     auto file_dest_path = file_dest_folder / file.path.filename();
-
     file.destination = file_dest_path;
 
     if (fs::exists(file_dest_path)) {
@@ -271,13 +390,16 @@ int main(int argc, char** argv) {
       }
     }
 
-    SPDLOG_INFO("Copying {}/{}: {}", count_copied, files.size(), file.path);
+    SPDLOG_INFO("Copying {}/{}:\n{}\nto destination\n{}", file_index,
+                files.size(), file.path, file.destination);
 
-    boost::system::error_code ec;
+    std::error_code ec;
     if (remove_copied) {
       fs::rename(file.path, file.destination, ec);
     } else {
+      const auto file_time = fs::last_write_time(file.path, ec);
       fs::copy_file(file.path, file.destination, ec);
+      fs::last_write_time(file.destination, file_time, ec);
     }
 
     if (show_pictures && copy_pictures && !copy_all) {
@@ -302,7 +424,7 @@ int main(int argc, char** argv) {
     }
 
     // Check error code
-    if (ec.failed()) {
+    if (ec.value() != 0) {
       SPDLOG_ERROR("Error when {} file:\n\"{}\" -> \"{}\"",
                    remove_copied ? "moving" : "copying", file.path.native(),
                    file.destination.native());
@@ -312,8 +434,7 @@ int main(int argc, char** argv) {
     }
 
     auto elapsed = clock_type::now() - start;
-    auto ratio =
-        static_cast<float>(count_copied) / static_cast<float>(files.size());
+    auto ratio = file_index / static_cast<double>(files.size());
 
     auto seconds = chrono::duration_cast<seconds_fp>(elapsed).count();
     auto minutes = chrono::duration_cast<minutes_fp>(elapsed).count();
@@ -325,8 +446,8 @@ int main(int argc, char** argv) {
     }
     auto need_minutes_eta = eta >= 60;
 
-    SPDLOG_INFO("Status... {}{} ({}%) - ETA {}{}",
-                need_minutes ? seconds : minutes, need_minutes ? "min" : "s",
+    SPDLOG_INFO("Status... {:.0g}{} ({:.2g}%) - ETA {:.0g}{}",
+                need_minutes ? minutes : seconds, need_minutes ? "min" : "s",
                 ratio * 100,
                 need_minutes_eta ? eta / 60. - minutes : eta - seconds,
                 need_minutes_eta ? "min" : "s");
