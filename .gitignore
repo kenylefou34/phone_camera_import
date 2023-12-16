@@ -94,6 +94,10 @@ Thumbs.db
 # Qt user
 CMakeLists.txt.user
 
+# Modules
+modules/*
+modules/
+
 # Build dir
 build/*
 build/
