@@ -22,8 +22,13 @@
 #include <string_view>
 #include <vector>
 
+#define SIMULATION_MODE false
+#define WRITE_LOG_FILE false
 #define OK_STATUS "Copied"
 #define WHATSAPP_KEYWORD "WhatsApp"
+#define WHATSAPP_PREFIX_VIDEO "VID-"
+#define WHATSAPP_PREFIX_IMAGE "IMG-"
+#define WHATSAPP_CONTAINS "-WA"
 
 // Get current date/time, format is YYYY-MM-DD.HH:mm:ss
 const std::string currentDateTime() {
@@ -58,6 +63,12 @@ const std::string toLower(const std::string& data) {
 }
 }  // namespace fs
 
+std::map<std::string, std::string> MONTHS{
+    {"01", "JANVIER"}, {"02", "FEVRIER"},  {"03", "MARS"},
+    {"04", "AVRIL"},   {"05", "MAI"},      {"06", "JUIN"},
+    {"07", "JUILLET"}, {"08", "AOUT"},     {"09", "SEPTEMBRE"},
+    {"10", "OCTOBRE"}, {"11", "NOVEMBRE"}, {"12", "DECEMBRE"}};
+
 struct YearMonthFile {
   std::string year{"1900"};
   std::string month{"01"};
@@ -67,13 +78,37 @@ struct YearMonthFile {
   std::string status{"none"};
   fs::Path destination{"unknown"};
 
+  static std::string getMonthAt(const std::string& month_str) {
+    return month_str + " " + MONTHS.at(month_str);
+  }
+
+  void updateDateForWhatsAppFile() {
+    if (!isWhatsAppFile()) {
+      return;
+    }
+    auto stem = path.stem().native();
+    // Name filter
+    // ex video file: VID-20230526-WA0009
+    // ex image file: IMG-20130830-WA0000
+    year = stem.substr(4, 4);
+    month = YearMonthFile::getMonthAt(stem.substr(8, 2));
+    day = stem.substr(10, 2);
+  }
+
   bool isWhatsAppFile() {
+    // Folder filter
     const auto lower_whatsapp_keyword = fs::toLower(WHATSAPP_KEYWORD);
     for (const auto& name : path) {
       const auto lower_name = fs::toLower(name.native());
       if (lower_name == lower_whatsapp_keyword) {
         return true;
       }
+    }
+    auto stem = path.stem().native();
+    if ((stem.starts_with(WHATSAPP_PREFIX_VIDEO) ||
+         stem.starts_with(WHATSAPP_PREFIX_IMAGE)) &&
+        stem.substr(12, 3) == WHATSAPP_CONTAINS) {
+      return true;
     }
     return false;
   }
@@ -107,12 +142,6 @@ FiltersList EXCEPTIONS_FILTER{{"WhatsApp", "Sent"},
 #define DEFAULT_PHOTOS_FOLDER_NAME \
   fs::Path { "Photos" }
 
-std::map<std::string, std::string> MONTHS{
-    {"01", "JANVIER"}, {"02", "FEVRIER"},  {"03", "MARS"},
-    {"04", "AVRIL"},   {"05", "MAI"},      {"06", "JUIN"},
-    {"07", "JUILLET"}, {"08", "AOUT"},     {"09", "SEPTEMBRE"},
-    {"10", "OCTOBRE"}, {"11", "NOVEMBRE"}, {"12", "DECEMBRE"}};
-
 bool isHidden(const fs::Path& source) {
   for (const auto& name : source) {
     if (name.native().starts_with(".")) {
@@ -143,15 +172,22 @@ bool isException(const fs::Path& source) {
   return false;
 }
 
-struct ReadableSizeFilter {
-  std::uintmax_t size{};
-  std::uintmax_t minimum_size{200 * 1024};  // 200kB
+class ReadableSizeFilter {
+ public:
+  ReadableSizeFilter() = delete;
+  inline ReadableSizeFilter(const std::uintmax_t other_size)
+      : size(other_size) {}
 
  public:
-  bool isToSmall() { return size < minimum_size; }
+  /// Disabled
+  bool isToSmall() {
+    return false;
+    // return size < minimum_size;
+  }
 
  private:
-  friend std::ostream& operator<<(std::ostream& os, ReadableSizeFilter hr) {
+  inline friend std::ostream& operator<<(std::ostream& os,
+                                         ReadableSizeFilter hr) {
     int o{0};
     double mantissa = hr.size;
     for (; mantissa >= 1024.; ++o) {
@@ -160,10 +196,14 @@ struct ReadableSizeFilter {
     os << std::ceil(mantissa * 10.) / 10. << "BKMGTPE"[o];
     return o ? os << "B (" << hr.size << ')' : os;
   }
+
+ private:
+  std::uintmax_t size{};
+  static constexpr std::uintmax_t minimum_size{200 * 1024};  // 50kB
 };
 
-// TODO: Manage copying all type of files (movies/pictures) in different deduced
-// folders (Videos/Photos)
+// TODO: Manage copying all type of files (movies/pictures) in different
+// deduced folders (Videos/Photos)
 
 void retrieveFiles(const fs::Path& source_folder, YearMonthFiles& files,
                    const bool use_exceptions_filter) {
@@ -226,9 +266,12 @@ void retrieveFiles(const fs::Path& source_folder, YearMonthFiles& files,
       auto month_str = time_str.substr(5, 2);
       auto day_str = time_str.substr(8, 2);
 
-      files.emplace_back(
-          YearMonthFile{year_str, month_str + " " + MONTHS.at(month_str),
-                        day_str, p.extension().native(), p, "Listed"});
+      YearMonthFile read_file{year_str, YearMonthFile::getMonthAt(month_str),
+                              day_str,  p.extension().native(),
+                              p,        "Listed"};
+      read_file.updateDateForWhatsAppFile();
+
+      files.emplace_back(std::move(read_file));
     }
   }
 }
@@ -393,6 +436,7 @@ int main(int argc, char** argv) {
     SPDLOG_INFO("Copying {}/{}:\n{}\nto destination\n{}", file_index,
                 files.size(), file.path, file.destination);
 
+#if !SIMULATION_MODE
     std::error_code ec;
     if (remove_copied) {
       fs::rename(file.path, file.destination, ec);
@@ -451,8 +495,10 @@ int main(int argc, char** argv) {
                 ratio * 100,
                 need_minutes_eta ? eta / 60. - minutes : eta - seconds,
                 need_minutes_eta ? "min" : "s");
+#endif
   }
 
+#if WRITE_LOG_FILE
   // Write log file
   auto date_str = currentDateTime();
   std::shared_ptr<spdlog::logger> file_logger = spdlog::basic_logger_mt(
@@ -476,6 +522,7 @@ int main(int argc, char** argv) {
   }
   file_logger->flush();
   file_error->flush();
+#endif
 
   return 0;
 }
