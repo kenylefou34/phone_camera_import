@@ -22,7 +22,6 @@
 #include <string_view>
 #include <vector>
 
-#define SIMULATION_MODE false
 #define WRITE_LOG_FILE false
 #define OK_STATUS "Copied"
 #define WHATSAPP_KEYWORD "WhatsApp"
@@ -69,6 +68,27 @@ std::map<std::string, std::string> MONTHS{
     {"07", "JUILLET"}, {"08", "AOUT"},     {"09", "SEPTEMBRE"},
     {"10", "OCTOBRE"}, {"11", "NOVEMBRE"}, {"12", "DECEMBRE"}};
 
+using Filters = std::vector<std::string>;
+using FiltersList = std::vector<Filters>;
+
+Filters PICTURES_FILTER{".png", ".jpg", ".jpeg", ".bmp", ".dng"};
+Filters MOVIES_FILTER{".mp4", ".mkv", ".avi", ".mov", ".ogg",
+                      ".m4v", ".wmv", ".3gp", ".m4a", ".webp"};
+Filters EXTENSION_FILTERS;
+
+FiltersList EXCEPTIONS_FILTER{{"WhatsApp", "Sent"},
+                              {"WhatsApp", "WhatsApp Animated Gifs"},
+                              {"WhatsApp", "WhatsApp Documents"},
+                              {"WhatsApp", "WhatsApp Stickers"},
+                              {"WhatsApp", "WhatsApp Video Notes"}};
+
+enum class ExtensionType : std::uint8_t {
+  UNKNOWN = 0b0000,
+  PICTURE = 0b0001,
+  MOVIE = 0b0010,
+  PIC_AND_MOVIE = PICTURE | MOVIE
+};
+
 struct YearMonthFile {
   std::string year{"1900"};
   std::string month{"01"};
@@ -77,9 +97,42 @@ struct YearMonthFile {
   fs::Path path{"unknown"};
   std::string status{"none"};
   fs::Path destination{"unknown"};
+  ExtensionType ext_type{ExtensionType::UNKNOWN};
 
   static std::string getMonthAt(const std::string& month_str) {
     return month_str + " " + MONTHS.at(month_str);
+  }
+
+  static bool isInExtentionFilter(const fs::Path& p) {
+    // Check existing extention
+    if (p.has_extension()) {
+      const auto lower_ext = fs::toLower(p.extension().native());
+      // Check extension filtering
+      if (std::find(EXTENSION_FILTERS.cbegin(), EXTENSION_FILTERS.cend(),
+                    lower_ext) == EXTENSION_FILTERS.cend()) {
+        SPDLOG_ERROR("\"{}\" is filtered out by extension ({})", p.native(),
+                     lower_ext);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void deduceExtentionType() {
+    std::uint8_t type{0};
+    // Check extension
+    const auto lower_ext = fs::toLower(path.extension().native());
+    // Check extension filtering
+    if (std::find(PICTURES_FILTER.cbegin(), PICTURES_FILTER.cend(),
+                  lower_ext) != PICTURES_FILTER.cend()) {
+      ext_type = ExtensionType::PICTURE;
+      return;
+    }
+    if (std::find(MOVIES_FILTER.cbegin(), MOVIES_FILTER.cend(), lower_ext) !=
+        MOVIES_FILTER.cend()) {
+      ext_type = ExtensionType::MOVIE;
+      return;
+    }
   }
 
   void updateDateForWhatsAppFile() {
@@ -116,26 +169,13 @@ struct YearMonthFile {
   std::string to_string() {
     return fmt::format("{}-{}-{}: \"{}\"", year, month, day, path.native());
   }
+
   void print() {
     SPDLOG_INFO("{}-{}-{}: \"{}\"", year, month, day, path.native());
   }
 };
 
 using YearMonthFiles = std::vector<YearMonthFile>;
-
-using Filters = std::vector<std::string>;
-using FiltersList = std::vector<Filters>;
-
-Filters PICTURES_FILTER{".png", ".jpg", ".jpeg", ".bmp", ".dng"};
-Filters MOVIES_FILTER{".mp4", ".mkv", ".avi", ".mov", ".ogg",
-                      ".m4v", ".wmv", ".3gp", ".m4a", ".webp"};
-Filters EXTENSION_FILTERS;
-
-FiltersList EXCEPTIONS_FILTER{{"WhatsApp", "Sent"},
-                              {"WhatsApp", "WhatsApp Animated Gifs"},
-                              {"WhatsApp", "WhatsApp Documents"},
-                              {"WhatsApp", "WhatsApp Stickers"},
-                              {"WhatsApp", "WhatsApp Video Notes"}};
 
 #define DEFAULT_VIDEOS_FOLDER_NAME \
   fs::Path { "Videos" }
@@ -220,37 +260,28 @@ void retrieveFiles(const fs::Path& source_folder, YearMonthFiles& files,
     if (fs::is_directory(p)) {
       retrieveFiles(p, files, use_exceptions_filter);
     } else {
-      // If there is extension filters - check files extensions
-      if (!EXTENSION_FILTERS.empty()) {
-        // Check for an existing extension
-        if (!p.has_extension()) {
-          continue;
-        }
-        // Check extension
-        const auto lower_ext = fs::toLower(p.extension().native());
-        // Check extension filtering
-        if (std::find(EXTENSION_FILTERS.cbegin(), EXTENSION_FILTERS.cend(),
-                      lower_ext) == EXTENSION_FILTERS.cend()) {
-          SPDLOG_ERROR("\"{}\" is filtered out by extension ({})", p.native(),
-                       lower_ext);
-          continue;
-        }
-        // Check hidden file/folder
-        if (isHidden(p)) {
-          SPDLOG_ERROR("\"{}\" is hidden", p.native());
-          continue;
-        }
-        // Check exceptions
-        if (use_exceptions_filter && isException(p)) {
-          SPDLOG_ERROR("\"{}\" is in exception filter", p.native());
-          continue;
-        }
-        // Check size
-        ReadableSizeFilter file_size(fs::file_size(p));
-        if (file_size.isToSmall()) {
-          SPDLOG_ERROR("\"{}\" is too small {}", p.native(), file_size);
-          continue;
-        }
+      if (EXTENSION_FILTERS.empty()) {
+        continue;
+      }
+      // Check for an existing extension
+      if (!YearMonthFile::isInExtentionFilter(p)) {
+        continue;
+      }
+      // Check hidden file/folder
+      if (isHidden(p)) {
+        SPDLOG_ERROR("\"{}\" is hidden", p.native());
+        continue;
+      }
+      // Check exceptions
+      if (use_exceptions_filter && isException(p)) {
+        SPDLOG_ERROR("\"{}\" is in exception filter", p.native());
+        continue;
+      }
+      // Check size
+      ReadableSizeFilter file_size(fs::file_size(p));
+      if (file_size.isToSmall()) {
+        SPDLOG_ERROR("\"{}\" is too small {}", p.native(), file_size);
+        continue;
       }
 
       const auto time = std::chrono::system_clock::to_time_t(
@@ -270,6 +301,9 @@ void retrieveFiles(const fs::Path& source_folder, YearMonthFiles& files,
                               day_str,  p.extension().native(),
                               p,        "Listed"};
       read_file.updateDateForWhatsAppFile();
+      read_file.deduceExtentionType();
+
+      read_file.print();
 
       files.emplace_back(std::move(read_file));
     }
@@ -286,43 +320,54 @@ int main(int argc, char** argv) {
 
   fs::Path source_folder, dest_folder;
   bool show_pictures = false, copy_pictures = false, copy_movies = false,
-       copy_all = false, recursive_copy = false, remove_copied = false;
+       copy_all = true, recursive_copy = false, remove_copied = false;
 
-  auto all_option =
-      app.add_flag("-a,--all", copy_all, "Copy all files")->default_val(false);
-  app.add_flag("-p,--pictures", copy_pictures, "Copy pictures files")
-      ->default_val(false)
-      ->excludes(all_option);
-  app.add_flag("-m,--movies", copy_movies, "Copy movies files")
-      ->default_val(false)
-      ->excludes(all_option);
+  // Filter options
+  auto all_option = app.add_flag("-a,--all", copy_all, "Copy all files")
+                        ->default_val(copy_all);
+  const auto pictures_only_option =
+      app.add_flag("-p,--pictures-only", copy_pictures, "Copy pictures files")
+          ->default_val(false)
+          ->excludes(all_option);
+  const auto movies_only_option =
+      app.add_flag("-m,--movies", copy_movies, "Copy movies files")
+          ->default_val(false)
+          ->excludes(all_option);
+  // Picture show option
   app.add_flag("--show-pictures", show_pictures, "Show pictures files")
       ->default_val(false)
-      ->excludes(all_option);
+      ->excludes(all_option, movies_only_option);
 
+  // Filter options exclusions
+  all_option->excludes(pictures_only_option, movies_only_option);
+
+  // Copy options
   app.add_flag("-r,--recursive", recursive_copy, "Recursive source folder copy")
       ->default_val(true);
   app.add_flag("--remove-copied", remove_copied, "Remove copied files")
       ->default_val(false);
 
+  // Source
   app.add_option("-s,--source_folder", source_folder,
                  "The source folder to copy")
       ->required()
       ->check(CLI::ExistingDirectory);
-  app.add_option("-d,--destination_folder", dest_folder,
+  // Destination
+  app.add_option("-d,--destination-folder", dest_folder,
                  "The destination folder to copy")
       ->required()
       ->check(CLI::ExistingDirectory);
-  const auto no_default_final_dest =
-      app.add_flag("--do-not-deduce-final-dest-folder",
-                   "Without this flag we are deducing automatically deduce "
-                   "last tree folder with 'Videos' or 'Photos'");
 
+  // Other flags
+  const auto simulation_mode =
+      app.add_flag("--simulation",
+                   "Enable simulation mode to parse files and check logs "
+                   "before launching a real copy process")
+          ->default_val(false);
   const auto no_exceptions_filter = app.add_flag(
       "--do-not-filter-exceptions",
       "Disabling hard coded exceptions like 'WhatsApp' 'Sent' data");
 
-  const bool use_default_final_dest = no_default_final_dest->count() == 0;
   const bool use_exceptions_filter = no_exceptions_filter->count() == 0;
 
   CLI11_PARSE(app, argc, argv);
@@ -342,22 +387,22 @@ int main(int argc, char** argv) {
     return -1;
   }
 
-  if (copy_pictures && copy_movies) {
+  if (copy_all) {
     SPDLOG_INFO("Operation will copy pictures and movies");
     EXTENSION_FILTERS.reserve(PICTURES_FILTER.size() + MOVIES_FILTER.size());
     EXTENSION_FILTERS.insert(EXTENSION_FILTERS.end(), PICTURES_FILTER.begin(),
                              PICTURES_FILTER.end());
     EXTENSION_FILTERS.insert(EXTENSION_FILTERS.end(), MOVIES_FILTER.begin(),
                              MOVIES_FILTER.end());
+
+    copy_movies = true;
+    copy_pictures = true;
   } else if (copy_pictures) {
     SPDLOG_INFO("Operation will {} pictures", remove_copied ? "move" : "copy");
     EXTENSION_FILTERS = PICTURES_FILTER;
   } else if (copy_movies) {
     SPDLOG_INFO("Operation will {} movies", remove_copied ? "move" : "copy");
     EXTENSION_FILTERS = MOVIES_FILTER;
-  } else if (all_option) {
-    SPDLOG_INFO("Operation will {} all files", remove_copied ? "move" : "copy");
-    EXTENSION_FILTERS.clear();
   } else {
     SPDLOG_CRITICAL("Missing extension filter option or illformed options");
     return 1;
@@ -365,13 +410,6 @@ int main(int argc, char** argv) {
 
   assert(fs::exists(source_folder));
   assert(fs::exists(dest_folder));
-
-  // Manage default final folder if we are copying only movies or only
-  // pictures
-  if (use_default_final_dest && !copy_all) {
-    dest_folder = dest_folder / (copy_movies ? DEFAULT_VIDEOS_FOLDER_NAME
-                                             : DEFAULT_PHOTOS_FOLDER_NAME);
-  }
 
   SPDLOG_INFO("Listing files...");
 
@@ -388,6 +426,14 @@ int main(int argc, char** argv) {
     fs::Path file_dest_folder = dest_folder;
     if (file.isWhatsAppFile()) {
       file_dest_folder = file_dest_folder / WHATSAPP_KEYWORD;
+    }
+
+    // Manage default final folder if we are copying movies or pictures
+    if (copy_pictures && file.ext_type == ExtensionType::PICTURE) {
+      file_dest_folder = file_dest_folder / DEFAULT_PHOTOS_FOLDER_NAME;
+    }
+    if (copy_movies && file.ext_type == ExtensionType::MOVIE) {
+      file_dest_folder = file_dest_folder / DEFAULT_VIDEOS_FOLDER_NAME;
     }
     file_dest_folder = file_dest_folder / file.year / file.month;
 
@@ -436,66 +482,66 @@ int main(int argc, char** argv) {
     SPDLOG_INFO("Copying {}/{}:\n{}\nto destination\n{}", file_index,
                 files.size(), file.path, file.destination);
 
-#if !SIMULATION_MODE
-    std::error_code ec;
-    if (remove_copied) {
-      fs::rename(file.path, file.destination, ec);
-    } else {
-      const auto file_time = fs::last_write_time(file.path, ec);
-      fs::copy_file(file.path, file.destination, ec);
-      fs::last_write_time(file.destination, file_time, ec);
-    }
+    if (!simulation_mode) {
+      std::error_code ec;
+      if (remove_copied) {
+        fs::rename(file.path, file.destination, ec);
+      } else {
+        const auto file_time = fs::last_write_time(file.path, ec);
+        fs::copy_file(file.path, file.destination, ec);
+        fs::last_write_time(file.destination, file_time, ec);
+      }
 
-    if (show_pictures && copy_pictures && !copy_all) {
-      try {
-        auto img_mat = cv::imread(file.destination.native());
-        auto width = img_mat.cols;
-        auto height = img_mat.rows;
-        auto max_size = std::max(width, height);
-        auto ratio = (float)640 / (float)max_size;
-        cv::Mat img_resized;
-        cv::resize(img_mat, img_resized,
-                   cv::Size((int)(width * ratio), (int)(height * ratio)),
-                   cv::INTER_LINEAR);
-        cv::imshow("Preview", img_resized);
-        cv::waitKey(150);
-      } catch (...) {
+      if (show_pictures && copy_pictures && !copy_all) {
+        try {
+          auto img_mat = cv::imread(file.destination.native());
+          auto width = img_mat.cols;
+          auto height = img_mat.rows;
+          auto max_size = std::max(width, height);
+          auto ratio = (float)640 / (float)max_size;
+          cv::Mat img_resized;
+          cv::resize(img_mat, img_resized,
+                     cv::Size((int)(width * ratio), (int)(height * ratio)),
+                     cv::INTER_LINEAR);
+          cv::imshow("Preview", img_resized);
+          cv::waitKey(150);
+        } catch (...) {
+          SPDLOG_ERROR("Error when {} file:\n\"{}\" -> \"{}\"",
+                       remove_copied ? "moving" : "copying", file.path.native(),
+                       file.destination.native());
+          cv::waitKey();
+        }
+      }
+
+      // Check error code
+      if (ec.value() != 0) {
         SPDLOG_ERROR("Error when {} file:\n\"{}\" -> \"{}\"",
                      remove_copied ? "moving" : "copying", file.path.native(),
                      file.destination.native());
-        cv::waitKey();
+        file.status = ec.message();
+      } else {
+        file.status = OK_STATUS;
       }
+
+      auto elapsed = clock_type::now() - start;
+      auto ratio = file_index / static_cast<double>(files.size());
+
+      auto seconds = chrono::duration_cast<seconds_fp>(elapsed).count();
+      auto minutes = chrono::duration_cast<minutes_fp>(elapsed).count();
+      auto need_minutes = seconds > 60;
+
+      double eta{0.f};
+      if (ratio > 0) {
+        eta = static_cast<double>(seconds) / ratio;
+      }
+      auto need_minutes_eta = eta >= 60;
+
+      SPDLOG_INFO("Status... {:.0g}{} ({:.2g}%) - ETA {:.0g}{}",
+                  need_minutes ? minutes : seconds, need_minutes ? "min" : "s",
+                  ratio * 100,
+                  need_minutes_eta ? eta / 60. - minutes : eta - seconds,
+                  need_minutes_eta ? "min" : "s");
     }
-
-    // Check error code
-    if (ec.value() != 0) {
-      SPDLOG_ERROR("Error when {} file:\n\"{}\" -> \"{}\"",
-                   remove_copied ? "moving" : "copying", file.path.native(),
-                   file.destination.native());
-      file.status = ec.message();
-    } else {
-      file.status = OK_STATUS;
-    }
-
-    auto elapsed = clock_type::now() - start;
-    auto ratio = file_index / static_cast<double>(files.size());
-
-    auto seconds = chrono::duration_cast<seconds_fp>(elapsed).count();
-    auto minutes = chrono::duration_cast<minutes_fp>(elapsed).count();
-    auto need_minutes = seconds > 60;
-
-    double eta{0.f};
-    if (ratio > 0) {
-      eta = static_cast<double>(seconds) / ratio;
-    }
-    auto need_minutes_eta = eta >= 60;
-
-    SPDLOG_INFO("Status... {:.0g}{} ({:.2g}%) - ETA {:.0g}{}",
-                need_minutes ? minutes : seconds, need_minutes ? "min" : "s",
-                ratio * 100,
-                need_minutes_eta ? eta / 60. - minutes : eta - seconds,
-                need_minutes_eta ? "min" : "s");
-#endif
   }
 
 #if WRITE_LOG_FILE
