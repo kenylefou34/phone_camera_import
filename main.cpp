@@ -482,7 +482,7 @@ int main(int argc, char** argv) {
     SPDLOG_INFO("Copying {}/{}:\n{}\nto destination\n{}", file_index,
                 files.size(), file.path, file.destination);
 
-    if (!simulation_mode) {
+    if (simulation_mode->empty() || !simulation_mode->as<bool>()) {
       std::error_code ec;
       if (remove_copied) {
         fs::rename(file.path, file.destination, ec);
