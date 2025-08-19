@@ -212,6 +212,27 @@ bool isException(const fs::Path& source) {
   return false;
 }
 
+bool isOlderThan(const fs::Path& source, const fs::Path& destination) {
+  const auto time_src = std::chrono::system_clock::to_time_t(
+      std::chrono::file_clock::to_sys(fs::last_write_time(source)));
+  const auto time_dst = std::chrono::system_clock::to_time_t(
+      std::chrono::file_clock::to_sys(fs::last_write_time(destination)));
+#if 0
+  const std::string time_format("%F");
+
+  std::ostringstream ss_src;
+  ss_src << std::put_time(std::localtime(&time_src), time_format.c_str());
+
+  std::ostringstream ss_dst;
+  ss_dst << std::put_time(std::localtime(&time_dst), time_format.c_str());
+
+  std::string time_str("source date: " + ss_src.str() +
+                       "\ndestination date: " + ss_dst.str());
+  SPDLOG_INFO("\n{}\n{}\n{}", time_src, time_dst, time_str.c_str());
+#endif
+  return time_src < time_dst;
+}
+
 class ReadableSizeFilter {
  public:
   ReadableSizeFilter() = delete;
@@ -473,6 +494,9 @@ int main(int argc, char** argv) {
         file_dest_path = new_path;
         // If file name for destination changed then update it
         file.destination = file_dest_path;
+      } else if (isOlderThan(file.path, file_dest_path)) {
+        SPDLOG_ERROR("File source is older than destination: \"{}\"",
+                     file_dest_path.native());
       } else {
         file.status = "Skipped";
         continue;
