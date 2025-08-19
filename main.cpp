@@ -71,7 +71,7 @@ std::map<std::string, std::string> MONTHS{
 using Filters = std::vector<std::string>;
 using FiltersList = std::vector<Filters>;
 
-Filters PICTURES_FILTER{".png", ".jpg", ".jpeg", ".bmp", ".dng"};
+Filters PICTURES_FILTER{".png", ".jpg", ".jpeg", ".bmp", ".dng", ".heic"};
 Filters MOVIES_FILTER{".mp4", ".mkv", ".avi", ".mov", ".ogg",
                       ".m4v", ".wmv", ".3gp", ".m4a", ".webp"};
 Filters EXTENSION_FILTERS;
