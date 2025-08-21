@@ -85,8 +85,7 @@ FiltersList EXCEPTIONS_FILTER{{"WhatsApp", "Sent"},
 enum class ExtensionType : std::uint8_t {
   UNKNOWN = 0b0000,
   PICTURE = 0b0001,
-  MOVIE = 0b0010,
-  PIC_AND_MOVIE = PICTURE | MOVIE
+  MOVIE = 0b0010
 };
 
 struct YearMonthFile {
@@ -126,12 +125,11 @@ struct YearMonthFile {
     if (std::find(PICTURES_FILTER.cbegin(), PICTURES_FILTER.cend(),
                   lower_ext) != PICTURES_FILTER.cend()) {
       ext_type = ExtensionType::PICTURE;
-      return;
-    }
-    if (std::find(MOVIES_FILTER.cbegin(), MOVIES_FILTER.cend(), lower_ext) !=
-        MOVIES_FILTER.cend()) {
+    } else if (std::find(MOVIES_FILTER.cbegin(), MOVIES_FILTER.cend(),
+                         lower_ext) != MOVIES_FILTER.cend()) {
       ext_type = ExtensionType::MOVIE;
-      return;
+    } else {
+      ext_type = ExtensionType::UNKNOWN;
     }
   }
 
@@ -263,9 +261,6 @@ class ReadableSizeFilter {
   static constexpr std::uintmax_t minimum_size{200 * 1024};  // 50kB
 };
 
-// TODO: Manage copying all type of files (movies/pictures) in different
-// deduced folders (Videos/Photos)
-
 void retrieveFiles(const fs::Path& source_folder, YearMonthFiles& files,
                    const bool use_exceptions_filter) {
   fs::Paths source_paths;
@@ -393,8 +388,8 @@ int main(int argc, char** argv) {
 
   CLI11_PARSE(app, argc, argv);
 
-  // Check if the source folder contains the destination folder
-  if (boost::starts_with(source_folder, dest_folder)) {
+  // Check if the destination folder is inside the source folder
+  if (boost::starts_with(dest_folder, source_folder)) {
     SPDLOG_ERROR(
         "Destination folder is contained in the source folder: {} -> {}",
         source_folder.native(), dest_folder.native());
@@ -455,6 +450,12 @@ int main(int argc, char** argv) {
     }
     if (copy_movies && file.ext_type == ExtensionType::MOVIE) {
       file_dest_folder = file_dest_folder / DEFAULT_VIDEOS_FOLDER_NAME;
+    }
+    if (file.ext_type == ExtensionType::UNKNOWN) {
+      SPDLOG_ERROR("Skipping file:\n\"{}\"", file.to_string());
+      file.status = fmt::format("File extension is not handled \"{}\"",
+                                file.path.native());
+      continue;
     }
     file_dest_folder = file_dest_folder / file.year / file.month;
 
