@@ -1,53 +1,71 @@
 # CLAUDE.md — phone_camera_import
 
-Orientation pour les sessions Claude Code sur ce dépôt.
+Point de reprise pour les sessions Claude Code. **Documenter/commenter en français**
+(le mainteneur débute en Python).
 
-## Langue
-Le mainteneur débute en Python : **documenter et commenter le code en français**,
-explications accessibles.
+## Le projet
+Système d'import de médias : téléphone → NUC → bibliothèque rangée par type et
+date (`Photos|Videos/ANNÉE/"MM MOIS"`). Refonte en cours sur la branche `dev`.
 
-## Ce qu'est le projet
-Outil d'import de médias (photos/vidéos) d'un téléphone vers une bibliothèque
-rangée par type et par date (`ANNÉE / "MM MOIS"`, mois en français).
+Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation web
++ revue visuelle (doublons, floues/rafales, re-datation) ; **Phase 3** visages ;
+**Phase 4** génération (livre photo…).
 
-- **Existant** : `main.cpp` (binaire C++ `phone_camera_import`) qui trie par date
-  de dernière modification, et `run_backup.sh` (récupération rsync/SSH depuis un
-  téléphone via SimpleSSHD).
-- **Refonte en cours** (branche `dev`) : reconstruction en Python avec lecture
-  des vraies dates de prise de vue (EXIF/vidéo), anti-doublon par empreinte, puis
-  app Android + reconnaissance faciale + génération. Voir les specs.
+## État actuel (2026-09-14)
+- ✅ **Trieur `mediasort/`** (Python, stdlib + exiftool/ffmpeg) : range par vraie
+  date (métadonnées > nom > système > `_A_TRIER/`), anti-doublon par catalogue
+  SQLite d'empreintes. Testé.
+- ✅ **Catalogue complet** : `~/mediasort_catalog.db` sur le NUC = **44 669 médias
+  uniques** (sur 59 884 fichiers → ~15 200 doublons dans la biblio, cf. issue #4).
+- ✅ **Backlog WhatsApp trié** (4 rangés, 92 doublons évités) ; bruit nettoyé.
+- ✅ **Service `mediaserve/`** (sous-projet 2) : FastAPI, appairage QR, handshake
+  anti-doublon, upload, commit (bilan détaillé), page d'admin (appareils +
+  camembert disque), mDNS/Avahi, systemd + Docker. 56 tests. Validé sur le NUC.
+- Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
-## Specs / conception
-- `docs/superpowers/specs/` — documents de conception. Point d'entrée actuel :
-  `2026-09-14-trieur-medias-design.md` (Phase 1, sous-projet « trieur »).
+## Feuille de route (issues GitHub)
+Prochaines étapes : **déployer mediaserve en service permanent** sur le NUC, puis
+**sous-projet 3 = app Android** (voir issues). Améliorations/Phase 2 tracées en
+issues #2 à #10 (`gh issue list`). Notamment : #2 horizon de synchro initial,
+#3 HTTPS+épinglage, #4 doublons existants, #5 floues/rafales, #6 re-datation,
+#7 sauvegarde Famille, #8/#9 optimisations, #10 durcir la surface d'admin.
+À faire aussi : **fusionner `dev` → `main`** (main est en retard).
 
-## Machine cible (NUC)
-- SSH par clé : `ssh izquierdo@192.168.1.21` (hôte `IZQUIERDO-NUC`, Ubuntu 26.04,
-  2 cœurs / 3 Go). `sudo` demande un mot de passe → passer par un vrai terminal
-  (le canal `!` de Claude Code n'a pas de TTY) ou un `sudoers.d` restreint.
-- Bibliothèque médias sur disques externes : **Famille** (NTFS,
-  `/media/izquierdo/Famille`) = cible ; **ELEMENTS** (FAT32, souvent monté en
-  lecture seule car FAT corrompu — réparable au `fsck.vfat`) = archive ;
-  **Media** (exfat) = 320 Go presque plein.
-- Structure bibliothèque : `Photos/ANNÉE/"MM MOIS"/`, `Videos/…`, `WhatsApp/…`,
-  `unsorted/` (backlog à trier). Ne pas toucher aux dossiers d'événements
-  curatés à la main (ex. `2022/02 - CANARIAS`).
+## NUC (machine cible)
+- `ssh izquierdo@192.168.1.21` (clé configurée, hôte `IZQUIERDO-NUC`, Ubuntu 26.04,
+  Python 3.14, 2 cœurs / 3 Go). `sudo` restreint via `/etc/sudoers.d/claude-maint`
+  (apt, fsck, mount, smartctl…) ; le reste demande un vrai terminal (le canal `!`
+  n'a pas de TTY). **Pas de `curl`** sur le NUC (utiliser python/urllib).
+- **PEP 668** : le python système refuse `pip --user` → **venv obligatoire**
+  (`~/.venv-server` pour le serveur).
+- Disques externes sous `/media/izquierdo/` : **Famille** (NTFS) = bibliothèque
+  cible ; **ELEMENTS** (FAT32, réparé) = archive ; **Media** (exfat). Ne jamais
+  toucher aux dossiers d'événements curatés (ex. `2022/02 - CANARIAS`).
+- WhatsApp enregistré sur le tél : `Pictures/WhatsApp/` (images) + `Movies/WhatsApp/`
+  (vidéos) — pas le dump interne de WhatsApp (~99 % "Sent").
 
-## Build du binaire C++ (existant)
-Dépendances système (apt) : `build-essential cmake libopencv-dev libspdlog-dev
-libfmt-dev libboost-all-dev`. Submodule header-only : CLI11.
-
+## Commandes utiles
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j2
+# Tests (local, pytest via pip --user) :
+python3 -m pytest -q
+
+# Trieur (sur le NUC) :
+python3 -m mediasort --source <dossier> --library /media/izquierdo/Famille \
+    --catalog ~/mediasort_catalog.db [--seed --seed-from <dossier>] [--dry-run] [--clean-noise]
+
+# Serveur (sur le NUC, venv) :
+~/.venv-server/bin/uvicorn mediaserve.app:app --host 0.0.0.0 --port 8787
+# puis http://nuc.local:8787/ (admin) et /pair (QR)
+
+# Déploiement : voir deploy/ (mediaserve.service, avahi, Dockerfile) + README.
 ```
 
-⚠️ Piège déjà corrigé : utiliser le **fmt système** (`find_package(fmt)`), pas le
-submodule `modules/fmt` (8.1.1) qui casse le link avec le spdlog système (fmt 10).
-Depuis fmt ≥ 9, inclure `<fmt/std.h>` pour formater `std::filesystem::path` et
-fournir un `ostream_formatter` pour les types à `operator<<`.
+## Binaire C++ existant (`main.cpp`)
+Build : `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j2`.
+Déps apt : `build-essential cmake libopencv-dev libspdlog-dev libfmt-dev
+libboost-all-dev`. ⚠️ Utiliser le **fmt système** (`find_package(fmt)`), pas le
+submodule ; inclure `<fmt/std.h>` (fmt ≥ 9). Le trieur Python le remplace.
 
 ## Workflow
-- Skills « superpowers » actives (brainstorming avant conception, TDD avant code,
-  etc.). Suivre le cycle conception → spec → plan → implémentation.
-- Attribution des commits : voir les consignes de session.
+Skills « superpowers » : brainstorming → spec → plan → TDD. Attribution des
+commits : voir les consignes de session.
