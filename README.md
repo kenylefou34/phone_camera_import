@@ -93,3 +93,46 @@ This method works to automate SSH connections (and thus rsync, scp, etc.) with S
 
 This setup allows you to easily sync files between your Android phone and Linux PC, taking full advantage of rsync’s speed and reliability over SSH.
 
+
+---
+
+## Trieur de médias (Python)
+
+Range un dossier source de photos/vidéos dans une bibliothèque classée par
+type et par date (`Photos|Videos/ANNÉE/"MM MOIS"`), en lisant la vraie date de
+prise de vue et sans jamais créer de doublon.
+
+### Mise en place de l'environnement
+
+```bash
+# Outils système (dates de prise de vue) :
+sudo apt-get install -y libimage-exiftool-perl ffmpeg
+
+# Pour lancer les tests (optionnel) : pytest
+python3 -m pip install --user pytest
+# (mediasort lui-même ne dépend que de la bibliothèque standard Python.)
+```
+
+### Utilisation
+
+```bash
+# 1) Amorcer le catalogue depuis la bibliothèque existante (une fois) :
+python3 -m mediasort --library /media/izquierdo/Famille --source /tmp/vide --seed --dry-run
+
+# 2) Simulation du tri d'un dossier (rien n'est déplacé) :
+python3 -m mediasort --source /media/izquierdo/Famille/unsorted \
+                     --library /media/izquierdo/Famille --dry-run --verbose
+
+# 3) Tri réel + nettoyage du bruit :
+python3 -m mediasort --source /media/izquierdo/Famille/unsorted \
+                     --library /media/izquierdo/Famille --clean-noise
+```
+
+Options : `--source`, `--library`, `--catalog FICHIER.db`, `--dry-run`,
+`--seed`, `--clean-noise`, `--verbose`.
+
+### Tests
+
+```bash
+python3 -m pytest -v
+```
