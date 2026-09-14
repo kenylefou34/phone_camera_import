@@ -1,5 +1,6 @@
 """Catalogue SQLite : anti-doublon par empreinte + dates de synchro par dossier."""
 
+import os
 import sqlite3
 from pathlib import Path
 
@@ -7,6 +8,8 @@ from . import config
 from .hashing import file_hash
 
 _MEDIA_EXTS = config.PHOTO_EXTS | config.VIDEO_EXTS
+# Dossiers système à ne jamais parcourir lors de l'amorçage.
+_SKIP_DIR_NAMES = {"System Volume Information", "$RECYCLE.BIN"}
 
 
 class Catalog:
@@ -43,14 +46,34 @@ class Catalog:
     def count(self) -> int:
         return self._cx.execute("SELECT COUNT(*) FROM medias").fetchone()[0]
 
-    def seed_from_library(self, library: Path) -> int:
-        """Indexe tous les médias déjà présents en bibliothèque. Renvoie le nombre ajouté."""
+    def seed_from_library(self, library, exclude=None) -> int:
+        """Indexe les médias déjà rangés en bibliothèque (pour l'anti-doublon).
+
+        Saute les dossiers de transit passés dans 'exclude' (ex. le dossier
+        source à trier, '_A_TRIER'), ainsi que les dossiers cachés et système.
+        Tolère les fichiers illisibles. Renvoie le nombre de médias ajoutés.
+        """
+        exclus = {os.path.abspath(str(e)) for e in (exclude or [])}
         ajoutes = 0
-        for p in library.rglob("*"):
-            if p.is_file() and p.suffix.lower() in _MEDIA_EXTS:
-                digest = file_hash(p)
+        for racine, dossiers, fichiers in os.walk(str(library), onerror=lambda e: None):
+            # Élaguer : dossiers cachés, système et exclus (on n'y descend pas).
+            dossiers[:] = [
+                d for d in dossiers
+                if not d.startswith((".", "$"))
+                and d not in _SKIP_DIR_NAMES
+                and os.path.abspath(os.path.join(racine, d)) not in exclus
+            ]
+            for nom in fichiers:
+                p = Path(racine) / nom
+                if p.suffix.lower() not in _MEDIA_EXTS:
+                    continue
+                try:
+                    digest = file_hash(p)
+                    taille = p.stat().st_size
+                except OSError:
+                    continue
                 if not self.has_hash(digest):
-                    self.add_media(digest, p.stat().st_size, str(p), None, "seed")
+                    self.add_media(digest, taille, str(p), None, "seed")
                     ajoutes += 1
         return ajoutes
 

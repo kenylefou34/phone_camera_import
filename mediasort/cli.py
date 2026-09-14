@@ -32,7 +32,7 @@ def main(argv=None) -> int:
     cat = Catalog(args.catalog)
     try:
         if args.seed:
-            n = cat.seed_from_library(args.library)
+            n = cat.seed_from_library(args.library, exclude=[args.source, args.library / "_A_TRIER"])
             print(f"Catalogue amorcé : {n} médias existants indexés.")
 
         report = sort_folder(args.source, args.library, cat, dry_run=args.dry_run)

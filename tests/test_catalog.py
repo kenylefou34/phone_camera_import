@@ -35,3 +35,14 @@ def test_seed_from_library_indexes_media(tmp_path):
     assert n == 1  # seule a.jpg est indexée
     assert cat.count() == 1
     cat.close()
+
+
+def test_seed_from_library_excludes_source(tmp_path):
+    (tmp_path / "Photos" / "2023").mkdir(parents=True)
+    (tmp_path / "Photos" / "2023" / "a.jpg").write_bytes(b"photo-a")
+    (tmp_path / "unsorted").mkdir()
+    (tmp_path / "unsorted" / "b.jpg").write_bytes(b"photo-b")
+    cat = Catalog(":memory:")
+    n = cat.seed_from_library(tmp_path, exclude=[tmp_path / "unsorted"])
+    assert n == 1  # seule Photos/2023/a.jpg indexée, pas unsorted/b.jpg
+    cat.close()
