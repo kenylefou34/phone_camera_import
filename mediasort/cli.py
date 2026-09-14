@@ -20,7 +20,9 @@ def main(argv=None) -> int:
                          help="fichier du catalogue SQLite")
     parseur.add_argument("--dry-run", action="store_true", help="simulation : ne rien déplacer")
     parseur.add_argument("--seed", action="store_true",
-                         help="amorcer le catalogue depuis la bibliothèque existante")
+                         help="amorcer le catalogue avant de trier")
+    parseur.add_argument("--seed-from", type=Path, default=None,
+                         help="dossier à indexer pour l'amorçage (défaut : toute la bibliothèque)")
     parseur.add_argument("--clean-noise", action="store_true",
                          help="supprimer le bruit résiduel après tri")
     parseur.add_argument("--verbose", action="store_true", help="journal détaillé")
@@ -32,8 +34,10 @@ def main(argv=None) -> int:
     cat = Catalog(args.catalog)
     try:
         if args.seed:
-            n = cat.seed_from_library(args.library, exclude=[args.source, args.library / "_A_TRIER"])
-            print(f"Catalogue amorcé : {n} médias existants indexés.")
+            source_amorce = args.seed_from or args.library
+            n = cat.seed_from_library(source_amorce,
+                                      exclude=[args.source, args.library / "_A_TRIER"])
+            print(f"Catalogue amorcé depuis {source_amorce} : {n} médias indexés.")
 
         report = sort_folder(args.source, args.library, cat, dry_run=args.dry_run)
         prefixe = "[SIMULATION] " if args.dry_run else ""
