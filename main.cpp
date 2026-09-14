@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <fmt/std.h>  // formatter<std::filesystem::path> (fmt >= 9)
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -260,6 +261,11 @@ class ReadableSizeFilter {
   std::uintmax_t size{};
   static constexpr std::uintmax_t minimum_size{200 * 1024};  // 50kB
 };
+
+// fmt >= 9 no longer formats types through operator<< automatically; opt in
+// explicitly so ReadableSizeFilter can be passed to the logging macros.
+template <>
+struct fmt::formatter<ReadableSizeFilter> : fmt::ostream_formatter {};
 
 void retrieveFiles(const fs::Path& source_folder, YearMonthFiles& files,
                    const bool use_exceptions_filter) {

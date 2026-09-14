@@ -5,10 +5,13 @@ project(phone_camera_import LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_subdirectory(modules/fmt)
 add_subdirectory(modules/CLI11)
 
+# Use the system fmt so it matches the fmt that the system spdlog was built
+# against. Compiling the bundled modules/fmt (8.1.1) instead pulls in fmt::v8
+# symbols while libspdlog.so exports fmt::v10 ones, which breaks linking.
 # find_package(Boost COMPONENTS regex system filesystem REQUIRED)
+find_package(fmt REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc highgui)
 find_package(spdlog REQUIRED)
 include_directories( ${OpenCV_INCLUDE_DIRS} )
