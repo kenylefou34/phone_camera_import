@@ -1,0 +1,10 @@
+services:
+  mediaserve:
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    network_mode: host          # necessaire pour le mDNS/Avahi
+    volumes:
+      - /media/izquierdo/Famille:/data/library
+      - mediaserve-data:/data
+    restart: unless-stopped
+volumes:
+  mediaserve-data:

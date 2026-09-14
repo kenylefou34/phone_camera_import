@@ -1,0 +1,13 @@
+[Unit]
+Description=mediaserve (ingestion medias)
+After=network-online.target media-izquierdo-Famille.mount
+Wants=network-online.target
+
+[Service]
+User=izquierdo
+WorkingDirectory=/home/izquierdo/phone_camera_import
+ExecStart=/home/izquierdo/.venv-server/bin/uvicorn mediaserve.app:app --host 0.0.0.0 --port 8787
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

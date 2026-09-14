@@ -136,3 +136,37 @@ Options : `--source`, `--library`, `--catalog FICHIER.db`, `--dry-run`,
 ```bash
 python3 -m pytest -v
 ```
+
+---
+
+## Service d'ingestion (mediaserve)
+
+Serveur FastAPI qui reçoit les médias poussés par le téléphone (sans doublon),
+les range via le trieur, et s'annonce en mDNS. Voir le spec
+`docs/superpowers/specs/2026-09-14-service-ingestion-design.md`.
+
+### Mise en place (machine Linux)
+```bash
+sudo apt-get install -y libimage-exiftool-perl ffmpeg python3-venv
+python3 -m venv ~/.venv-server
+~/.venv-server/bin/pip install -r requirements-server.txt
+# Lancement manuel :
+~/.venv-server/bin/uvicorn mediaserve.app:app --host 0.0.0.0 --port 8787
+```
+Puis, pour le démarrage automatique et la découverte réseau :
+```bash
+sudo cp deploy/mediaserve.service /etc/systemd/system/ && sudo systemctl enable --now mediaserve
+sudo cp deploy/avahi-mediaserve.service /etc/avahi/services/
+```
+Ouvre `http://nuc.local:8787/` (admin) et `http://nuc.local:8787/pair` (QR).
+
+Chemins paramétrables par variables d'environnement : `PORT`, `LIBRARY_DIR`,
+`CATALOG_DB`, `INCOMING_DIR`, `DEVICES_DB`.
+
+### Reproduction en Docker
+```bash
+docker compose -f deploy/docker-compose.yml up -d --build
+```
+`network_mode: host` est nécessaire pour le mDNS ; le dossier médias est monté en
+volume (`LIBRARY_DIR=/data/library`). Sur un hôte en ligne sans les disques
+physiques, pointe simplement `LIBRARY_DIR` vers un stockage monté.
