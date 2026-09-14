@@ -74,3 +74,41 @@ def test_resolve_date_unknown_when_missing_file(monkeypatch):
     r = dates.resolve_date(pathlib.Path("/inexistant/sans_date.jpg"))
     assert r.source == "unknown"
     assert r.date is None
+
+
+from types import SimpleNamespace
+
+
+def test_exiftool_dates_for_parses_batch(monkeypatch):
+    fake = __import__("json").dumps([
+        {"SourceFile": "/x/a.jpg", "DateTimeOriginal": "2023:05:26 10:00:00"},
+        {"SourceFile": "/x/b.mp4", "CreateDate": "2019:07:04 12:00:00"},
+        {"SourceFile": "/x/c.png"},
+    ])
+    monkeypatch.setattr(dates.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=fake))
+    res = dates.exiftool_dates_for([pathlib.Path("/x/a.jpg"), pathlib.Path("/x/b.mp4"), pathlib.Path("/x/c.png")])
+    assert res["/x/a.jpg"] == datetime.date(2023, 5, 26)
+    assert res["/x/b.mp4"] == datetime.date(2019, 7, 4)
+    assert res["/x/c.png"] is None
+
+
+def test_date_from_metadata_uses_cache(monkeypatch):
+    appels = []
+    monkeypatch.setattr(dates, "_exiftool_tags", lambda p: appels.append(p) or {})
+    dates._META_CACHE = {"/x/a.jpg": datetime.date(2023, 5, 26)}
+    try:
+        assert dates.date_from_metadata(pathlib.Path("/x/a.jpg")) == datetime.date(2023, 5, 26)
+        assert appels == []  # cache hit -> pas d'appel exiftool
+        assert dates.date_from_metadata(pathlib.Path("/x/autre.jpg")) is None
+        assert appels  # miss -> exiftool appelé
+    finally:
+        dates._META_CACHE = {}
+
+
+def test_prefetch_metadata_populates_cache(monkeypatch):
+    monkeypatch.setattr(dates, "exiftool_dates_for", lambda paths: {"/x/a.jpg": datetime.date(2023, 5, 26)})
+    dates.prefetch_metadata([pathlib.Path("/x/a.jpg")])
+    try:
+        assert dates._META_CACHE == {"/x/a.jpg": datetime.date(2023, 5, 26)}
+    finally:
+        dates._META_CACHE = {}

@@ -24,6 +24,12 @@ _METADATA_TAGS = [
 # source ∈ {"metadata", "filename", "filesystem", "unknown"}
 DateResult = namedtuple("DateResult", ["date", "source"])
 
+# Sentinelle "absent" + cache de dates de métadonnées pré-chargées en lot
+# (str(chemin) -> date|None). Rempli par prefetch_metadata() pour accélérer les
+# gros tris : un seul appel exiftool au lieu d'un par fichier.
+_UNSET = object()
+_META_CACHE: dict = {}
+
 
 def date_from_filename(name: str) -> "datetime.date | None":
     """Extrait la première date valide encodée dans le nom, sinon None."""
@@ -66,8 +72,43 @@ def _exiftool_tags(path: Path) -> dict:
         return {}
 
 
+def exiftool_dates_for(paths) -> dict:
+    """Lit les dates de métadonnées de plusieurs fichiers en un seul appel exiftool
+    par lot. Renvoie {str(chemin): date|None}. Dégradation sûre : {} si exiftool
+    échoue (ex. binaire absent)."""
+    resultat = {}
+    chemins = [str(p) for p in paths]
+    taille_lot = 400
+    for i in range(0, len(chemins), taille_lot):
+        lot = chemins[i:i + taille_lot]
+        try:
+            sortie = subprocess.run(
+                ["exiftool", "-json", "-api", "QuickTimeUTC=1",
+                 *[f"-{t}" for t in _METADATA_TAGS], *lot],
+                capture_output=True, text=True, timeout=300, check=False,
+            )
+            donnees = json.loads(sortie.stdout or "[]")
+        except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
+            donnees = []
+        for obj in donnees:
+            src = obj.get("SourceFile")
+            if src is not None:
+                resultat[src] = _pick_metadata_date(obj)
+    return resultat
+
+
+def prefetch_metadata(paths) -> None:
+    """Pré-charge (en lot) les dates de métadonnées dans le cache, pour éviter un
+    appel exiftool par fichier lors du tri."""
+    global _META_CACHE
+    _META_CACHE = exiftool_dates_for(paths)
+
+
 def date_from_metadata(path: Path) -> "datetime.date | None":
-    """Renvoie la date de prise de vue lue dans les métadonnées, sinon None."""
+    """Date de prise de vue (métadonnées). Consulte d'abord le cache pré-chargé."""
+    en_cache = _META_CACHE.get(str(path), _UNSET)
+    if en_cache is not _UNSET:
+        return en_cache
     return _pick_metadata_date(_exiftool_tags(path))
 
 

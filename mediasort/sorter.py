@@ -5,8 +5,7 @@ import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import classify, config
-from .dates import resolve_date
+from . import classify, config, dates
 from .hashing import file_hash
 
 log = logging.getLogger("mediasort")
@@ -57,9 +56,11 @@ def _chemin_libre(destination: Path) -> Path:
 def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> Report:
     """Range tous les médias de 'source' dans 'library'. Renvoie un Report détaillé."""
     report = Report()
-    for p in sorted(source.rglob("*")):
-        if not p.is_file():
-            continue
+    fichiers = [p for p in sorted(source.rglob("*")) if p.is_file()]
+    # Pré-chargement des dates de métadonnées en un seul appel exiftool (perf).
+    medias = [p for p in fichiers if classify.media_type(p.suffix) is not None]
+    dates.prefetch_metadata(medias)
+    for p in fichiers:
         mtype = classify.media_type(p.suffix)
         if mtype is None:
             continue  # ni photo ni vidéo : ignoré ici (le bruit est traité à part)
@@ -74,7 +75,7 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
                 log.info("DOUBLON ignoré : %s", p)
                 continue
 
-            dr = resolve_date(p)
+            dr = dates.resolve_date(p)
             dest = classify.destination(library, p, dr, mtype)
             if dr.date is None:
                 report.to_triage += 1
