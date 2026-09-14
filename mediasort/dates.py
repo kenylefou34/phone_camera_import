@@ -4,6 +4,7 @@ import datetime
 import json
 import re
 import subprocess
+from collections import namedtuple
 from pathlib import Path
 
 # Capture AAAA MM JJ avec séparateurs optionnels (-, _, .).
@@ -18,6 +19,10 @@ _METADATA_TAGS = [
     "CreationDate",       # vidéos (QuickTime)
     "MediaCreateDate",    # vidéos
 ]
+
+# Résultat d'une résolution : la date + d'où elle vient.
+# source ∈ {"metadata", "filename", "filesystem", "unknown"}
+DateResult = namedtuple("DateResult", ["date", "source"])
 
 
 def date_from_filename(name: str) -> "datetime.date | None":
@@ -64,3 +69,26 @@ def _exiftool_tags(path: Path) -> dict:
 def date_from_metadata(path: Path) -> "datetime.date | None":
     """Renvoie la date de prise de vue lue dans les métadonnées, sinon None."""
     return _pick_metadata_date(_exiftool_tags(path))
+
+
+def date_from_filesystem(path: Path) -> "datetime.date | None":
+    """Date de dernière modification du fichier, ou None s'il est illisible."""
+    try:
+        horodatage = path.stat().st_mtime
+    except OSError:
+        return None
+    return datetime.date.fromtimestamp(horodatage)
+
+
+def resolve_date(path: Path) -> DateResult:
+    """Résout la date selon la priorité : métadonnées > nom > système > inconnue."""
+    d = date_from_metadata(path)
+    if d is not None:
+        return DateResult(d, "metadata")
+    d = date_from_filename(path.name)
+    if d is not None:
+        return DateResult(d, "filename")
+    d = date_from_filesystem(path)
+    if d is not None:
+        return DateResult(d, "filesystem")
+    return DateResult(None, "unknown")

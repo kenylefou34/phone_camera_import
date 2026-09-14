@@ -41,3 +41,36 @@ def test_pick_metadata_date_ignore_zero():
 
 def test_pick_metadata_date_empty():
     assert dates._pick_metadata_date({}) is None
+
+
+import pathlib
+
+
+def test_resolve_date_prefers_metadata(monkeypatch):
+    monkeypatch.setattr(dates, "date_from_metadata", lambda p: datetime.date(2023, 5, 26))
+    r = dates.resolve_date(pathlib.Path("IMG_20200101.jpg"))
+    assert r.date == datetime.date(2023, 5, 26)
+    assert r.source == "metadata"
+
+
+def test_resolve_date_falls_back_to_filename(monkeypatch):
+    monkeypatch.setattr(dates, "date_from_metadata", lambda p: None)
+    r = dates.resolve_date(pathlib.Path("IMG_20230526.jpg"))
+    assert r.date == datetime.date(2023, 5, 26)
+    assert r.source == "filename"
+
+
+def test_resolve_date_falls_back_to_filesystem(tmp_path, monkeypatch):
+    monkeypatch.setattr(dates, "date_from_metadata", lambda p: None)
+    f = tmp_path / "sans_date.jpg"
+    f.write_bytes(b"x")
+    r = dates.resolve_date(f)
+    assert r.source == "filesystem"
+    assert isinstance(r.date, datetime.date)
+
+
+def test_resolve_date_unknown_when_missing_file(monkeypatch):
+    monkeypatch.setattr(dates, "date_from_metadata", lambda p: None)
+    r = dates.resolve_date(pathlib.Path("/inexistant/sans_date.jpg"))
+    assert r.source == "unknown"
+    assert r.date is None
