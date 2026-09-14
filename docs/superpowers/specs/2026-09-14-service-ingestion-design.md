@@ -13,8 +13,10 @@ par le téléphone (sans jamais recevoir de doublon), les **range** via le trieu
 et se rend **trouvable tout seul** sur le réseau local.
 
 **Dans le périmètre (v1) :** le serveur sur le NUC — appairage par QR, API de
-synchronisation (plan/upload/commit), découverte mDNS, service systemd,
-intégration avec `mediasort`.
+synchronisation (plan/upload/commit avec **bilan détaillé**), **page web d'admin**
+(appairage, liste/révocation des appareils, stats disque avec camembert),
+découverte mDNS, service systemd, **reproduction (README + Docker)**, intégration
+avec `mediasort` (dont enrichissement de son `Report`).
 
 **Hors périmètre :** l'application Android (scanner de QR, scan des dossiers,
 client d'upload) = **sous-projet 3** ; le tableau de bord web complet = **Phase 2**.
@@ -54,13 +56,17 @@ mediaserve/
   devices.py    # stockage/validation des jetons d'appareils (SQLite)
   pairing.py    # génération du QR (SVG) + charge utile d'appairage
   sessions.py   # gestion des sessions de synchro (dossiers incoming/<session>)
+  stats.py      # stats disque (shutil.disk_usage) + médias (catalogue) + camembert SVG
+  web.py        # page HTML d'admin (QR, liste appareils, stats + camembert)
   app.py        # application FastAPI : les endpoints + dépendance d'auth
   ingest.py     # intégration trieur : lance sort_folder sur une session, verrou
 tests/
-  test_devices.py test_pairing.py test_sessions.py test_app.py test_ingest.py
+  test_devices.py test_pairing.py test_sessions.py test_stats.py test_app.py test_ingest.py
 deploy/
   mediaserve.service          # unité systemd
   avahi-mediaserve.service    # service Avahi (mDNS)
+  Dockerfile                  # image du service (reproduction Docker)
+  docker-compose.yml          # montage volume médias + réseau hôte (mDNS)
 requirements-server.txt        # fastapi, uvicorn, python-multipart, qrcode
 ```
 
@@ -113,15 +119,53 @@ les empreintes qu'il n'a pas** (`needed`). L'app n'uploadera que ces fichiers-l�
 ```json
 // requête
 { "session": "<id session>" }
-// réponse (bilan du trieur)
-{ "sorted": 12, "duplicates": 3, "to_triage": 0, "skipped": 1, "errors": 0 }
+// réponse (bilan DÉTAILLÉ du trieur)
+{
+  "sorted": 12, "duplicates": 3, "to_triage": 0, "skipped": 1, "errors": 0,
+  "photos": 8, "videos": 4, "whatsapp": 5,
+  "par_source_date": { "metadata": 2, "filename": 9, "filesystem": 1 },
+  "octets_ranges": 123456789,
+  "par_annee_mois": { "2023/05 MAI": 4, "2022/09 SEPTEMBRE": 8 }
+}
 ```
 Le NUC lance `sort_folder(incoming/<session>, library=Famille, catalog)`, range
 dans Famille, **supprime** le dossier de session, et renvoie le bilan. **Un seul
 tri à la fois** (verrou, voir §7).
 
-### 4.5 Statut (minimal)
-`GET /status` → `{ "ok": true, "library": "...", "catalog_count": 44669 }`.
+> **Impact sur le sous-projet 1** : la structure `Report` de `mediasort.sorter`
+> est **enrichie** de ces compteurs (photos, vidéos, whatsapp, par source de
+> date, octets rangés, répartition année/mois). C'est une extension rétro-
+> compatible (les 5 compteurs actuels restent), à faire en TDD dans `mediasort`.
+
+### 4.5 Statut
+`GET /status` → JSON avec l'état du service, du disque et de la bibliothèque :
+```json
+{
+  "ok": true,
+  "library": "/media/izquierdo/Famille",
+  "catalog_count": 44669,
+  "disque": { "total": 999999999999, "utilise": 666666666666,
+              "libre": 333333333333, "pourcentage_utilise": 67 },
+  "medias": { "photos": 40000, "videos": 4669 }
+}
+```
+Sert notamment à l'app pour afficher l'**espace libre avant un upload**.
+
+### 4.6 Gestion des appareils appairés
+- `GET /devices` → liste des appareils appairés `[{ "id": "...", "label": "...",
+  "paired_at": "..." }]`.
+- `POST /devices/{id}/revoke` → révoque (supprime) le jeton de cet appareil.
+
+### 4.7 Page web d'administration
+`GET /` → petite page HTML d'admin (servie par le NUC) qui regroupe :
+- le **QR d'appairage** (renvoi à `/pair`),
+- la **liste des appareils appairés** avec un bouton **« Révoquer »** par appareil,
+- les **stats disque** sous forme de **camembert SVG** (utilisé / libre), rendu
+  **côté serveur** (aucune dépendance JS externe), + l'espace libre en clair,
+- un résumé médias (photos / vidéos, total au catalogue).
+
+Cette page reste une **page d'admin/état** minimale ; la consultation/revue
+visuelle complète des médias reste la **Phase 2**.
 
 ---
 
@@ -132,8 +176,8 @@ tri à la fois** (verrou, voir §7).
   secret en clair n'existe que dans le QR et dans l'app.
 - **Validation** : dépendance FastAPI qui lit l'en-tête `Authorization: Bearer`,
   hache et compare à `devices`. Sinon → `401`.
-- **Révocation** : « oublier un appareil » = supprimer sa ligne (endpoint minimal
-  ou commande ; v1 peut se contenter d'un accès direct à la base).
+- **Révocation** : gérée depuis la **page web d'admin** (§4.7) — liste des
+  appareils appairés + bouton « Révoquer » (appelle `POST /devices/{id}/revoke`).
 - **HTTP v1** : acceptable sur LAN de confiance ; le secret transite en clair.
   Durcissement (HTTPS + `cert_sha256` épinglé dans le QR) → **issue #3**.
 
@@ -175,6 +219,23 @@ tri à la fois** (verrou, voir §7).
   la session de bureau (udisks). Le service doit démarrer **après** que les
   disques soient montés (dépendance systemd sur le point de montage, ou service
   utilisateur `systemctl --user` avec *lingering*). À valider à l'implémentation.
+
+### 8.1 Reproduction sur une autre machine (README)
+Le **README** décrira, en français, comment **dupliquer le système** :
+- **Machine Linux « classique »** : cloner le dépôt, créer le venv serveur,
+  installer les dépendances, régler les chemins (bibliothèque, catalogue), poser
+  le service systemd + le service Avahi, démarrer.
+- **Docker** (`deploy/Dockerfile` + `deploy/docker-compose.yml`) : image
+  contenant le service ; on **monte le dossier médias en volume** et on utilise
+  le **réseau hôte** (`network_mode: host`) pour que le mDNS/Avahi fonctionne.
+  Paramètres via variables d'environnement (port, chemins). Idéal pour reproduire
+  sur une autre machine ou un hôte Docker en ligne.
+- Paramètres exposés (env / config) : `PORT`, `LIBRARY_DIR`, `CATALOG_DB`,
+  `INCOMING_DIR`, `DEVICES_DB` → aucun chemin en dur, pour la portabilité.
+
+> Note Docker : le mDNS et l'accès au disque USB externe demandent le réseau hôte
+> et un bind-mount ; documenté dans le README. Sur un hôte en ligne (sans les
+> disques physiques), on pointe simplement `LIBRARY_DIR` vers un stockage monté.
 
 ---
 
@@ -223,7 +284,10 @@ tri à la fois** (verrou, voir §7).
 appareil), anti-doublon (filtre date app + handshake empreintes NUC réutilisant
 le catalogue), déclenchement (commit explicite b1), transport (HTTP v1),
 découverte (mDNS `_mediaserve._tcp`), port (8787), dossier de réception
-(`Famille/incoming/<session>/`, chemins préservés).
+(`Famille/incoming/<session>/`, chemins préservés), **bilan de commit détaillé**
+(+ enrichissement du `Report` de `mediasort`), **page web d'admin** (QR + liste/
+révocation d'appareils + stats disque avec camembert SVG), **reproduction**
+(README + Docker, chemins paramétrables).
 
 **À confirmer à l'implémentation :** service systemd système vs utilisateur (selon
-l'ordre de montage des disques) ; endpoint minimal de révocation d'appareil.
+l'ordre de montage des disques).
