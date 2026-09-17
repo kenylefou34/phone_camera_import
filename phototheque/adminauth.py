@@ -33,19 +33,27 @@ def empreinte(mot_de_passe: str, iterations: int = ITERATIONS) -> str:
 def verifier(mot_de_passe: str, enregistre: str) -> bool:
     """Vrai si le mot de passe correspond à l'empreinte enregistrée.
 
-    Un enregistrement illisible (fichier tronqué, format inconnu) fait
-    échouer la vérification : en cas de doute on refuse, on ne laisse pas
-    passer.
+    Un enregistrement illisible (fichier tronqué, format inconnu, champ
+    corrompu) fait échouer la vérification : en cas de doute on refuse, on ne
+    laisse pas passer — et surtout on ne laisse remonter aucune exception, qui
+    transformerait un fichier abîmé en erreur serveur.
     """
+    # Hors du try : si l'appelant ne passe pas une chaîne, c'est SON bug, il
+    # doit être visible plutôt qu'avalé en « mauvais mot de passe ».
+    secret = mot_de_passe.encode()
     try:
         algo, iterations, sel_hex, attendu_hex = enregistre.split("$")
         if algo != ALGO:
             return False
+        # Décodé ICI, dans le try : un champ non hexadécimal lève ValueError
+        # et devient un refus propre. On compare ensuite des OCTETS et non des
+        # chaînes hexadécimales : hmac.compare_digest refuse les str non-ASCII.
+        attendu = bytes.fromhex(attendu_hex)
         brut = hashlib.pbkdf2_hmac(
-            "sha256", mot_de_passe.encode(), bytes.fromhex(sel_hex), int(iterations)
+            "sha256", secret, bytes.fromhex(sel_hex), int(iterations)
         )
     except (ValueError, AttributeError):
         return False
     # Comparaison en temps constant : la durée de la réponse ne doit pas
-    # révéler combien de caractères sont corrects.
-    return hmac.compare_digest(brut.hex(), attendu_hex)
+    # révéler combien d'octets sont corrects.
+    return hmac.compare_digest(brut, attendu)

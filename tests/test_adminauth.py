@@ -37,3 +37,27 @@ def test_un_enregistrement_illisible_refuse_tout():
     """Fichier tronqué ou corrompu : on refuse, on ne laisse pas passer."""
     for mauvais in ("", "n'importe quoi", "pbkdf2_sha256$abc$def", "a$b$c$d"):
         assert adminauth.verifier("secret", mauvais) is False
+
+
+def test_un_enregistrement_non_ascii_est_refuse_sans_lever():
+    """Fichier corrompu : refus propre, jamais d'exception.
+
+    Régression : compare_digest sur des chaînes hexadécimales lève TypeError
+    dès qu'un caractère n'est pas ASCII. Un fichier d'identifiants abîmé
+    devenait une erreur 500 au lieu d'un simple refus.
+    """
+    sel = "00112233445566778899aabbccddeeff"
+    assert adminauth.verifier("x", f"pbkdf2_sha256$1000${sel}$café") is False
+
+
+def test_un_sel_non_hexadecimal_est_refuse():
+    assert adminauth.verifier("x", "pbkdf2_sha256$1000$pas-du-hexa$aabb") is False
+
+
+def test_des_iterations_non_numeriques_sont_refusees():
+    sel = "00112233445566778899aabbccddeeff"
+    assert adminauth.verifier("x", f"pbkdf2_sha256$beaucoup${sel}$aabb") is False
+
+
+def test_trop_de_champs_est_refuse():
+    assert adminauth.verifier("x", "pbkdf2_sha256$1000$aa$bb$cc") is False
