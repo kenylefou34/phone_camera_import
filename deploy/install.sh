@@ -140,13 +140,25 @@ else
     # n'existe jamais autrement qu'en 0600. Le `chmod` explicite est conservé
     # ensuite : il rend l'intention lisible et rattrape le cas d'un fichier
     # préexistant avec des droits trop larges.
+    #
+    # Écriture atomique : on écrit d'abord dans "$ADMIN.nouveau", jamais
+    # directement sur "$ADMIN". Si Python échoue après que la redirection a
+    # créé le fichier, `set -e` arrête le script AVANT le `mv` ci-dessous :
+    # seul le fichier temporaire traîne, "$ADMIN" reste absent, et le
+    # prochain lancement régénère normalement. Sans cela, un échec en cours
+    # de calcul laisserait "$ADMIN" vide mais présent : la garde
+    # `[ -f "$ADMIN" ]` du lancement suivant le prendrait pour un mot de
+    # passe valide et ne le régénérerait jamais — fermant l'administration
+    # en silence (verifier() refuse proprement, sans planter le serveur, donc
+    # rien n'indiquerait la cause).
     (umask 077; printf '%s' "$MOT_DE_PASSE" | "$PYTHON" -c '
 import sys
 sys.path.insert(0, sys.argv[1])
 from phototheque import adminauth
 mot_de_passe = sys.stdin.read()
 print(adminauth.empreinte(mot_de_passe))
-' "$racine" > "$ADMIN")
+' "$racine" > "$ADMIN.nouveau")
+    mv "$ADMIN.nouveau" "$ADMIN"
     chmod 600 "$ADMIN"
     printf '\n\033[1m    ┌─────────────────────────────────────────────┐\033[0m\n'
     printf '\033[1m    │  Identifiants d'"'"'administration              │\033[0m\n'

@@ -271,3 +271,70 @@ def test_install_ne_regenere_jamais_un_secret_existant():
     # Les deux créations sont gardées par un test d'existence.
     assert "certificat_present" in script
     assert "[ -f \"$ADMIN\" ]" in script or "-f \"$ADMIN\"" in script
+
+
+def test_un_echec_ne_laisse_pas_de_fichier_admin_vide(tmp_path):
+    """Un échec en cours de génération ne doit pas verrouiller l'admin.
+
+    La garde du script n'est qu'un test d'existence : un fichier vide laissé
+    en place serait pris pour un mot de passe valide et jamais régénéré,
+    fermant l'accès d'administration sans message ni recours évident.
+    """
+    # Le script doit écrire dans un fichier temporaire puis le déplacer,
+    # jamais directement sur sa destination finale.
+    script = "\n".join(_lignes_de_code(LIB.parent / "install.sh"))
+    assert '> "$ADMIN"' not in script, "écriture directe sur la destination finale"
+    assert 'mv "$ADMIN.nouveau" "$ADMIN"' in script
+
+
+def _bloc_mot_de_passe():
+    """Le bloc if/else complet qui décide de générer (ou non) le mot de
+    passe d'administration, extrait du script réel — même raison qu'en tête
+    de _bloc_fabrication_si_absent : ne pas retaper le code à la main, au
+    risque de diverger silencieusement du code réellement livré."""
+    texte = INSTALL.read_text()
+    debut = texte.index('if [ -f "$ADMIN" ]; then')
+    fin = texte.index("\nfi\n", debut) + len("\nfi")
+    return texte[debut:fin]
+
+
+def test_echec_pendant_la_generation_ne_laisse_pas_de_fichier_admin(tmp_path):
+    """Version comportementale du test précédent : exécute réellement le
+    bloc avec un faux `python` qui échoue seulement lors du second appel
+    (celui qui calcule l'empreinte), et vérifie qu'aucun fichier n'apparaît
+    à l'emplacement final — pas même vide."""
+    faux_bin = tmp_path / "bin"
+    faux_bin.mkdir()
+    faux_python = faux_bin / "python"
+    faux_python.write_text(
+        "#!/usr/bin/env bash\n"
+        "if [ \"$1\" = \"-c\" ] && [[ \"$2\" == *secrets.token_urlsafe* ]]; then\n"
+        "    echo motdepassefictif\n"
+        "    exit 0\n"
+        "fi\n"
+        "echo 'erreur simulee : generation de l empreinte' >&2\n"
+        "exit 1\n"
+    )
+    faux_python.chmod(0o755)
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    admin = config_dir / "admin"
+
+    script = f'''
+set -euo pipefail
+etape() {{ :; }}
+info() {{ printf '%s\\n' "$*"; }}
+CONFIG_DIR="{config_dir}"
+ADMIN="{admin}"
+PYTHON="{faux_python}"
+racine="{DEPOT}"
+{_bloc_mot_de_passe()}
+'''
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert r.returncode != 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    assert not admin.exists(), (
+        "un fichier admin (même vide) a été laissé à l'emplacement final : "
+        "la garde du prochain lancement le prendrait pour un mot de passe "
+        "valide et ne le régénérerait jamais"
+    )
