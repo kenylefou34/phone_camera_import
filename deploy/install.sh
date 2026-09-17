@@ -40,7 +40,7 @@ info()  { printf '    %s\n' "$*"; }
 echec() { printf '\n\033[1;31mÉCHEC : %s\033[0m\n' "$*" >&2; exit 1; }
 
 # --------------------------------------------------------------------------
-etape "1/7  Vérifications préalables"
+etape "1/9  Vérifications préalables"
 
 info "dépôt : $racine"
 for fichier in deploy/${SERVICE}.service deploy/avahi-${SERVICE}.service \
@@ -57,7 +57,7 @@ if ! mountpoint -q /media/izquierdo/Famille 2>/dev/null; then
 fi
 
 # --------------------------------------------------------------------------
-etape "2/7  Environnement Python (venv)"
+etape "2/9  Environnement Python (venv)"
 
 # PEP 668 : le Python système refuse « pip install --user », d'où le venv.
 if [ ! -x "$PYTHON" ]; then
@@ -73,7 +73,35 @@ info "installation des dépendances (requirements-server.txt)"
 info "$("$PYTHON" --version)"
 
 # --------------------------------------------------------------------------
-etape "3/7  Retrait de l'ancien service"
+etape "3/9  Certificat du serveur"
+
+CONFIG_DIR="$HOME/.config/phototheque"
+CERT="$CONFIG_DIR/cert.pem"
+CLE="$CONFIG_DIR/key.pem"
+mkdir -p "$CONFIG_DIR"
+chmod 700 "$CONFIG_DIR"
+
+if certificat_present "$CERT" "$CLE"; then
+    info "certificat déjà en place, conservé"
+    info "empreinte : $("$PYTHON" -c "
+import sys; sys.path.insert(0, '$racine')
+from phototheque import tls
+print(tls.empreinte_certificat('$CERT'))")"
+else
+    # L'adresse du NUC, pour que joindre le service par son IP n'ajoute pas
+    # une seconde erreur au navigateur.
+    IP=$(hostname -I | awk '{print $1}')
+    info "fabrication d'un certificat auto-signé (10 ans)"
+    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+        -subj "/CN=$(hostname).local" \
+        -addext "subjectAltName=DNS:$(hostname).local,DNS:localhost,IP:${IP},IP:127.0.0.1" \
+        -keyout "$CLE" -out "$CERT" 2>/dev/null
+    chmod 600 "$CLE"
+    info "certificat créé"
+fi
+
+# --------------------------------------------------------------------------
+etape "5/9  Retrait de l'ancien service"
 
 # D'abord arrêter l'ancien service, AVANT de toucher à ses données : déplacer
 # une base SQLite pendant que son écrivain tourne donne un état incohérent.
@@ -92,7 +120,7 @@ else
 fi
 
 # --------------------------------------------------------------------------
-etape "4/7  Reprise des appairages"
+etape "6/9  Reprise des appairages"
 
 # La base des appareils appairés portait l'ancien nom. Sans reprise, les
 # téléphones déjà configurés seraient rejetés et il faudrait tout réappairer.
@@ -116,7 +144,7 @@ else
 fi
 
 # --------------------------------------------------------------------------
-etape "5/7  Le port $PORT est-il libre ?"
+etape "7/9  Le port $PORT est-il libre ?"
 
 # Filet de sécurité : même sans ancienne unité, un processus égaré (lancement
 # manuel d'uvicorn, service tiers) peut tenir le port. Autant le dire ici que
@@ -137,7 +165,7 @@ else
 fi
 
 # --------------------------------------------------------------------------
-etape "6/7  Installation et démarrage"
+etape "8/9  Installation et démarrage"
 
 sudo cp deploy/${SERVICE}.service "$UNITE"
 sudo cp deploy/avahi-${SERVICE}.service "$AVAHI"
@@ -156,13 +184,15 @@ if systemctl is-active --quiet avahi-daemon; then
 fi
 
 # --------------------------------------------------------------------------
-etape "7/7  Vérification"
+etape "9/9  Vérification"
 
 # Laisser à uvicorn le temps d'ouvrir son port avant de l'interroger.
 service_repond() {
     "$PYTHON" - "$PORT" <<'PY' >/dev/null 2>&1
-import sys, urllib.request
-urllib.request.urlopen("http://127.0.0.1:%s/" % sys.argv[1], timeout=2)
+import ssl, sys, urllib.request
+contexte = ssl._create_unverified_context()   # certificat auto-signé, attendu
+urllib.request.urlopen("https://127.0.0.1:%s/" % sys.argv[1],
+                       timeout=2, context=contexte)
 PY
 }
 
@@ -182,13 +212,15 @@ fi
 
 # Pas de curl sur le NUC : on interroge avec urllib.
 "$PYTHON" - "$PORT" <<'PY' || echec "le service répond mal (voir ci-dessus)."
-import sys, urllib.request, urllib.error
+import ssl, sys, urllib.request, urllib.error
 
+contexte = ssl._create_unverified_context()   # certificat auto-signé, attendu
 port = sys.argv[1]
 souci = False
 for chemin, attendu in (("/", 200), ("/pair", 200), ("/status", 401)):
     try:
-        code = urllib.request.urlopen("http://127.0.0.1:%s%s" % (port, chemin), timeout=5).status
+        code = urllib.request.urlopen("https://127.0.0.1:%s%s" % (port, chemin),
+                                       timeout=5, context=contexte).status
     except urllib.error.HTTPError as e:
         code = e.code          # /status répond 401 : c'est le comportement voulu
     except Exception as e:
@@ -202,6 +234,8 @@ PY
 printf '\n'
 info "état      : $(systemctl is-active ${SERVICE}) / $(systemctl is-enabled ${SERVICE})"
 info "version   : $(git log --oneline -1)"
-info "admin     : http://$(hostname).local:${PORT}/"
-info "appairage : http://$(hostname).local:${PORT}/pair"
+info "admin     : https://$(hostname).local:${PORT}/"
+info "appairage : https://$(hostname).local:${PORT}/pair"
+info "ATTENTION : le navigateur avertira au premier accès (certificat"
+info "            auto-signé). Accepter une fois par appareil."
 info "journal   : journalctl -u ${SERVICE} -f"

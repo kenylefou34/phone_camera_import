@@ -61,3 +61,10 @@ occupant_du_port() {
     # pour la raison expliquée en tête de fichier.
     ss -lptnH "sport = :$1" 2>/dev/null || true
 }
+
+certificat_present() {
+    # Vrai si le certificat ET sa clé existent. L'un sans l'autre est
+    # inutilisable : on considère alors qu'il n'y a pas de certificat, et
+    # install.sh en fabriquera un.
+    [ -f "$1" ] && [ -f "$2" ]
+}

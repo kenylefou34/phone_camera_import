@@ -120,3 +120,26 @@ def test_ne_doit_pas_reprendre_si_ancienne_base_absente(tmp_path):
     """Première installation : il n'y a rien à reprendre."""
     code, _ = appeler("doit_reprendre", tmp_path / "a.db", tmp_path / "n.db")
     assert code == 1
+
+
+# --- certificat_present et service HTTPS ------------------------------------
+
+def test_certificat_present_exige_les_deux_fichiers(tmp_path):
+    """Un certificat sans sa clé est inutilisable : c'est « absent »."""
+    cert, cle = tmp_path / "cert.pem", tmp_path / "key.pem"
+    code, _ = appeler("certificat_present", cert, cle)
+    assert code == 1                      # aucun des deux
+
+    cert.write_text("x")
+    code, _ = appeler("certificat_present", cert, cle)
+    assert code == 1                      # la clé manque
+
+    cle.write_text("x")
+    code, _ = appeler("certificat_present", cert, cle)
+    assert code == 0                      # les deux
+
+
+def test_l_unite_systemd_sert_en_https():
+    """L'unité passe le certificat à uvicorn."""
+    unite = (LIB.parent / "phototheque.service").read_text()
+    assert "--ssl-keyfile" in unite and "--ssl-certfile" in unite
