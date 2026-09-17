@@ -138,6 +138,21 @@ def sync_commit(req: CommitRequest, _: str = Depends(require_device)) -> dict:
     return bilan
 
 
+@app.get("/sync/horizon")
+def sync_horizon(dev_id: str = Depends(require_device)) -> dict:
+    """Indique à l'application depuis quand remonter les médias.
+
+    'dossiers' donne les horizons déjà atteints. Pour un dossier absent de
+    cette liste, l'application utilise son propre .flagfile_timestamp s'il
+    existe (il reprend là où run_backup.sh s'était arrêté), sinon 'depuis'.
+    'depuis' vaut null pour un appareil appairé avant l'introduction de ce
+    réglage : aucune limite.
+    """
+    store = devices()
+    return {"depuis": store.get_horizon_initial(dev_id),
+            "dossiers": store.get_horizons(dev_id)}
+
+
 # ---- surface d'admin, protégée par mot de passe (issue #10) ----
 @app.get("/devices")
 def list_devices(_: None = Depends(require_admin)) -> list:

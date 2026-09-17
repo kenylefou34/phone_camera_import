@@ -411,3 +411,29 @@ def test_poster_une_date_sur_un_appairage_perime_l_applique_au_nouveau(tmp_path,
     assert len(restants) == 1
     assert restants[0]["id"] != perime       # l'appairage périmé a été purgé
     assert a.devices().get_horizon_initial(restants[0]["id"]) == "2020-01-01"
+
+
+def test_horizon_exige_un_jeton_d_appareil(tmp_path, monkeypatch):
+    a, client = _client(tmp_path, monkeypatch)
+    assert client.get("/sync/horizon").status_code == 401
+
+
+def test_horizon_renvoie_la_date_d_appairage_au_premier_appel(tmp_path, monkeypatch):
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    a.devices().set_horizon_initial(dev_id, "2026-09-17")
+
+    r = client.get("/sync/horizon", headers={"Authorization": f"Bearer {secret}"})
+
+    assert r.status_code == 200
+    assert r.json() == {"depuis": "2026-09-17", "dossiers": {}}
+
+
+def test_horizon_renvoie_les_dossiers_deja_synchronises(tmp_path, monkeypatch):
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    a.devices().set_horizon(dev_id, "DCIM/Camera", 1726574400.0)
+
+    r = client.get("/sync/horizon", headers={"Authorization": f"Bearer {secret}"})
+
+    assert r.json()["dossiers"] == {"DCIM/Camera": 1726574400.0}
