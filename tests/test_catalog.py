@@ -18,11 +18,34 @@ def test_add_media_is_idempotent_on_hash():
     cat.close()
 
 
-def test_last_sync_roundtrip():
+def test_le_catalogue_ne_gere_plus_les_horizons():
+    """L'horizon de synchro appartient aux appareils, pas au catalogue.
+
+    La table synchros était clé par dossier seulement : deux téléphones
+    auraient partagé le même horizon. Elle a déménagé dans DeviceStore,
+    clé par (appareil, dossier). Ce test empêche de la réintroduire ici.
+    """
     cat = Catalog(":memory:")
-    assert cat.get_last_sync("Camera") is None
-    cat.set_last_sync("Camera", 1234.5)
-    assert cat.get_last_sync("Camera") == 1234.5
+    assert not hasattr(cat, "get_last_sync")
+    assert not hasattr(cat, "set_last_sync")
+    cat.close()
+
+
+def test_un_catalogue_existant_avec_synchros_s_ouvre_toujours(tmp_path):
+    """Une base d'avant ce lot garde sa table : on ne touche pas à 44 669 lignes."""
+    import sqlite3
+    db = tmp_path / "ancien.db"
+    cx = sqlite3.connect(str(db))
+    cx.execute("CREATE TABLE medias (empreinte TEXT PRIMARY KEY, taille INTEGER,"
+               " chemin TEXT, date_prise TEXT, source_date TEXT,"
+               " date_import TEXT, signature TEXT)")
+    cx.execute("CREATE TABLE synchros (dossier TEXT PRIMARY KEY, dernier_ts REAL)")
+    cx.execute("INSERT INTO medias (empreinte, taille, chemin) VALUES ('h',1,'/a.jpg')")
+    cx.commit(); cx.close()
+
+    cat = Catalog(db)
+
+    assert cat.count() == 1
     cat.close()
 
 

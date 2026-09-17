@@ -1,4 +1,4 @@
-"""Catalogue SQLite : anti-doublon par empreinte + dates de synchro par dossier."""
+"""Catalogue SQLite : anti-doublon par empreinte de contenu."""
 
 import os
 import sqlite3
@@ -21,10 +21,6 @@ class Catalog:
             "CREATE TABLE IF NOT EXISTS medias ("
             " empreinte TEXT PRIMARY KEY, taille INTEGER, chemin TEXT,"
             " date_prise TEXT, source_date TEXT, date_import TEXT DEFAULT CURRENT_TIMESTAMP)"
-        )
-        self._cx.execute(
-            "CREATE TABLE IF NOT EXISTS synchros ("
-            " dossier TEXT PRIMARY KEY, dernier_ts REAL)"
         )
         self._migrer_signature()
         self._cx.commit()
@@ -161,19 +157,6 @@ class Catalog:
             if progression is not None:
                 progression(min(debut + lot, total), total)
         return completees
-
-    def get_last_sync(self, folder: str):
-        cur = self._cx.execute("SELECT dernier_ts FROM synchros WHERE dossier=?", (folder,))
-        ligne = cur.fetchone()
-        return ligne[0] if ligne else None
-
-    def set_last_sync(self, folder: str, ts: float) -> None:
-        self._cx.execute(
-            "INSERT INTO synchros (dossier, dernier_ts) VALUES (?,?)"
-            " ON CONFLICT(dossier) DO UPDATE SET dernier_ts=excluded.dernier_ts",
-            (folder, ts),
-        )
-        self._cx.commit()
 
     def close(self) -> None:
         self._cx.close()
