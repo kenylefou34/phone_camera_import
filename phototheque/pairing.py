@@ -11,7 +11,7 @@ def pairing_payload(url: str, token: str, cert_sha256=None) -> dict:
     return {"url": url, "token": token, "cert_sha256": cert_sha256}
 
 
-def qr_svg(data: str, taille: int = 280) -> str:
+def qr_svg(data: str, taille: int = 360) -> str:
     """Rend un QR code en SVG, prêt à être inséré dans une page HTML.
 
     On utilise SvgPathImage et non la fabrique par défaut, pour deux raisons :

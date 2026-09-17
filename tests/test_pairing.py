@@ -29,3 +29,15 @@ def test_qr_svg_is_scalable_and_sized_for_screen():
     assert "viewBox" in svg
     assert 'width="320"' in svg and 'height="320"' in svg
     assert "mm" not in svg
+
+
+def test_qr_svg_par_defaut_assez_grand_pour_un_telephone():
+    """360 px : marge de lisibilité suffisante une fois l'empreinte ajoutée.
+
+    Avec l'empreinte du certificat, la charge passe d'environ 98 à 182
+    caractères et le QR d'environ 49 à 65 modules de côté. À 280 px le
+    décodage échouait déjà sous 250 px de large ; 360 px redonne de la marge
+    pour un scan au téléphone, de biais ou sous un éclairage médiocre.
+    """
+    svg = pairing.qr_svg("x" * 182)
+    assert 'width="360"' in svg and 'height="360"' in svg
