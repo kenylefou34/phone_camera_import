@@ -107,11 +107,13 @@ fichier : il reprend si l'ancienne contient des appareils et la nouvelle aucun,
 et n'écrase jamais une base déjà peuplée. Une base vide rencontrée au passage
 est mise de côté sous `*.vide-<horodatage>` plutôt que supprimée.
 
-> **Pourquoi le contenu et pas l'existence.** `phototheque/app.py` instancie
-> `DeviceStore` au chargement du module : **importer l'application suffit à
-> créer la base, vide**. Un simple `lancer les tests` sur le NUC crée donc
-> `~/phototheque_devices.db`, et un test d'existence en conclut à tort que la
-> reprise a déjà eu lieu. C'est exactement ce qui s'est produit le 17/09/2026.
+> **Pourquoi le contenu et pas l'existence.** Le 17/09/2026,
+> `phototheque/app.py` instanciait `DeviceStore` au chargement du module :
+> **importer l'application suffisait à créer la base, vide**. Lancer les tests
+> sur le NUC créait donc `~/phototheque_devices.db`, et le test d'existence en
+> a conclu à tort que la reprise avait déjà eu lieu. La base n'est désormais
+> ouverte qu'à la première utilisation réelle, mais le critère reste le
+> contenu : une base vide traînante ne doit jamais bloquer la reprise.
 
 Le catalogue des médias, lui, ne change pas de nom : il s'appelle
 `~/mediasort_catalog.db` d'après le trieur, qui n'a pas été renommé.

@@ -12,14 +12,30 @@ from . import config, ingest, pairing, sessions, stats, web
 from .devices import DeviceStore
 
 app = FastAPI(title="phototheque")
-devices = DeviceStore(config.DEVICES_DB)
+
+_devices = None
+
+
+def devices() -> DeviceStore:
+    """Ouvre la base des appareils à la PREMIÈRE UTILISATION, pas à l'import.
+
+    Instancier DeviceStore au chargement du module ferait qu'un simple
+    « import phototheque.app » créerait le fichier SQLite dans le dossier
+    personnel — y compris en lançant les tests ou un outil quelconque. Cela a
+    déjà cassé un déploiement (17/09/2026) : la base vide ainsi créée a fait
+    croire au script d'installation que la reprise des appairages était faite.
+    """
+    global _devices
+    if _devices is None:
+        _devices = DeviceStore(config.DEVICES_DB)
+    return _devices
 
 
 def require_device(authorization: str = Header(default="")) -> str:
     """Dépendance d'auth : exige 'Authorization: Bearer <secret>' valide."""
     prefixe = "Bearer "
     secret = authorization[len(prefixe):] if authorization.startswith(prefixe) else ""
-    dev_id = devices.validate(secret) if secret else None
+    dev_id = devices().validate(secret) if secret else None
     if not dev_id:
         raise HTTPException(status_code=401, detail="jeton invalide")
     return dev_id
@@ -90,17 +106,21 @@ def sync_commit(req: CommitRequest, _: str = Depends(require_device)) -> dict:
 # ---- surface d'admin locale (sans auth) ----
 @app.get("/devices")
 def list_devices() -> list:
-    return devices.list()
+    return devices().list()
 
 
 @app.post("/devices/{device_id}/revoke")
 def revoke_device(device_id: str) -> dict:
-    return {"revoked": devices.revoke(device_id)}
+    return {"revoked": devices().revoke(device_id)}
 
 
 @app.get("/pair", response_class=HTMLResponse)
 def pair() -> str:
-    _, secret = devices.pair("Nouveau téléphone")
+    # Chaque affichage crée un secret : on retire d'abord les appairages
+    # proposés puis jamais utilisés, sinon la moindre visite de cette page
+    # laisserait une clé d'accès valable indéfiniment.
+    devices().purge_pending()
+    _, secret = devices().pair("Nouveau téléphone")
     url = f"http://nuc.local:{config.PORT}"
     charge = json.dumps(pairing.pairing_payload(url, secret))
     svg = pairing.qr_svg(charge)
@@ -112,4 +132,4 @@ def pair() -> str:
 @app.get("/", response_class=HTMLResponse)
 def admin() -> str:
     d = stats.disk_stats(config.LIBRARY_DIR)
-    return web.admin_html(devices.list(), d, _media_counts())
+    return web.admin_html(devices().list(), d, _media_counts())

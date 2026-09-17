@@ -14,9 +14,12 @@ def _go(n: int) -> str:
 
 def admin_html(devices: list, disk: dict, media: dict) -> str:
     """Rend la page d'admin : QR (lien), liste d'appareils + révocation, camembert."""
+    # « en attente » = QR généré mais jamais utilisé par un téléphone ; ces
+    # appairages expirent tout seuls (voir devices.DELAI_APPAIRAGE_MINUTES).
     lignes = "".join(
-        f'<li>{d["label"]} <small>({d["paired_at"]})</small> '
-        f'<button onclick="revoke(\'{d["id"]}\')">Révoquer</button></li>'
+        f'<li>{d["label"]} <small>({d["paired_at"]})</small>'
+        + (' <em>— en attente</em>' if d.get("en_attente") else '')
+        + f' <button onclick="revoke(\'{d["id"]}\')">Révoquer</button></li>'
         for d in devices
     ) or "<li>Aucun appareil appairé</li>"
     pie = stats.pie_svg(disk["utilise"], disk["libre"])

@@ -29,7 +29,12 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   une vidéo de 3 Go : 28,6 s → 0,028 s).
 - ✅ **Empreinte calculée pendant la copie** (issue #14) : un fichier rangé n'est
   plus traversé que 2 fois au lieu de 3 (mesuré sur le NUC, vidéo de 3,6 Gio :
-  47,9 s → 34,9 s, -27 %). **79 tests**.
+  47,9 s → 34,9 s, -27 %).
+- ✅ **Appairage durci** : un QR affiché crée un appairage *en attente* qui
+  expire au bout de 10 min s'il n'est jamais utilisé (le premier usage le
+  confirme définitivement) ; `/pair` fait le ménage à chaque visite. La base
+  des appareils n'est plus ouverte à l'import du module. **101 tests**.
+- Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
 ## ⚠️ À faire sur le NUC (une fois)
