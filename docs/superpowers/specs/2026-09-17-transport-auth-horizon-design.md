@@ -291,13 +291,79 @@ seule source de vérité, côté serveur, modifiable après coup.
 
 ---
 
-## 5. Le contrat vu par l'application Android
+## 5. Découverte du serveur et identité (transversal)
+
+Ajouté après coup, à la suite d'une question du mainteneur : « si je déploie sur
+un Raspberry Pi, mon téléphone saura-t-il le retrouver ? »
+
+### Le nom de la machine n'est pas une identité
+
+La découverte mDNS cherche un **type de service**, pas un nom d'hôte. Vérifié
+sur le réseau :
+
+```
+$ avahi-browse -tpr _phototheque._tcp
+=;wlp5s0;IPv4;phototheque\032sur\032IZQUIERDO-NUC;_phototheque._tcp;local;IZQUIERDO-NUC.local;192.168.1.21;8787;
+```
+
+Sur un autre matériel, la même requête renverrait « phototheque sur
+raspberrypi ». L'application liste ce qu'elle trouve, sans rien savoir d'avance.
+
+### L'URL du QR ne peut pas être l'identité du serveur
+
+Si l'application mémorise l'URL lue dans le QR, l'appairage casse dès que
+l'adresse change :
+
+| Événement | URL mémorisée | Découverte + empreinte |
+|---|---|---|
+| La box change l'IP (bail DHCP) | cassé | retrouvé |
+| La machine est renommée | cassé | retrouvé |
+| Migration vers un autre matériel | cassé | retrouvé |
+| Deux serveurs sur le réseau | ambigu | listés, l'utilisateur choisit |
+
+**Règle pour #12 :** l'identité du serveur est **l'empreinte de son certificat**,
+pas son adresse. À chaque synchro, l'application parcourt les services
+`_phototheque._tcp`, se connecte aux candidats et retient celui dont l'empreinte
+correspond à celle qu'elle a épinglée à l'appairage. L'URL du QR ne sert qu'à
+l'amorçage et de secours quand la découverte échoue — certains réseaux WiFi
+bloquent le multicast.
+
+Cette règle est la raison pour laquelle l'empreinte du certificat (volet 1) vaut
+bien au-delà de la sécurité : c'est aussi le seul identifiant stable du serveur.
+
+### Nom affiché, configurable
+
+L'annonce Avahi utilise aujourd'hui `phototheque sur %h`, où `%h` est le nom de
+la machine — un nom technique. `install.sh` lira un nom convivial dans
+`~/.config/phototheque/nom` s'il existe (« Photothèque du salon »), et retombera
+sur `phototheque sur %h` sinon. C'est ce texte que l'application affichera dans
+sa liste.
+
+### Conséquence pour une migration
+
+- **Installation neuve** sur le nouveau matériel : nouveau certificat, donc un
+  réappairage — un QR à scanner.
+- **Migration** : copier `~/.config/phototheque/` (certificat, clé, mot de passe,
+  nom) et les deux bases `.db` suffit. Le téléphone continue de fonctionner sans
+  rien faire : il ne reconnaît pas la machine, il reconnaît le certificat.
+
+  Réserve à documenter : le certificat copié porte les noms alternatifs de
+  l'ancienne machine. L'application s'en moque puisqu'elle épingle l'empreinte,
+  mais le navigateur redeviendra avertissant. Régénérer le certificat sur le
+  nouveau matériel est alors possible, au prix d'un réappairage.
+
+Procédure de migration à écrire dans `docs/DEPLOIEMENT.md`.
+
+---
+
+## 6. Le contrat vu par l'application Android
 
 Ce que #12 devra implémenter, et qui ne bougera plus après ce lot :
 
 | Étape | Appel | Auth |
 |---|---|---|
 | Appairage | scan du QR : `{url, token, cert_sha256}` | — |
+| Retrouver le serveur | parcourir `_phototheque._tcp`, retenir celui dont l'empreinte correspond ; l'URL du QR en secours | — |
 | Vérification du serveur | épingler `cert_sha256` sur la connexion TLS | — |
 | Horizon | `GET /sync/horizon` | `Authorization: Bearer <token>` |
 | Quoi envoyer | `POST /sync/plan` | idem |
@@ -308,7 +374,7 @@ Le champ `url` du QR porte désormais un schéma `https`.
 
 ---
 
-## 6. Stratégie de test
+## 7. Stratégie de test
 
 Développement piloté par les tests, volet par volet.
 
@@ -336,7 +402,7 @@ nécessaire. Ce défaut ne se voit qu'en regardant.
 
 ---
 
-## 7. Déploiement et retour en arrière
+## 8. Déploiement et retour en arrière
 
 `./deploy/install.sh` reste la commande unique et idempotente. Il gagne deux
 étapes : fabrication du certificat s'il manque, génération du mot de passe admin
@@ -351,7 +417,7 @@ Retour en arrière : retirer les deux arguments `--ssl-*` de l'unité et relance
 
 ---
 
-## 8. Risques et compromis acceptés
+## 9. Risques et compromis acceptés
 
 | Risque | Portée | Ce qu'on fait |
 |---|---|---|
@@ -364,7 +430,7 @@ Retour en arrière : retirer les deux arguments `--ssl-*` de l'unité et relance
 
 ---
 
-## 9. Points volontairement laissés ouverts
+## 10. Points volontairement laissés ouverts
 
 - **Rotation du certificat** : manuelle. Une rotation automatique n'a de sens
   qu'avec un mécanisme de réappairage assisté, qui suppose l'application (#12).
