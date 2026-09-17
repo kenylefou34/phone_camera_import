@@ -108,3 +108,6 @@ build/
 __pycache__/
 .pytest_cache/
 *.db
+
+# Espace de travail SDD (non versionné)
+.superpowers/
