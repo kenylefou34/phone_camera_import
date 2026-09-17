@@ -268,11 +268,167 @@ Tout est surchargeable par variables d'environnement (voir
 
 ## Variante Docker
 
-Pour reproduire ailleurs sans toucher au système hôte :
+Cette section est écrite pour être suivie sans rien connaître à Docker. Tout ce
+qui suit a été exécuté et vérifié, pas seulement rédigé.
+
+### Faut-il l'utiliser ?
+
+**Sur le NUC, non.** Le déploiement recommandé reste `./deploy/install.sh`
+(section précédente) : c'est lui qui est en service et qui gère le montage du
+disque, le démarrage au boot et l'annonce réseau.
+
+Docker sert à **faire tourner le service sur une autre machine sans y installer
+quoi que ce soit** : essayer sur un portable, migrer vers un autre ordinateur,
+ou repartir de zéro si le NUC rend l'âme. Tout ce dont l'application a besoin
+(Python, exiftool, ffmpeg) est enfermé dans une boîte, et la machine hôte reste
+propre.
+
+### Le vocabulaire, en trois phrases
+
+- Une **image**, c'est un modèle figé : l'application et tous ses outils,
+  empaquetés. On la fabrique une fois.
+- Un **conteneur**, c'est une image qu'on fait tourner. On peut l'arrêter, le
+  supprimer et le recréer sans rien perdre, à condition que les données soient
+  dans des volumes (voir plus bas).
+- Un **volume**, c'est un dossier qui survit au conteneur. C'est là que vivent
+  tes photos et le catalogue.
+
+### 1. Installer Docker
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io docker-compose-plugin
+sudo usermod -aG docker "$USER"
+```
+
+La dernière ligne t'évite de taper `sudo` devant chaque commande Docker.
+**Elle ne prend effet qu'après une déconnexion/reconnexion** — ferme ta session
+et rouvre-la, sinon tu auras « permission denied ».
+
+Vérifie que tout répond :
+
+```bash
+docker run --rm hello-world
+docker compose version
+```
+
+> **Attention au piège « compose ».** Il existe deux versions.
+> La moderne s'écrit **`docker compose`** (avec une **espace**), fournie par le
+> paquet `docker-compose-plugin`. L'ancienne s'écrit `docker-compose` (avec un
+> **tiret**) : elle n'est plus maintenue et **plante avec les versions récentes
+> de Docker**, sur une erreur incompréhensible du type
+> `HTTPConnection.request() got an unexpected keyword argument 'chunked'`.
+> Si tu vois cette erreur, c'est que tu utilises l'ancienne : installe
+> `docker-compose-plugin` et remets l'espace.
+
+### 2. Indiquer où sont les photos
+
+Ouvre `deploy/docker-compose.yml` et adapte **une seule ligne**, celle du
+dossier de la bibliothèque sur ta machine :
+
+```yaml
+    volumes:
+      # À ADAPTER : dossier de la bibliothèque sur la machine hôte.
+      - /media/izquierdo/Famille:/data/library
+```
+
+À gauche des deux-points, le chemin **sur ta machine**. À droite, le chemin
+**vu par l'application** : celui-là ne change jamais. Sur un portable, ce serait
+par exemple `/home/ken/Photos:/data/library`.
+
+Le dossier doit exister avant de démarrer, sinon Docker en crée un vide et tu
+croiras la bibliothèque perdue.
+
+### 3. Démarrer
+
+Depuis la racine du dépôt :
 
 ```bash
 docker compose -f deploy/docker-compose.yml up -d --build
 ```
 
-`network_mode: host` est nécessaire au mDNS. Sur une machine sans les disques
-physiques, il suffit de pointer `LIBRARY_DIR` vers un stockage monté.
+- `--build` fabrique l'image. **La première fois prend plusieurs minutes** (il
+  télécharge Python, exiftool et ffmpeg) ; les fois suivantes sont rapides.
+- `-d` (*detached*) rend la main : le service tourne en arrière-plan.
+
+### 4. Vérifier
+
+```bash
+docker compose -f deploy/docker-compose.yml ps        # doit afficher « running »
+```
+
+Puis ouvre `http://localhost:8787/` dans un navigateur. Tu dois voir la page
+d'administration. `http://localhost:8787/pair` affiche le QR d'appairage.
+
+En cas de doute, lis ce que dit l'application :
+
+```bash
+docker compose -f deploy/docker-compose.yml logs -f   # Ctrl-C pour sortir
+```
+
+### 5. Les commandes du quotidien
+
+| Ce que tu veux | La commande (depuis la racine du dépôt) |
+|---|---|
+| Voir les journaux | `docker compose -f deploy/docker-compose.yml logs -f` |
+| Arrêter | `docker compose -f deploy/docker-compose.yml stop` |
+| Redémarrer | `docker compose -f deploy/docker-compose.yml restart` |
+| Mettre à jour après un `git pull` | `docker compose -f deploy/docker-compose.yml up -d --build` |
+| Tout arrêter et supprimer le conteneur | `docker compose -f deploy/docker-compose.yml down` |
+
+`down` supprime le conteneur mais **garde les données**. Redémarrer ensuite
+retrouve le catalogue et les appareils appairés.
+
+### Où sont les données, et comment les sauvegarder
+
+Deux endroits, à ne pas confondre :
+
+| Donnée | Où elle vit | Perdue si… |
+|---|---|---|
+| **Tes photos et vidéos** | sur ta machine, dans le dossier que tu as indiqué à l'étape 2 | jamais par Docker — c'est ton dossier |
+| **Catalogue + appareils appairés** | dans un volume Docker nommé `phototheque-data` | seulement si tu le supprimes explicitement |
+
+Pour sauvegarder le catalogue, commence par **relever le nom exact du volume** :
+Docker le préfixe par le nom du projet, qui dépend du dossier depuis lequel tu
+lances la commande. Ne le devine pas, demande-le :
+
+```bash
+docker volume ls | grep phototheque-data
+```
+
+Reporte le nom affiché à la place de `<VOLUME>` ci-dessous :
+
+```bash
+docker compose -f deploy/docker-compose.yml stop
+docker run --rm -v <VOLUME>:/data -v "$PWD":/sauvegarde \
+    alpine tar czf /sauvegarde/catalogue-phototheque.tgz -C /data .
+docker compose -f deploy/docker-compose.yml start
+```
+
+Tu obtiens un fichier `catalogue-phototheque.tgz` dans le dossier courant.
+
+### Les limites, dites franchement
+
+- **La découverte réseau (mDNS) ne fonctionne pas** dans cette variante.
+  L'adresse `IZQUIERDO-NUC.local` est annoncée par Avahi, un service de la
+  machine hôte, et l'application ne fait aucune annonce elle-même. En Docker, il
+  faut donc utiliser `http://localhost:8787` en local, ou l'adresse IP de la
+  machine depuis un téléphone. Pour retrouver le nom `.local`, installe le
+  fichier d'annonce sur l'hôte comme à l'étape 6 de la section systemd.
+  Pense alors à renseigner `PUBLIC_URL` (tableau du paramétrage ci-dessus) pour
+  que le QR code affiche une adresse joignable depuis le téléphone.
+- **Les fichiers créés par le conteneur appartiennent à `root`** sur ta machine
+  (le conteneur tourne en root). C'est sans gravité, mais ça surprend quand on
+  essaie de les effacer sans `sudo`.
+- Le port 8787 doit être libre. S'il est déjà pris (par exemple par le service
+  systemd sur le NUC), Docker refusera de démarrer.
+
+### Tout supprimer
+
+```bash
+docker compose -f deploy/docker-compose.yml down -v   # -v supprime AUSSI les données
+docker image prune -a                                  # libère les images inutilisées
+```
+
+⚠️ `-v` efface le volume, donc le catalogue et les appareils appairés. **Tes
+photos ne sont pas touchées** : elles sont dans ton dossier, pas dans le volume.
