@@ -129,7 +129,32 @@ python3 -m mediasort --source /media/izquierdo/Famille/unsorted \
 ```
 
 Options : `--source`, `--library`, `--catalog FICHIER.db`, `--dry-run`,
-`--seed`, `--clean-noise`, `--verbose`.
+`--seed`, `--clean-noise`, `--verbose`, `--backfill-signatures`.
+
+### Pré-filtre par signature rapide (grosses vidéos)
+
+Pour savoir si un fichier est un doublon, le trieur calcule normalement son
+empreinte complète (SHA-256), ce qui suppose de **lire tout le fichier** : près
+de 30 secondes pour une vidéo de 3 Go.
+
+Le trieur calcule donc d'abord une *signature rapide* (taille + début + fin du
+fichier, ~130 Ko lus, environ **1000 fois plus rapide**). Si cette signature
+n'existe pas dans le catalogue, le fichier est forcément nouveau : la lecture
+intégrale est évitée.
+
+Ce raccourci n'est sûr que si **toutes** les lignes du catalogue ont une
+signature. Sur un catalogue créé avant cette fonctionnalité, elles sont vides :
+le trieur détecte ce cas et désactive le raccourci (aucun risque de rater un
+doublon). Pour le réactiver, on complète les signatures une bonne fois :
+
+```bash
+# Ne lit que le début et la fin de chaque média déjà catalogué.
+# Compter environ 1 heure pour 45 000 médias sur un disque USB.
+python3 -m mediasort --catalog ~/mediasort_catalog.db --backfill-signatures
+```
+
+Une signature n'est **jamais** une preuve d'égalité : quand elle correspond à
+une entrée connue, l'empreinte complète est calculée pour trancher.
 
 ### Tests
 

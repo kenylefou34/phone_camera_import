@@ -5,7 +5,7 @@ import sqlite3
 from pathlib import Path
 
 from . import config
-from .hashing import file_hash
+from .hashing import file_hash, quick_signature
 
 _MEDIA_EXTS = config.PHOTO_EXTS | config.VIDEO_EXTS
 # Dossiers système à ne jamais parcourir lors de l'amorçage.
@@ -26,22 +26,58 @@ class Catalog:
             "CREATE TABLE IF NOT EXISTS synchros ("
             " dossier TEXT PRIMARY KEY, dernier_ts REAL)"
         )
+        self._migrer_signature()
         self._cx.commit()
+
+    def _migrer_signature(self) -> None:
+        """Ajoute la colonne 'signature' aux catalogues créés avant elle.
+
+        Les lignes déjà présentes gardent une signature NULL : c'est ce que
+        signatures_complete() détecte pour désactiver le pré-filtre.
+        """
+        colonnes = {c[1] for c in self._cx.execute("PRAGMA table_info(medias)")}
+        if "signature" not in colonnes:
+            self._cx.execute("ALTER TABLE medias ADD COLUMN signature TEXT")
+        self._cx.execute(
+            "CREATE INDEX IF NOT EXISTS idx_medias_signature ON medias(signature)"
+        )
 
     def has_hash(self, digest: str) -> bool:
         cur = self._cx.execute("SELECT 1 FROM medias WHERE empreinte=?", (digest,))
         return cur.fetchone() is not None
 
     def add_media(self, digest: str, size: int, path: str,
-                  date_prise, source_date: str) -> None:
+                  date_prise, source_date: str, signature=None) -> None:
         # INSERT OR IGNORE : une empreinte n'est enregistrée qu'une fois.
         self._cx.execute(
             "INSERT OR IGNORE INTO medias"
-            " (empreinte, taille, chemin, date_prise, source_date)"
-            " VALUES (?,?,?,?,?)",
-            (digest, size, path, date_prise, source_date),
+            " (empreinte, taille, chemin, date_prise, source_date, signature)"
+            " VALUES (?,?,?,?,?,?)",
+            (digest, size, path, date_prise, source_date, signature),
         )
         self._cx.commit()
+
+    def has_signature(self, signature: str) -> bool:
+        """Vrai si une signature rapide identique est déjà connue.
+
+        ATTENTION : une signature n'est PAS une preuve d'égalité (collisions
+        possibles). Elle sert seulement de pré-filtre : « faux » prouve que le
+        fichier est nouveau, « vrai » impose de vérifier l'empreinte complète.
+        """
+        cur = self._cx.execute(
+            "SELECT 1 FROM medias WHERE signature=? LIMIT 1", (signature,)
+        )
+        return cur.fetchone() is not None
+
+    def signatures_complete(self) -> bool:
+        """Vrai si toutes les lignes ont une signature (pré-filtre utilisable).
+
+        Si une seule ligne n'en a pas, un fichier identique à celle-ci passerait
+        le pré-filtre sans être reconnu comme doublon : on désactive alors le
+        raccourci et on hache tout, comme avant.
+        """
+        cur = self._cx.execute("SELECT 1 FROM medias WHERE signature IS NULL LIMIT 1")
+        return cur.fetchone() is None
 
     def count(self) -> int:
         return self._cx.execute("SELECT COUNT(*) FROM medias").fetchone()[0]
@@ -69,13 +105,40 @@ class Catalog:
                     continue
                 try:
                     digest = file_hash(p)
+                    signature = quick_signature(p)
                     taille = p.stat().st_size
                 except OSError:
                     continue
                 if not self.has_hash(digest):
-                    self.add_media(digest, taille, str(p), None, "seed")
+                    self.add_media(digest, taille, str(p), None, "seed", signature)
                     ajoutes += 1
         return ajoutes
+
+    def backfill_signatures(self) -> int:
+        """Calcule les signatures manquantes des lignes déjà enregistrées.
+
+        Sert à réactiver le pré-filtre sur un catalogue d'avant la colonne
+        'signature' : on relit seulement le début et la fin de chaque fichier
+        (pas tout le contenu). Les fichiers disparus ou illisibles sont laissés
+        sans signature. Renvoie le nombre de lignes complétées.
+        """
+        lignes = self._cx.execute(
+            "SELECT empreinte, chemin FROM medias WHERE signature IS NULL"
+        ).fetchall()
+        completees = 0
+        for empreinte, chemin in lignes:
+            if not chemin:
+                continue
+            try:
+                signature = quick_signature(Path(chemin))
+            except OSError:
+                continue  # fichier déplacé ou illisible : on laisse NULL
+            self._cx.execute(
+                "UPDATE medias SET signature=? WHERE empreinte=?", (signature, empreinte)
+            )
+            completees += 1
+        self._cx.commit()
+        return completees
 
     def get_last_sync(self, folder: str):
         cur = self._cx.execute("SELECT dernier_ts FROM synchros WHERE dossier=?", (folder,))

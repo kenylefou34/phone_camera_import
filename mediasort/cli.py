@@ -14,8 +14,10 @@ def main(argv=None) -> int:
         prog="mediasort",
         description="Range des photos/vidéos dans une bibliothèque par date.",
     )
-    parseur.add_argument("--source", required=True, type=Path, help="dossier source à trier")
-    parseur.add_argument("--library", required=True, type=Path, help="bibliothèque cible")
+    # Non requis au niveau d'argparse : --backfill-signatures se passe des deux
+    # (il ne travaille que sur le catalogue). La vérification est faite plus bas.
+    parseur.add_argument("--source", type=Path, help="dossier source à trier")
+    parseur.add_argument("--library", type=Path, help="bibliothèque cible")
     parseur.add_argument("--catalog", type=Path, default=Path("catalog.db"),
                          help="fichier du catalogue SQLite")
     parseur.add_argument("--dry-run", action="store_true", help="simulation : ne rien déplacer")
@@ -25,14 +27,26 @@ def main(argv=None) -> int:
                          help="dossier à indexer pour l'amorçage (défaut : toute la bibliothèque)")
     parseur.add_argument("--clean-noise", action="store_true",
                          help="supprimer le bruit résiduel après tri")
+    parseur.add_argument("--backfill-signatures", action="store_true",
+                         help="compléter les signatures manquantes du catalogue "
+                              "(réactive le pré-filtre sur un ancien catalogue), puis sortir")
     parseur.add_argument("--verbose", action="store_true", help="journal détaillé")
     args = parseur.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO if args.verbose else logging.WARNING,
                         format="%(message)s")
 
+    if not args.backfill_signatures and (args.source is None or args.library is None):
+        parseur.error("les arguments suivants sont requis : --source, --library")
+
     cat = Catalog(args.catalog)
     try:
+        if args.backfill_signatures:
+            n = cat.backfill_signatures()
+            reste = "" if cat.signatures_complete() else " (des fichiers restent introuvables)"
+            print(f"Signatures complétées : {n}{reste}.")
+            return 0
+
         if args.seed:
             source_amorce = args.seed_from or args.library
             n = cat.seed_from_library(source_amorce,

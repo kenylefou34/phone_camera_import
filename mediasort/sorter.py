@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import classify, config, dates
-from .hashing import file_hash
+from .hashing import file_hash, quick_signature
 
 log = logging.getLogger("mediasort")
 
@@ -60,6 +60,10 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
     # Pré-chargement des dates de métadonnées en un seul appel exiftool (perf).
     medias = [p for p in fichiers if classify.media_type(p.suffix) is not None]
     dates.prefetch_metadata(medias)
+    # Pré-filtre par signature rapide (issue #9) : n'est SÛR que si toutes les
+    # lignes du catalogue ont une signature ; sinon un doublon ancien passerait
+    # au travers et serait copié en double. On l'évalue une fois pour tout le tri.
+    prefiltre = catalog.signatures_complete()
     for p in fichiers:
         mtype = classify.media_type(p.suffix)
         if mtype is None:
@@ -69,11 +73,20 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
             continue
         report.listed += 1
         try:
-            empreinte = file_hash(p)
-            if catalog.has_hash(empreinte):
-                report.duplicates += 1
-                log.info("DOUBLON ignoré : %s", p)
-                continue
+            # Signature rapide : ne lit que le début et la fin du fichier.
+            signature = quick_signature(p)
+            if prefiltre and not catalog.has_signature(signature):
+                # Signature inconnue => contenu forcément nouveau : on s'épargne
+                # la lecture intégrale (décisif sur les grosses vidéos).
+                empreinte = None
+            else:
+                # Signature déjà vue (ou pré-filtre désactivé) : seule l'empreinte
+                # complète prouve qu'il s'agit vraiment du même fichier.
+                empreinte = file_hash(p)
+                if catalog.has_hash(empreinte):
+                    report.duplicates += 1
+                    log.info("DOUBLON ignoré : %s", p)
+                    continue
 
             dr = dates.resolve_date(p)
             dest = classify.destination(library, p, dr, mtype)
@@ -104,6 +117,10 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
 
             dest = _chemin_libre(dest)
             dest.parent.mkdir(parents=True, exist_ok=True)
+            # Le rangement réel exige l'empreinte complète : elle sert de clé au
+            # catalogue ET de référence pour vérifier la copie.
+            if empreinte is None:
+                empreinte = file_hash(p)
             shutil.copy2(p, dest)
             # Copie sûre : on vérifie l'empreinte à destination avant de retirer la source.
             if file_hash(dest) != empreinte:
@@ -111,7 +128,8 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
                 log.error("Empreinte différente après copie : %s", dest)
                 continue
             catalog.add_media(empreinte, p.stat().st_size, str(dest),
-                              dr.date.isoformat() if dr.date else None, dr.source)
+                              dr.date.isoformat() if dr.date else None, dr.source,
+                              signature)
             p.unlink()
         except OSError as e:
             report.errors += 1
