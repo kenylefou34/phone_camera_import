@@ -11,7 +11,7 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
 + revue visuelle (doublons, floues/rafales, re-datation) ; **Phase 3** visages ;
 **Phase 4** génération (livre photo…).
 
-## État actuel (2026-09-14)
+## État actuel (2026-09-17)
 - ✅ **Trieur `mediasort/`** (Python, stdlib + exiftool/ffmpeg) : range par vraie
   date (métadonnées > nom > système > `_A_TRIER/`), anti-doublon par catalogue
   SQLite d'empreintes. Testé.
@@ -20,15 +20,31 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
 - ✅ **Backlog WhatsApp trié** (4 rangés, 92 doublons évités) ; bruit nettoyé.
 - ✅ **Service `mediaserve/`** (sous-projet 2) : FastAPI, appairage QR, handshake
   anti-doublon, upload, commit (bilan détaillé), page d'admin (appareils +
-  camembert disque), mDNS/Avahi, systemd + Docker. 56 tests. Validé sur le NUC.
+  camembert disque), mDNS/Avahi, systemd + Docker. Validé sur le NUC.
+- ✅ **Déployé en service permanent** (issue #11) : `mediaserve.service` actif et
+  `enabled` sur le NUC depuis le 2026-09-14, 0 redémarrage. `/` et `/pair`
+  répondent, `/status` exige l'authentification.
+- ✅ **Pré-filtre par signature rapide** (issue #9) : le trieur évite la lecture
+  intégrale d'un fichier dont la signature est inconnue (~1000× plus rapide sur
+  une vidéo de 3 Go : 28,6 s → 0,028 s). **72 tests**.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
+## ⚠️ À faire sur le NUC (une fois)
+Le catalogue existant date d'avant la colonne `signature` : ses 44 669 lignes
+l'ont donc vide. Le trieur le détecte et **désactive le pré-filtre** (pour ne
+jamais rater un doublon) — il fonctionne comme avant, sans le gain de vitesse.
+Pour l'activer, compléter les signatures une bonne fois (~1 h, ne lit que le
+début et la fin de chaque média) :
+```bash
+python3 -m mediasort --catalog ~/mediasort_catalog.db --backfill-signatures
+```
+
 ## Feuille de route (issues GitHub)
-Prochaines étapes : **déployer mediaserve en service permanent** sur le NUC, puis
-**sous-projet 3 = app Android** (voir issues). Améliorations/Phase 2 tracées en
-issues #2 à #10 (`gh issue list`). Notamment : #2 horizon de synchro initial,
-#3 HTTPS+épinglage, #4 doublons existants, #5 floues/rafales, #6 re-datation,
-#7 sauvegarde Famille, #8/#9 optimisations, #10 durcir la surface d'admin.
+Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
+dossiers, client d'upload). Améliorations/Phase 2 tracées en issues #2 à #10
+(`gh issue list`). Notamment : #2 horizon de synchro initial, #3 HTTPS+épinglage,
+#4 doublons existants, #5 floues/rafales, #6 re-datation, #7 sauvegarde Famille,
+#10 durcir la surface d'admin. (#8, #9 et #11 sont faites.)
 À faire aussi : **fusionner `dev` → `main`** (main est en retard).
 
 ## NUC (machine cible)
@@ -52,6 +68,9 @@ python3 -m pytest -q
 # Trieur (sur le NUC) :
 python3 -m mediasort --source <dossier> --library /media/izquierdo/Famille \
     --catalog ~/mediasort_catalog.db [--seed --seed-from <dossier>] [--dry-run] [--clean-noise]
+
+# Compléter les signatures d'un ancien catalogue (réactive le pré-filtre) :
+python3 -m mediasort --catalog ~/mediasort_catalog.db --backfill-signatures
 
 # Serveur (sur le NUC, venv) :
 ~/.venv-server/bin/uvicorn mediaserve.app:app --host 0.0.0.0 --port 8787
