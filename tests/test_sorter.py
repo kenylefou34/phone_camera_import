@@ -172,6 +172,7 @@ def test_sort_keeps_source_when_copy_is_corrupted(tmp_path, monkeypatch):
     assert report.errors == 1
     assert (src / "a.jpg").exists()  # la source n'est JAMAIS supprimée sur erreur
     assert cat.count() == 0
+    assert list(lib.rglob("*.jpg")) == []  # pas de copie douteuse laissée en biblio
     cat.close()
 
 
@@ -184,12 +185,21 @@ def test_sort_keeps_source_when_it_changes_during_copy(tmp_path, monkeypatch):
     cat = Catalog(":memory:")
     cat.add_media("autre-media", 1, "/lib/z.jpg", None, "seed")  # sans signature
     assert cat.signatures_complete() is False  # pré-filtre off => empreinte connue
-    monkeypatch.setattr(sorter, "copy_and_hash",
-                        lambda source, destination: "empreinte-differente")
+    def copie_dune_source_modifiee(source, destination):
+        destination.write_bytes(b"contenu-different")  # la copie a bien lieu
+        return "empreinte-differente"
+
+    monkeypatch.setattr(sorter, "copy_and_hash", copie_dune_source_modifiee)
 
     report = sorter.sort_folder(src, lib, cat, dry_run=False)
 
     assert report.errors == 1
     assert (src / "a.jpg").exists()
     assert cat.count() == 1  # rien d'ajouté
+    assert list(lib.rglob("*.jpg")) == []  # pas de copie douteuse laissée en biblio
     cat.close()
+
+
+def test_retirer_copie_douteuse_tolere_un_fichier_absent(tmp_path):
+    """Le nettoyage ne doit jamais lever : sinon l'erreur serait comptée deux fois."""
+    sorter._retirer_copie_douteuse(tmp_path / "jamais-ecrit.jpg")  # ne lève pas

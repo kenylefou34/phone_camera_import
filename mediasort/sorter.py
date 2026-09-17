@@ -52,6 +52,19 @@ def _chemin_libre(destination: Path) -> Path:
         n += 1
 
 
+def _retirer_copie_douteuse(destination: Path) -> None:
+    """Efface la copie qu'on vient d'écrire quand la vérification a échoué.
+
+    Sans ça, un fichier corrompu resterait dans la bibliothèque sans être au
+    catalogue. C'est sûr : _chemin_libre() garantit que ce chemin n'existait
+    pas avant, on ne peut donc pas effacer un média déjà rangé.
+    """
+    try:
+        destination.unlink()
+    except OSError:
+        log.error("Copie douteuse impossible à retirer : %s", destination)
+
+
 def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> Report:
     """Range tous les médias de 'source' dans 'library'. Renvoie un Report détaillé."""
     report = Report()
@@ -125,11 +138,13 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
                 # diffèrent : la source a changé entre-temps, on ne touche à rien.
                 report.errors += 1
                 log.error("La source a changé pendant le tri : %s", p)
+                _retirer_copie_douteuse(dest)
                 continue
             # Copie sûre : on relit la destination avant de retirer la source.
             if file_hash(dest) != empreinte_copiee:
                 report.errors += 1
                 log.error("Empreinte différente après copie : %s", dest)
+                _retirer_copie_douteuse(dest)
                 continue
             catalog.add_media(empreinte_copiee, p.stat().st_size, str(dest),
                               dr.date.isoformat() if dr.date else None, dr.source,

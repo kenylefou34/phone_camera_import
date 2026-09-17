@@ -29,7 +29,7 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   une vidéo de 3 Go : 28,6 s → 0,028 s).
 - ✅ **Empreinte calculée pendant la copie** (issue #14) : un fichier rangé n'est
   plus traversé que 2 fois au lieu de 3 (mesuré sur le NUC, vidéo de 3,6 Gio :
-  47,9 s → 34,9 s, -27 %). **78 tests**.
+  47,9 s → 34,9 s, -27 %). **79 tests**.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
 ## ⚠️ À faire sur le NUC (une fois)

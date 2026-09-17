@@ -167,6 +167,8 @@ vérifier) au lieu de trois. Mesuré sur le NUC avec une vidéo de 3,6 Gio :
 La garantie de sûreté est inchangée : la source n'est supprimée que si la
 destination relue est identique octet pour octet, et les métadonnées (dont la
 date de modification, qui sert de dernier recours à la datation) sont conservées.
+Si la vérification échoue, la copie douteuse est retirée de la bibliothèque et
+la source est laissée en place : rien n'est perdu, l'erreur est comptée au bilan.
 
 ### Tests
 
