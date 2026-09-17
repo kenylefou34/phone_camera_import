@@ -513,7 +513,12 @@ def test_le_commit_enregistre_les_horizons(tmp_path, monkeypatch):
 
 
 def test_un_commit_qui_echoue_ne_fait_pas_avancer_l_horizon(tmp_path, monkeypatch):
-    """Session inconnue : l'horizon ne bouge pas, la prochaine synchro reprend."""
+    """Session inconnue : l'horizon ne bouge pas, la prochaine synchro reprend.
+
+    « inexistante » n'a pas la forme d'un identifiant de session : le commit
+    est refusé avant tout. À ne pas confondre avec une session vide, qui a une
+    forme valable et se termine normalement (test plus bas).
+    """
     a, client = _client(tmp_path, monkeypatch)
     dev_id, secret = a.devices().pair("Pixel")
 
@@ -527,7 +532,11 @@ def test_un_commit_qui_echoue_ne_fait_pas_avancer_l_horizon(tmp_path, monkeypatc
 
 
 def test_le_commit_sans_horizons_reste_accepte(tmp_path, monkeypatch):
-    """Champ facultatif : un client qui ne l'envoie pas fonctionne toujours."""
+    """Champ facultatif : un client qui ne l'envoie pas fonctionne toujours.
+
+    La session est volontairement hors norme : on vérifie que le refus vient
+    de l'identifiant, pas du format de la requête.
+    """
     a, client = _client(tmp_path, monkeypatch)
     _, secret = a.devices().pair("Pixel")
     r = client.post("/sync/commit", headers={"Authorization": f"Bearer {secret}"},
@@ -667,3 +676,67 @@ def test_une_extension_refusee_n_empeche_pas_la_session_de_se_terminer(tmp_path,
     assert commit.json()["errors"] == 0 and commit.json()["sorted"] == 1
     assert (tmp_path / "Photos" / "2023" / "05 MAI" / "a.jpg").exists()
     assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1726574400.0}
+
+
+def test_un_commit_sans_aucun_fichier_envoye_fait_avancer_l_horizon(tmp_path, monkeypatch):
+    """Le régime permanent : la bibliothèque est à jour, il n'y a rien à envoyer.
+
+    Reproduit : `sessions.new_session()` ne crée aucun dossier — il n'apparaît
+    qu'au premier upload. Un plan qui ne réclame aucun fichier suivi d'un
+    commit tombait donc sur « session inconnue » (404) et l'horizon n'était
+    jamais enregistré. Le téléphone rescannait indéfiniment la même fenêtre.
+
+    Une session sans dossier n'est pas une session inconnue : c'est une
+    session vide, cas parfaitement normal, traité comme un tri à zéro fichier.
+    """
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    r = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": 1726574400.0}})
+
+    assert r.status_code == 200
+    bilan = r.json()
+    assert bilan["sorted"] == 0 and bilan["errors"] == 0 and bilan["duplicates"] == 0
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1726574400.0}
+
+
+def test_un_identifiant_de_session_invente_reste_refuse(tmp_path, monkeypatch):
+    """Accepter une session vide ne doit pas ouvrir la porte à n'importe quoi.
+
+    Seule la forme produite par `sessions.new_session()` est acceptée : 32
+    caractères hexadécimaux. Tout le reste — nom fantaisiste, chemin remontant
+    vers un dossier voisin — est refusé avant d'atteindre le disque.
+    """
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+
+    for invente in ("inexistante", "../..", "", "ZZZ" * 10):
+        r = client.post("/sync/commit", headers=h, json={
+            "session": invente, "horizons": {"DCIM/Camera": 1726574400.0}})
+        assert r.status_code == 404, invente
+    assert a.devices().get_horizons(dev_id) == {}
+
+
+def test_une_session_vide_puis_une_synchro_normale(tmp_path, monkeypatch):
+    """C2 et I2 ensemble : un .webm refusé laisse une session sans aucun
+    fichier, et cette session doit pouvoir se terminer normalement — sinon
+    refuser une extension bloquerait l'horizon du dossier concerné."""
+    import io
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    refuse = client.post("/sync/upload", headers=h,
+                         data={"session": session, "path": "Movies/film.webm"},
+                         files={"file": ("film.webm", io.BytesIO(b"v"), "video/webm")})
+    commit = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"Movies": 1726574400.0}})
+
+    assert refuse.status_code == 400
+    assert commit.status_code == 200
+    assert a.devices().get_horizons(dev_id) == {"Movies": 1726574400.0}

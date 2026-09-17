@@ -151,14 +151,32 @@ async def sync_upload(session: str = Form(...), path: str = Form(...),
 
 @app.post("/sync/commit")
 def sync_commit(req: CommitRequest, dev_id: str = Depends(require_device)) -> dict:
-    session_dir = config.INCOMING_DIR / req.session
-    if not session_dir.exists():
+    """Range les fichiers reçus, puis fait avancer les horizons.
+
+    Une session SANS DOSSIER n'est pas une session inconnue : c'est une
+    session vide, cas parfaitement normal. `new_session()` ne crée rien, le
+    dossier n'apparaît qu'au premier envoi ; or en régime permanent — la
+    bibliothèque à jour — une synchro n'a souvent rien à envoyer. Répondre 404
+    empêchait alors l'horizon d'avancer, et le téléphone rescannait
+    indéfiniment la même fenêtre. On traite donc ce cas comme un tri à zéro
+    fichier.
+
+    Le contrôle qui reste est celui de la FORME de l'identifiant : seule la
+    forme produite par `new_session()` est acceptée (voir
+    sessions.identifiant_valide), ce qui interdit aussi bien un nom
+    fantaisiste qu'un identifiant remontant hors du dépôt des envois.
+    """
+    if not sessions.identifiant_valide(req.session):
         raise HTTPException(status_code=404, detail="session inconnue")
-    cat = Catalog(config.CATALOG_DB)
-    try:
-        bilan = ingest.sort_session(session_dir, config.LIBRARY_DIR, cat)
-    finally:
-        cat.close()
+    session_dir = config.INCOMING_DIR / req.session
+    if session_dir.exists():
+        cat = Catalog(config.CATALOG_DB)
+        try:
+            bilan = ingest.sort_session(session_dir, config.LIBRARY_DIR, cat)
+        finally:
+            cat.close()
+    else:
+        bilan = ingest.bilan_vide()      # session vide : rien n'a été envoyé
     sessions.cleanup(config.INCOMING_DIR, req.session)
     # L'horizon n'avance qu'après un tri INTÉGRALEMENT réussi. Si un seul
     # fichier a échoué, il est resté dans la session — que le nettoyage
