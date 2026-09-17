@@ -38,19 +38,51 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   #2) : HTTPS auto-signé épinglable par l'app, mot de passe admin sur `/`,
   `/pair`, `/devices` et la révocation, horizon par (appareil, dossier).
   Adresse : `https://IZQUIERDO-NUC.local:8787/`, identifiant `admin`.
-  **177 tests**.
+  **194 tests**.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
-## ⚠️ À faire sur le NUC (une fois)
-Le catalogue existant date d'avant la colonne `signature` : ses 44 669 lignes
-l'ont donc vide. Le trieur le détecte et **désactive le pré-filtre** (pour ne
-jamais rater un doublon) — il fonctionne comme avant, sans le gain de vitesse.
-Pour l'activer, compléter les signatures une bonne fois (~1 h, ne lit que le
-début et la fin de chaque média) :
+## ⚠️ REPRISE — première chose à faire (2026-09-17, fin de session)
+
+Le lot #3 + #10 + #2 est **écrit, revu et poussé**, mais **pas déployé**. Le NUC
+tourne encore l'avant-dernière version (`3de5fcd`), en HTTP et sans mot de passe.
+
+**1. Déployer** — à lancer par le mainteneur, dans un vrai terminal (mot de passe
+sudo, le canal `!` n'a pas de TTY) :
+
 ```bash
-python3 -m mediasort --catalog ~/mediasort_catalog.db --backfill-signatures
+cd ~/phone_camera_import && git pull && ./deploy/install.sh
 ```
+
+Le script **affiche le mot de passe d'administration une seule fois** : le noter.
+Puis vérifier, comme le prévoit la tâche 15 du plan :
+- `https://IZQUIERDO-NUC.local:8787/` répond (avertissement navigateur au premier
+  accès, normal : certificat auto-signé, « Paramètres avancés » puis
+  « Continuer », une fois par appareil) ;
+- l'empreinte affichée par le script correspond à
+  `openssl s_client -connect 127.0.0.1:8787 … | openssl x509 -noout -fingerprint -sha256` ;
+- `avahi-browse -tpr _phototheque._tcp` depuis une autre machine ;
+- le QR de `/pair` reste scannable malgré les 64 caractères d'empreinte ajoutés ;
+- `hostname -I` ne renvoie qu'une adresse (sinon le SAN du certificat pourrait
+  viser la mauvaise — constat mineur différé).
+
+**2. Deux questions laissées en suspens :**
+- Ouvrir 5 issues de suivi ? (préciser le contrat de l'app pour #12 ; `cleanup`
+  qui supprime les fichiers non rangés ; `_appairage_en_cours` global face à
+  plusieurs workers ; TLS de la variante Docker ; limitation d'essais du mot de
+  passe.)
+- Supprimer les 2 sauvegardes du NUC ? `~/mediasort_catalog.db.avant-signatures`
+  (12 Mo, d'avant le rattrapage des signatures) et
+  `~/phototheque_devices.db.vide-20260917-134451` (16 Ko).
+
+**3. Ensuite** : sous-projet 3, l'application Android (issue #12). Tout ce lot
+existait pour figer le contrat qu'elle codera en dur — voir la section 6 de
+`docs/superpowers/specs/2026-09-17-transport-auth-horizon-design.md`.
+
+**Fait le 17/09** : rattrapage des signatures sur le NUC (44 669 médias en
+16 min, pré-filtre désormais actif) ; renommage `mediaserve` → `phototheque` ;
+retrait du trieur C++ et de ses sous-modules ; refonte des pages web ; correction
+du QR invisible ; README et `DEPLOIEMENT.md` réécrits pas à pas.
 
 ## Feuille de route (issues GitHub)
 Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
