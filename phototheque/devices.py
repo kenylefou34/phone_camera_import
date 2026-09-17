@@ -5,7 +5,7 @@ import secrets
 import sqlite3
 import threading
 import uuid
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 # Durée de validité d'un appairage non utilisé. Chaque affichage de /pair crée
 # un secret ; sans expiration, un QR affiché puis oublié resterait une clé
@@ -71,14 +71,27 @@ class DeviceStore:
 
         Le secret n'est montré qu'ici. L'appareil ne devient définitif qu'au
         premier usage réel du jeton (voir validate) ; d'ici là il expire.
+
+        L'horizon initial est posé ICI, à la DATE DU JOUR, et non pas
+        seulement quand l'administrateur valide le formulaire de /pair : dans
+        le cas le plus courant (afficher le QR, scanner, c'est tout) personne
+        ne touche au formulaire, et l'appareil se retrouvait avec NULL —
+        c'est-à-dire « aucune limite ». Le téléphone remontait alors tout son
+        historique, exactement ce que l'horizon de synchro devait éviter.
+
+        NULL garde ainsi un seul sens : « appareil repris par _migrer(), ne
+        pas restreindre rétroactivement ». Le formulaire, lui, remplace
+        simplement cette date (voir set_horizon_initial).
         """
         dev_id = uuid.uuid4().hex
         secret = secrets.token_urlsafe(32)
         with self._lock:
             self._cx.execute(
-                "INSERT INTO devices (id, label, secret_hash, paired_at, confirmed_at)"
-                " VALUES (?,?,?,?,NULL)",
-                (dev_id, label, _hash(secret), datetime.now().isoformat(timespec="seconds")),
+                "INSERT INTO devices (id, label, secret_hash, paired_at,"
+                " confirmed_at, horizon_initial) VALUES (?,?,?,?,NULL,?)",
+                (dev_id, label, _hash(secret),
+                 datetime.now().isoformat(timespec="seconds"),
+                 date.today().isoformat()),
             )
             self._cx.commit()
         return dev_id, secret

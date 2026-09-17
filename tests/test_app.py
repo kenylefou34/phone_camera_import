@@ -438,19 +438,56 @@ def test_horizon_renvoie_les_dossiers_deja_synchronises(tmp_path, monkeypatch):
     assert r.json()["dossiers"] == {"DCIM/Camera": 1726574400.0}
 
 
-def test_horizon_renvoie_null_pour_un_appareil_sans_date_d_appairage(tmp_path, monkeypatch):
+def test_horizon_renvoie_null_pour_un_appareil_migre(tmp_path, monkeypatch):
     """Appareil appairé avant l'introduction du réglage : aucune limite.
 
     Élément du contrat que l'application code en dur : elle doit recevoir
     null, pas une absence de clé ni une chaîne vide.
+
+    L'appareil est fabriqué ici dans l'ancien schéma, puis repris par la
+    migration : c'est le SEUL cas où l'horizon initial vaut encore NULL. Un
+    appairage neuf, lui, part de la date du jour (voir le test suivant).
     """
+    import sqlite3
+    from phototheque.devices import _hash
+    base = tmp_path / "dev.db"
+    cx = sqlite3.connect(str(base))
+    cx.execute("CREATE TABLE devices (id TEXT PRIMARY KEY, label TEXT,"
+               " secret_hash TEXT UNIQUE, paired_at TEXT, confirmed_at TEXT)")
+    cx.execute("INSERT INTO devices VALUES ('vieux','Pixel',?,"
+               "'2026-01-01T10:00:00','2026-01-01T10:00:00')",
+               (_hash("secret-historique"),))
+    cx.commit(); cx.close()
+
     a, client = _client(tmp_path, monkeypatch)
-    _, secret = a.devices().pair("Pixel")
+
+    r = client.get("/sync/horizon",
+                   headers={"Authorization": "Bearer secret-historique"})
+
+    assert r.status_code == 200
+    assert r.json()["depuis"] is None
+
+
+def test_un_telephone_appaire_sans_toucher_au_formulaire_part_d_aujourd_hui(
+        tmp_path, monkeypatch):
+    """Le scénario courant : on affiche le QR, le téléphone scanne, c'est tout.
+
+    Reproduit : un simple GET /pair suivi d'un scan donnait
+    {"depuis": null, "dossiers": {}}, c'est-à-dire « aucune limite » — le
+    téléphone remontait tout son historique alors que la page affichait bien
+    « aujourd'hui ». Cette valeur n'était enregistrée que si l'administrateur
+    cliquait sur « Enregistrer ».
+    """
+    import datetime
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    client.get("/pair", headers=entetes)          # on n'envoie PAS le formulaire
+    _, secret = a._appairage_en_cours
 
     r = client.get("/sync/horizon", headers={"Authorization": f"Bearer {secret}"})
 
     assert r.status_code == 200
-    assert r.json()["depuis"] is None
+    assert r.json() == {"depuis": datetime.date.today().isoformat(), "dossiers": {}}
 
 
 def test_le_commit_enregistre_les_horizons(tmp_path, monkeypatch):

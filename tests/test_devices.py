@@ -117,10 +117,30 @@ def test_is_pending_reflects_the_confirmation_state():
     st.close()
 
 
-def test_horizon_initial_aller_retour():
+def test_un_appairage_neuf_part_de_la_date_du_jour():
+    """Un appairage doit naître avec un horizon, sans attendre le formulaire.
+
+    Reproduit : afficher /pair puis scanner le QR sans toucher au champ
+    « importer à partir du » donnait horizon_initial = NULL, c'est-à-dire
+    « aucune limite » — le téléphone remontait TOUT son historique. C'est le
+    cas le plus courant, et c'était l'objectif nº 3 de la spec qui tombait.
+
+    NULL garde désormais un seul sens : « appareil migré, ne pas restreindre
+    rétroactivement » (voir test_migration_d_une_base_sans_horizons).
+    """
+    from datetime import date
     st = DeviceStore(":memory:")
     dev_id, _ = st.pair("Pixel")
-    assert st.get_horizon_initial(dev_id) is None
+    assert st.get_horizon_initial(dev_id) == date.today().isoformat()
+    st.close()
+
+
+def test_horizon_initial_aller_retour():
+    """La date choisie au formulaire remplace celle posée à la création."""
+    from datetime import date
+    st = DeviceStore(":memory:")
+    dev_id, _ = st.pair("Pixel")
+    assert st.get_horizon_initial(dev_id) == date.today().isoformat()
     st.set_horizon_initial(dev_id, "2026-09-17")
     assert st.get_horizon_initial(dev_id) == "2026-09-17"
     st.close()

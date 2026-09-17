@@ -179,8 +179,10 @@ def sync_horizon(dev_id: str = Depends(require_device)) -> dict:
     'dossiers' donne les horizons déjà atteints. Pour un dossier absent de
     cette liste, l'application utilise son propre .flagfile_timestamp s'il
     existe (il reprend là où run_backup.sh s'était arrêté), sinon 'depuis'.
-    'depuis' vaut null pour un appareil appairé avant l'introduction de ce
-    réglage : aucune limite.
+    'depuis' vaut la date d'appairage — posée dès la création de l'appairage,
+    même si personne n'a validé le formulaire. Il ne vaut null que pour un
+    appareil repris d'une base antérieure à ce réglage : aucune limite, on ne
+    restreint pas rétroactivement ce qu'il avait le droit d'envoyer.
     """
     store = devices()
     return {"depuis": store.get_horizon_initial(dev_id),
@@ -245,9 +247,10 @@ def _assurer_appairage_en_cours() -> None:
 def _page_appairage() -> str:
     """Rend la page d'appairage pour l'appairage en cours.
 
-    La date proposée est l'horizon déjà enregistré pour cet appareil s'il y
-    en a un (retour sur la page après un POST), sinon aujourd'hui — repli
-    qui évite de remonter tout l'historique d'un téléphone neuf.
+    La date proposée est l'horizon déjà enregistré pour cet appareil : la
+    date du jour posée à la création de l'appairage, ou celle choisie lors
+    d'un POST précédent. Le « ou aujourd'hui » reste un filet pour un
+    appareil sans horizon (repris d'une base antérieure à ce réglage).
     """
     identifiant, _ = _appairage_en_cours
     depuis = (devices().get_horizon_initial(identifiant)
