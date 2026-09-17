@@ -256,7 +256,7 @@ copie douteuse est retirée et la source reste en place.
 python3 -m pytest -q
 ```
 
-Attendu : `115 passed`.
+Attendu : `177 passed`.
 
 ### L'ancienne version en C++
 

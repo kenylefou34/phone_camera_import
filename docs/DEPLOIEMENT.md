@@ -560,6 +560,13 @@ Tu obtiens un fichier `catalogue-phototheque.tgz` dans le dossier courant.
   fichier d'annonce sur l'hôte comme à l'étape 8 de la section systemd.
   Pense alors à renseigner `PUBLIC_URL` (tableau du paramétrage ci-dessus) pour
   que le QR code affiche une adresse joignable depuis le téléphone.
+- **Le conteneur sert en HTTP, pas en HTTPS.** Le certificat est fabriqué par
+  `install.sh`, que la variante Docker n'utilise pas. Conséquence à connaître :
+  l'adresse publiée dans le QR d'appairage vaut `https://…` par défaut, alors
+  que le conteneur ne répond qu'en `http://`. L'application ne pourrait pas se
+  connecter. Si tu utilises cette variante avec un téléphone, force l'adresse :
+  `PUBLIC_URL=http://<adresse-de-la-machine>:8787` dans `docker-compose.yml`.
+  Pour un simple essai depuis un navigateur, il n'y a rien à faire.
 - **Les fichiers créés par le conteneur appartiennent à `root`** sur ta machine
   (le conteneur tourne en root). C'est sans gravité, mais ça surprend quand on
   essaie de les effacer sans `sudo`.
