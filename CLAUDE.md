@@ -91,11 +91,11 @@ cd ~/phone_camera_import && git pull && ./deploy/install.sh
 # Déploiement détaillé, dépannage, retour arrière : docs/DEPLOIEMENT.md
 ```
 
-## Binaire C++ existant (`main.cpp`)
-Build : `cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j2`.
-Déps apt : `build-essential cmake libopencv-dev libspdlog-dev libfmt-dev
-libboost-all-dev`. ⚠️ Utiliser le **fmt système** (`find_package(fmt)`), pas le
-submodule ; inclure `<fmt/std.h>` (fmt ≥ 9). Le trieur Python le remplace.
+## Historique retiré
+Le trieur C++ d'origine (`main.cpp`, `CMakeLists.txt`), ses sous-modules
+(`modules/CLI11`, `modules/fmt`) et les lanceurs de bureau qui l'appelaient ont
+été supprimés le 2026-09-17 : le trieur Python les remplace. L'historique git
+les conserve — inutile de les recréer.
 
 ## Workflow
 Skills « superpowers » : brainstorming → spec → plan → TDD. Attribution des

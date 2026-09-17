@@ -249,20 +249,19 @@ python3 -m pytest -q
 
 Attendu : `115 passed`.
 
-### Binaire C++ historique
+### L'ancienne version en C++
 
-Le dépôt contient encore `main.cpp`, la première version du trieur. Le trieur
-Python le remplace et ne demande aucune compilation. Pour le construire malgré
-tout :
+La première version du trieur était écrite en C++ et demandait une compilation.
+Elle a été retirée du dépôt le 17/09/2026, avec ses deux sous-modules et les
+lanceurs de bureau qui l'appelaient. Le trieur Python la remplace entièrement et
+n'exige que Python.
+
+Rien n'est perdu : l'historique git la conserve. Pour la relire, par exemple :
 
 ```bash
-sudo apt-get install -y build-essential cmake libopencv-dev libspdlog-dev \
-    libfmt-dev libboost-all-dev
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j2
+git log --oneline --all -- main.cpp     # trouver un commit qui la contient
+git show <commit>:main.cpp              # l'afficher
 ```
-
-⚠️ Utiliser le **fmt du système** (`find_package(fmt)`), pas le sous-module
-`modules/fmt` : les versions diffèrent et l'édition de liens échoue.
 
 ### Conception
 
