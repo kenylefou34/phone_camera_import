@@ -3,7 +3,9 @@
 # Demande à l'utilisateur d'entrer le nom d'utilisateur SSH
 # read -p "Enter the SSH username: " SSH_USER
 # or
-SSH_USER="ken" #hard coded user name
+# Nom d'utilisateur affiche par SimpleSSHD sur le telephone.
+# Surchargeable : SSH_USER=autre ./run_backup.sh
+SSH_USER="${SSH_USER:-ken}"
 
 # Demande à l'utilisateur d'entrer l'adresse IP du téléphone
 read -p "Enter the phone last IP address number: 192.168.1." PHONE_ID
@@ -57,8 +59,12 @@ echo "PHONE_SYNC_FOLDER_PATH=$PHONE_SYNC_FOLDER_PATH"
 echo "PHONE_FLAG_TIMESTAMP_PATH=$PHONE_FLAG_TIMESTAMP_PATH"
 echo "PHONE_FILES_TO_SYNC_PATH=$PHONE_FILES_TO_SYNC_PATH"
 
+# Au tout premier lancement le fichier temoin n'existe pas : « find -newer »
+# echouerait en silence et rien ne serait synchronise. On le cree alors avec
+# une date ancienne, pour que la premiere sauvegarde prenne tout.
 ssh -p 2222 "$SSH_USER@$PHONE_IP" "
-  rm '$PHONE_FILES_TO_SYNC_PATH'
+  rm -f '$PHONE_FILES_TO_SYNC_PATH'
+  [ -f '$PHONE_FLAG_TIMESTAMP_PATH' ] || touch -t 197001020000 '$PHONE_FLAG_TIMESTAMP_PATH'
   find '$PHONE_SYNC_FOLDER_PATH' -type f -newer '$PHONE_FLAG_TIMESTAMP_PATH' -print0 > '$PHONE_FILES_TO_SYNC_PATH'
 "
 
@@ -77,7 +83,11 @@ ssh -p 2222 "$SSH_USER@$PHONE_IP" "
   touch '$PHONE_FLAG_TIMESTAMP_PATH'
 "
 
-exec ./build/phone_camera_import -s "$DEST_UNSORTED_FOLDER" -d "$DEST" --remove-copied
+# Tri des medias rapatries. Remplace ./build/phone_camera_import (binaire C++
+# supprime au profit du trieur Python, qui n'a besoin d'aucune compilation).
+CATALOG="${CATALOG:-$HOME/mediasort_catalog.db}"
+python3 -m mediasort --source "$DEST_UNSORTED_FOLDER" --library "$DEST" \
+    --catalog "$CATALOG" --clean-noise
 
-echo "Sync completed."
+echo "Sauvegarde et rangement termines."
 

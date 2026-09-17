@@ -27,6 +27,34 @@ Il demande ton mot de passe `sudo` : deux étapes touchent au système (l'unité
 systemd et le fichier Avahi). D'où le « vrai terminal » — un canal sans TTY ne
 peut pas saisir de mot de passe.
 
+### Ce que tu dois voir
+
+Sept étapes numérotées, puis :
+
+```
+    /        200  ok
+    /pair    200  ok
+    /status  401  ok
+    état      : active / enabled
+    admin     : http://IZQUIERDO-NUC.local:8787/
+```
+
+`401` sur `/status` est **normal** : cette adresse exige une authentification.
+Si le script s'arrête sur `ÉCHEC`, il dit quoi regarder.
+
+### Le vocabulaire, en quatre phrases
+
+- **systemd** est le chef d'orchestre des programmes qui tournent en fond sous
+  Linux. Sans lui, il faudrait lancer le serveur à la main dans un terminal, et
+  il s'arrêterait en le fermant.
+- Un **service** (ou *unité*) est un fichier texte qui lui décrit quoi lancer,
+  quand et comment. Le nôtre est `deploy/phototheque.service`.
+- **`active`** veut dire « il tourne en ce moment ». **`enabled`** veut dire « il
+  repartira tout seul au prochain démarrage du NUC ». Ce sont deux choses
+  différentes, et on veut les deux.
+- **Avahi** annonce la machine sur le réseau local sous `<nom d'hôte>.local`, ce
+  qui évite de retenir une adresse IP.
+
 ---
 
 ## Ce que fait le script, étape par étape
@@ -221,9 +249,10 @@ journalctl -u phototheque -b         # depuis le dernier démarrage du NUC
 | Symptôme | Cause probable | Quoi faire |
 |---|---|---|
 | Le service ne démarre pas au boot | Disque `Famille` non monté | `mountpoint -q /media/izquierdo/Famille` ; l'unité l'attend via `RequiresMountsFor`, il suffit de monter le disque |
-| `Address already in use` | Ancien service encore actif | `systemctl list-unit-files \| grep -E 'mediaserve\|phototheque'` puis retirer l'ancien (étape 4) |
+| `Address already in use` | Ancien service encore actif | `systemctl list-unit-files \| grep -E 'mediaserve\|phototheque'` puis retirer l'ancien (étape 3) |
 | L'adresse `.local` est inaccessible, l'IP fonctionne | Annonce mDNS absente, ou mauvais nom d'hôte | `sudo systemctl restart avahi-daemon` ; vérifier le nom réel avec `hostname` et ce qui est annoncé avec `avahi-browse -tpr _phototheque._tcp` depuis une autre machine |
-| Téléphones soudain non reconnus | Base d'appairage perdue | Vérifier `~/phototheque_devices.db` ; l'ancienne était `~/mediaserve_devices.db` (étape 3) |
+| Téléphones soudain non reconnus | Base d'appairage perdue | Vérifier `~/phototheque_devices.db` ; l'ancienne était `~/mediaserve_devices.db` (étape 4) |
+| Le QR d'appairage reste blanc | Page servie par une version antérieure au correctif | Relancer `git pull && ./deploy/install.sh` : le code n'est pas rechargé tout seul |
 | `database is locked` | Écriture concurrente sur le catalogue | Vérifier qu'un `--backfill-signatures` ne tourne pas : `pgrep -af "python3 -m mediasort"` |
 
 ### Revenir en arrière
