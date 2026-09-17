@@ -32,14 +32,17 @@ peut pas saisir de mot de passe.
 Neuf étapes numérotées, puis :
 
 ```
-    /        200  ok
-    /pair    200  ok
+    /        401  ok
+    /pair    401  ok
     /status  401  ok
     état      : active / enabled
     admin     : https://IZQUIERDO-NUC.local:8787/
 ```
 
-`401` sur `/status` est **normal** : cette adresse exige une authentification.
+`401` **partout** est le résultat correct et attendu, pas une panne : `/` et
+`/pair` sont derrière le mot de passe d'administration, `/status` derrière le
+jeton d'appareil, et le script de vérification ne s'authentifie nulle part. Un
+`200` à cet endroit voudrait dire que la protection ne fonctionne plus.
 Si le script s'arrête sur `ÉCHEC`, il dit quoi regarder.
 
 ### Le vocabulaire, en quatre phrases
@@ -252,17 +255,24 @@ donc la vérification pour cet appel local, avec
 
 ```bash
 ~/.venv-server/bin/python -c "
-import ssl, urllib.request
+import ssl, urllib.request, urllib.error
 contexte = ssl._create_unverified_context()
-for p in ('/', '/pair'):
-    print(p, urllib.request.urlopen('https://127.0.0.1:8787' + p, timeout=5,
-                                     context=contexte).status)
+for p in ('/', '/pair', '/status'):
+    try:
+        code = urllib.request.urlopen('https://127.0.0.1:8787' + p, timeout=5,
+                                       context=contexte).status
+    except urllib.error.HTTPError as e:
+        code = e.code
+    print(p, code)
 "
 ```
 
-Résultat attendu : `200` sur `/` et `/pair`. La route `/status` répond
-volontairement **401** sans authentification — c'est le comportement correct, pas
-une panne.
+Résultat attendu : **`401` sur les trois adresses** — c'est le comportement
+correct, pas une panne. `/` et `/pair` exigent le mot de passe
+d'administration, `/status` le jeton d'un appareil appairé, et cette commande
+ne s'authentifie nulle part. Le `try/except` n'est pas décoratif : sans lui,
+`urlopen` lève une `HTTPError` sur le premier `401` et la commande s'arrête sur
+une trace d'erreur.
 
 Le script contrôle aussi que le service est bien `active` après démarrage : un
 service en boucle de redémarrage ne doit pas passer pour une installation

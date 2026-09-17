@@ -471,3 +471,59 @@ def test_un_fichier_nom_avec_seulement_des_espaces_retombe_sur_le_defaut(tmp_pat
     assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
     contenu = avahi.read_text()
     assert '<name replace-wildcards="yes">phototheque sur %h</name>' in contenu
+
+
+# --- test de fumée de l'étape 9 : les codes attendus doivent être les vrais ---
+
+def _codes_attendus_par_install():
+    """Les couples (chemin, code attendu) du test de fumée de install.sh.
+
+    Extraits du script réel plutôt que recopiés : c'est tout l'intérêt du
+    test, qui compare ce que le script attend à ce que le service renvoie.
+    """
+    import re
+    texte = INSTALL.read_text()
+    debut = texte.index("for chemin, attendu in (")
+    ligne = texte[debut:texte.index("\n", debut)]
+    return [(chemin, int(code))
+            for chemin, code in re.findall(r'\("([^"]+)", *(\d+)\)', ligne)]
+
+
+def _client_comme_en_production(tmp_path, monkeypatch):
+    """Un client de test sur un service installé : mot de passe admin en place.
+
+    C'est la situation du test de fumée : le service vient d'être installé,
+    personne ne s'authentifie, et on regarde ce qu'il répond.
+    """
+    import base64  # noqa: F401  (l'en-tête n'est pas utilisé : on n'authentifie pas)
+    import importlib
+    from fastapi.testclient import TestClient
+    from phototheque import adminauth
+    fichier = tmp_path / "admin"
+    fichier.write_text(adminauth.empreinte("secret-admin", iterations=1000))
+    monkeypatch.setenv("ADMIN_FILE", str(fichier))
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("CATALOG_DB", str(tmp_path / "cat.db"))
+    monkeypatch.setenv("INCOMING_DIR", str(tmp_path / "incoming"))
+    monkeypatch.setenv("DEVICES_DB", str(tmp_path / "dev.db"))
+    import phototheque.config as c; importlib.reload(c)
+    import phototheque.app as a; importlib.reload(a)
+    return TestClient(a.app)
+
+
+def test_le_test_de_fumee_attend_les_codes_reellement_renvoyes(tmp_path, monkeypatch):
+    """Le trou par lequel le défaut est passé : le test de fumée a été écrit
+    quand `/` et `/pair` étaient ouverts, puis ces adresses sont passées
+    derrière le mot de passe admin (issue #10) sans que le script soit repris.
+    Résultat : l'installation se terminait toujours en ÉCHEC alors que tout
+    était correctement installé. Ce test verrouille l'accord entre les codes
+    attendus par install.sh et ceux que le service renvoie vraiment."""
+    attendus = _codes_attendus_par_install()
+    assert attendus, "bloc de vérification introuvable dans install.sh"
+    client = _client_comme_en_production(tmp_path, monkeypatch)
+    for chemin, code_attendu in attendus:
+        reel = client.get(chemin).status_code
+        assert reel == code_attendu, (
+            f"install.sh attend {code_attendu} sur {chemin}, "
+            f"le service répond {reel} : l'installation se terminerait en ÉCHEC"
+        )

@@ -294,12 +294,22 @@ fi
 etape "9/9  Vérification"
 
 # Laisser à uvicorn le temps d'ouvrir son port avant de l'interroger.
+#
+# Une réponse 401 compte comme un succès : depuis le durcissement de
+# l'administration (issue #10), « / » exige le mot de passe et urlopen lève
+# donc une HTTPError. Sans ce rattrapage, la fonction ne peut plus JAMAIS
+# réussir : la boucle d'attente ci-dessous ferait ses 20 tours à chaque
+# installation, soit 10 secondes perdues pour rien. Ici on veut seulement
+# savoir si le service répond — pas ce qu'il répond.
 service_repond() {
     "$PYTHON" - "$PORT" <<'PY' >/dev/null 2>&1
-import ssl, sys, urllib.request
+import ssl, sys, urllib.request, urllib.error
 contexte = ssl._create_unverified_context()   # certificat auto-signé, attendu
-urllib.request.urlopen("https://127.0.0.1:%s/" % sys.argv[1],
-                       timeout=2, context=contexte)
+try:
+    urllib.request.urlopen("https://127.0.0.1:%s/" % sys.argv[1],
+                           timeout=2, context=contexte)
+except urllib.error.HTTPError:
+    pass          # 401 : le service est là et répond, c'est tout ce qu'on veut
 PY
 }
 
@@ -318,18 +328,25 @@ if ! systemctl is-active --quiet ${SERVICE}.service; then
 fi
 
 # Pas de curl sur le NUC : on interroge avec urllib.
+#
+# 401 PARTOUT est le résultat CORRECT et attendu : « / » et « /pair » sont
+# derrière le mot de passe d'administration (issue #10), « /status » derrière
+# le jeton d'appareil, et ce script ne s'authentifie nulle part. Voir un 200
+# ici signifierait que le durcissement ne fonctionne plus. L'accord entre
+# cette liste et les adresses réellement protégées est verrouillé par
+# tests/test_deploy.py.
 "$PYTHON" - "$PORT" <<'PY' || echec "le service répond mal (voir ci-dessus)."
 import ssl, sys, urllib.request, urllib.error
 
 contexte = ssl._create_unverified_context()   # certificat auto-signé, attendu
 port = sys.argv[1]
 souci = False
-for chemin, attendu in (("/", 200), ("/pair", 200), ("/status", 401)):
+for chemin, attendu in (("/", 401), ("/pair", 401), ("/status", 401)):
     try:
         code = urllib.request.urlopen("https://127.0.0.1:%s%s" % (port, chemin),
                                        timeout=5, context=contexte).status
     except urllib.error.HTTPError as e:
-        code = e.code          # /status répond 401 : c'est le comportement voulu
+        code = e.code          # 401 attendu : authentification exigée, tant mieux
     except Exception as e:
         print("    %-8s ECHEC : %s" % (chemin, e)); souci = True; continue
     etat = "ok" if code == attendu else "INATTENDU (attendu %d)" % attendu
@@ -343,6 +360,7 @@ info "état      : $(systemctl is-active ${SERVICE}) / $(systemctl is-enabled ${
 info "version   : $(git log --oneline -1)"
 info "admin     : https://$(hostname).local:${PORT}/"
 info "appairage : https://$(hostname).local:${PORT}/pair"
+info "identifiant : admin (mot de passe affiché à sa création, étape 4/9)"
 info "ATTENTION : le navigateur avertira au premier accès (certificat"
 info "            auto-signé). Accepter une fois par appareil."
 info "journal   : journalctl -u ${SERVICE} -f"
