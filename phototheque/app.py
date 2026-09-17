@@ -176,6 +176,23 @@ def charge_appairage() -> str:
         config.PUBLIC_URL, secret, _empreinte_du_certificat()))
 
 
+def _assurer_appairage_en_cours() -> None:
+    """Garantit qu'un appairage valable est en cours ; en crée un sinon.
+
+    Appelée par GET comme par POST : sans cela, une page laissée ouverte
+    au-delà du délai verrait son appairage purgé, et POST écrirait la date
+    sur une ligne disparue avant de réafficher un QR inutilisable.
+    """
+    global _appairage_en_cours
+    devices().purge_pending()
+    if _appairage_en_cours is not None:
+        identifiant, _ = _appairage_en_cours
+        if not devices().is_pending(identifiant):
+            _appairage_en_cours = None      # confirmé, expiré ou révoqué
+    if _appairage_en_cours is None:
+        _appairage_en_cours = devices().pair("Nouveau téléphone")
+
+
 def _page_appairage() -> str:
     """Rend la page d'appairage pour l'appairage en cours.
 
@@ -200,28 +217,24 @@ def pair(_: None = Depends(require_admin)) -> str:
     Un appairage neuf n'est émis qu'une fois le précédent utilisé par un
     téléphone, expiré, ou révoqué.
     """
-    global _appairage_en_cours
-    devices().purge_pending()
-
-    if _appairage_en_cours is not None:
-        identifiant, _ = _appairage_en_cours
-        if not devices().is_pending(identifiant):
-            _appairage_en_cours = None      # confirmé, expiré ou révoqué
-    if _appairage_en_cours is None:
-        _appairage_en_cours = devices().pair("Nouveau téléphone")
-
+    _assurer_appairage_en_cours()
     return _page_appairage()
 
 
 @app.post("/pair", response_class=HTMLResponse)
 def pair_depuis(depuis: str = Form(...), _: None = Depends(require_admin)) -> str:
-    """Enregistre la date à partir de laquelle l'appareil remontera ses médias."""
+    """Enregistre la date à partir de laquelle l'appareil remontera ses médias.
+
+    Revérifie la fraîcheur de l'appairage avant d'écrire : une page restée
+    ouverte plus de 10 minutes verrait son appairage purgé entre-temps, et
+    sans ce contrôle la date serait écrite sur une ligne disparue avant de
+    réafficher un QR pointant vers un appareil inexistant.
+    """
     try:
         datetime.date.fromisoformat(depuis)
     except ValueError:
         raise HTTPException(status_code=400, detail="date invalide (AAAA-MM-JJ)")
-    if _appairage_en_cours is None:
-        raise HTTPException(status_code=409, detail="aucun appairage en cours")
+    _assurer_appairage_en_cours()
     identifiant, _secret = _appairage_en_cours
     devices().set_horizon_initial(identifiant, depuis)
     return _page_appairage()

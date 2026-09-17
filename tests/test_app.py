@@ -387,3 +387,27 @@ def test_une_date_invalide_est_refusee(tmp_path, monkeypatch):
     client.get("/pair", headers=entetes)
     assert client.post("/pair", headers=entetes,
                        data={"depuis": "hier"}).status_code == 400
+
+
+def test_poster_une_date_sur_un_appairage_perime_l_applique_au_nouveau(tmp_path, monkeypatch):
+    """Page laissée ouverte trop longtemps : la date suit le QR réellement affiché.
+
+    Sans cela, POST /pair écrivait dans le vide sur un appairage déjà purgé et
+    réaffichait un QR pointant vers un appareil inexistant — en silence.
+    """
+    from datetime import datetime, timedelta
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    client.get("/pair", headers=entetes)
+    perime = a.devices().list()[0]["id"]
+    vieux = (datetime.now() - timedelta(minutes=11)).isoformat(timespec="seconds")
+    a.devices()._cx.execute("UPDATE devices SET paired_at=? WHERE id=?", (vieux, perime))
+    a.devices()._cx.commit()
+
+    r = client.post("/pair", headers=entetes, data={"depuis": "2020-01-01"})
+
+    assert r.status_code == 200
+    restants = a.devices().list()
+    assert len(restants) == 1
+    assert restants[0]["id"] != perime       # l'appairage périmé a été purgé
+    assert a.devices().get_horizon_initial(restants[0]["id"]) == "2020-01-01"

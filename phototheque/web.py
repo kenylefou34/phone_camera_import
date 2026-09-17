@@ -10,6 +10,7 @@ couleurs d'état réservées. Une couleur d'état ne porte jamais l'information
 seule : elle est toujours doublée d'un mot.
 """
 
+import html
 from datetime import datetime
 
 from . import stats
@@ -247,7 +248,7 @@ def pair_html(qr_svg: str, url: str, depuis: str) -> str:
         '<div class="carte" style="margin-top:24px">'
         '<form method="post" action="/pair">'
         '<div class="detail">Importer les médias à partir du :</div>'
-        f'<input type="date" name="depuis" value="{depuis}">'
+        f'<input type="date" name="depuis" value="{html.escape(depuis)}">'
         '<button type="submit">Enregistrer</button>'
         '</form>'
         f"<div class=\"detail\">Ou saisis l'adresse à la main :<br><code>{url}</code></div>"
