@@ -101,6 +101,9 @@ class PlanRequest(BaseModel):
 
 class CommitRequest(BaseModel):
     session: str
+    # Jusqu'où chaque dossier a été parcouru par l'application. Facultatif :
+    # un client qui ne l'envoie pas continue de fonctionner.
+    horizons: dict[str, float] = {}
 
 
 @app.post("/sync/plan")
@@ -125,7 +128,7 @@ async def sync_upload(session: str = Form(...), path: str = Form(...),
 
 
 @app.post("/sync/commit")
-def sync_commit(req: CommitRequest, _: str = Depends(require_device)) -> dict:
+def sync_commit(req: CommitRequest, dev_id: str = Depends(require_device)) -> dict:
     session_dir = config.INCOMING_DIR / req.session
     if not session_dir.exists():
         raise HTTPException(status_code=404, detail="session inconnue")
@@ -135,6 +138,12 @@ def sync_commit(req: CommitRequest, _: str = Depends(require_device)) -> dict:
     finally:
         cat.close()
     sessions.cleanup(config.INCOMING_DIR, req.session)
+    # L'horizon n'avance QU'APRÈS un tri réussi : si la synchro échoue en
+    # route, la prochaine reprend depuis le dernier point sûr. On peut
+    # reproposer deux fois les mêmes fichiers — l'anti-doublon les écarte —
+    # mais on ne peut jamais en perdre.
+    for dossier, ts in req.horizons.items():
+        devices().set_horizon(dev_id, dossier, ts)
     return bilan
 
 

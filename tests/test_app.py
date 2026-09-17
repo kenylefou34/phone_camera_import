@@ -435,5 +435,64 @@ def test_horizon_renvoie_les_dossiers_deja_synchronises(tmp_path, monkeypatch):
     a.devices().set_horizon(dev_id, "DCIM/Camera", 1726574400.0)
 
     r = client.get("/sync/horizon", headers={"Authorization": f"Bearer {secret}"})
-
     assert r.json()["dossiers"] == {"DCIM/Camera": 1726574400.0}
+
+
+def test_horizon_renvoie_null_pour_un_appareil_sans_date_d_appairage(tmp_path, monkeypatch):
+    """Appareil appairé avant l'introduction du réglage : aucune limite.
+
+    Élément du contrat que l'application code en dur : elle doit recevoir
+    null, pas une absence de clé ni une chaîne vide.
+    """
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+
+    r = client.get("/sync/horizon", headers={"Authorization": f"Bearer {secret}"})
+
+    assert r.status_code == 200
+    assert r.json()["depuis"] is None
+
+
+def test_le_commit_enregistre_les_horizons(tmp_path, monkeypatch):
+    import datetime, hashlib, io
+    import mediasort.dates as d
+    monkeypatch.setattr(d, "date_from_metadata", lambda p: datetime.date(2023, 5, 26))
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    contenu = b"une photo"; empreinte = hashlib.sha256(contenu).hexdigest()
+    session = client.post("/sync/plan", headers=h, json={"files": [
+        {"path": "DCIM/Camera/a.jpg", "size": len(contenu), "hash": empreinte}]
+    }).json()["session"]
+    client.post("/sync/upload", headers=h,
+                data={"session": session, "path": "DCIM/Camera/a.jpg"},
+                files={"file": ("a.jpg", io.BytesIO(contenu), "image/jpeg")})
+
+    r = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": 1726574400.0}})
+
+    assert r.status_code == 200
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1726574400.0}
+
+
+def test_un_commit_qui_echoue_ne_fait_pas_avancer_l_horizon(tmp_path, monkeypatch):
+    """Session inconnue : l'horizon ne bouge pas, la prochaine synchro reprend."""
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+
+    r = client.post("/sync/commit",
+                    headers={"Authorization": f"Bearer {secret}"},
+                    json={"session": "inexistante",
+                          "horizons": {"DCIM/Camera": 1726574400.0}})
+
+    assert r.status_code == 404
+    assert a.devices().get_horizons(dev_id) == {}
+
+
+def test_le_commit_sans_horizons_reste_accepte(tmp_path, monkeypatch):
+    """Champ facultatif : un client qui ne l'envoie pas fonctionne toujours."""
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+    r = client.post("/sync/commit", headers={"Authorization": f"Bearer {secret}"},
+                    json={"session": "inexistante"})
+    assert r.status_code == 404      # refusée pour la session, pas pour le format
