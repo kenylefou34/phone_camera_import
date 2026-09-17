@@ -58,7 +58,10 @@ def require_admin(authorization: str = Header(default="")) -> None:
     )
     try:
         enregistre = config.ADMIN_FILE.read_text().strip()
-    except OSError:
+    except (OSError, ValueError):
+        # OSError : fichier absent (service pas encore installé).
+        # ValueError : contenu non décodable (corruption). Dans les deux cas
+        # on refuse proprement plutôt que de renvoyer une erreur serveur.
         raise refus
     prefixe = "Basic "
     if not authorization.startswith(prefixe):

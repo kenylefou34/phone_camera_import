@@ -347,3 +347,12 @@ def test_sans_fichier_de_mot_de_passe_l_admin_est_fermee(tmp_path, monkeypatch):
     monkeypatch.setenv("ADMIN_FILE", str(tmp_path / "jamais-cree"))
     a, client = _client(tmp_path, monkeypatch)
     assert client.get("/").status_code == 401
+
+
+def test_un_fichier_admin_corrompu_ferme_l_admin_sans_erreur_500(tmp_path, monkeypatch):
+    """Fichier d'identifiants illisible : refus propre, pas d'erreur serveur."""
+    fichier = tmp_path / "admin"
+    fichier.write_bytes(b"\xff\xfe pas de l'UTF-8")
+    monkeypatch.setenv("ADMIN_FILE", str(fichier))
+    a, client = _client(tmp_path, monkeypatch)
+    assert client.get("/").status_code == 401
