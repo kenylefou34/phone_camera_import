@@ -67,7 +67,32 @@ bibliothèque standard. Seuls `exiftool` et `ffmpeg` lui sont utiles, côté sys
 sudo apt-get install -y libimage-exiftool-perl ffmpeg
 ```
 
-### 3. Reprise des données de l'ancien nom
+### 3. Retrait de l'ancien service
+
+```bash
+sudo systemctl disable --now mediaserve.service
+sudo rm -f /etc/systemd/system/mediaserve.service
+sudo rm -f /etc/avahi/services/avahi-mediaserve.service
+sudo systemctl daemon-reload
+```
+
+**C'est le piège du renommage.** Installer le nouveau service sans retirer
+l'ancien laisse deux unités actives qui se disputent le port 8787 : la seconde
+échoue au démarrage, redémarre en boucle, et les journaux deviennent illisibles.
+
+Cette étape vient **avant** la reprise des données, et ce n'est pas un détail :
+déplacer une base SQLite pendant que le processus qui l'écrit tourne encore
+donne un état incohérent.
+
+> **Comment cette étape a échoué le 17/09/2026.** Le script testait la présence
+> de l'ancien service avec `systemctl list-unit-files | grep -q "^mediaserve"`.
+> Sous `set -o pipefail`, `grep -q` s'arrête au premier résultat et ferme le
+> tuyau ; `systemctl`, qui a encore beaucoup à écrire, reçoit SIGPIPE et sort en
+> 141 ; le pipeline renvoie donc 141 **alors que la correspondance existait**.
+> La condition était inversée, le nettoyage sauté. La détection se fait
+> maintenant sur l'existence du fichier d'unité — déterministe, sans pipeline.
+
+### 4. Reprise des appairages
 
 ```bash
 mv ~/mediaserve_devices.db ~/phototheque_devices.db
@@ -77,25 +102,31 @@ La base des **appareils appairés** portait l'ancien nom. Sans cette reprise, le
 service redémarrerait avec zéro appareil connu et les téléphones déjà appairés
 seraient rejetés — il faudrait tout réappairer au QR code.
 
-Le script ne le fait que si l'ancien fichier existe et que le nouveau n'existe
-pas encore, donc le relancer est sans danger.
+Le script décide d'après le **contenu** des bases, pas d'après l'existence du
+fichier : il reprend si l'ancienne contient des appareils et la nouvelle aucun,
+et n'écrase jamais une base déjà peuplée. Une base vide rencontrée au passage
+est mise de côté sous `*.vide-<horodatage>` plutôt que supprimée.
+
+> **Pourquoi le contenu et pas l'existence.** `phototheque/app.py` instancie
+> `DeviceStore` au chargement du module : **importer l'application suffit à
+> créer la base, vide**. Un simple `lancer les tests` sur le NUC crée donc
+> `~/phototheque_devices.db`, et un test d'existence en conclut à tort que la
+> reprise a déjà eu lieu. C'est exactement ce qui s'est produit le 17/09/2026.
 
 Le catalogue des médias, lui, ne change pas de nom : il s'appelle
 `~/mediasort_catalog.db` d'après le trieur, qui n'a pas été renommé.
 
-### 4. Retrait de l'ancien service
+### 5. Le port est-il libre ?
 
 ```bash
-sudo systemctl disable --now mediaserve.service
-sudo rm -f /etc/systemd/system/mediaserve.service
-sudo rm -f /etc/avahi/services/avahi-mediaserve.service
+ss -lptn 'sport = :8787'
 ```
 
-**C'est le piège du renommage.** Installer le nouveau service sans retirer
-l'ancien laisse deux unités actives qui se disputent le port 8787 : la seconde
-échoue au démarrage, redémarre en boucle, et les journaux deviennent illisibles.
+Filet de sécurité avant de démarrer : même sans ancienne unité, un `uvicorn`
+lancé à la main peut tenir le port. Le script s'arrête avec un message clair
+plutôt que de laisser systemd boucler.
 
-### 5. Installation de l'unité systemd et de l'annonce réseau
+### 6. Installation de l'unité systemd et de l'annonce réseau
 
 ```bash
 sudo cp deploy/phototheque.service /etc/systemd/system/
@@ -116,7 +147,7 @@ sudo systemctl restart avahi-daemon
 `enable` et `active` sont deux choses distinctes : `active` veut dire « il tourne
 en ce moment », `enabled` veut dire « il repartira au prochain démarrage ».
 
-### 6. Vérification
+### 7. Vérification
 
 Il n'y a **pas de `curl` sur le NUC** : on interroge avec Python.
 
@@ -131,6 +162,18 @@ for p in ('/', '/pair'):
 Résultat attendu : `200` sur `/` et `/pair`. La route `/status` répond
 volontairement **401** sans authentification — c'est le comportement correct, pas
 une panne.
+
+Le script contrôle aussi que le service est bien `active` après démarrage : un
+service en boucle de redémarrage ne doit pas passer pour une installation
+réussie.
+
+### Les décisions du script sont testées
+
+Les deux décisions qui se sont trompées le 17/09/2026 (détecter l'ancien
+service, décider de reprendre les appairages) sont isolées dans
+`deploy/lib.sh`, sans effet de bord, et couvertes par `tests/test_deploy.py`.
+Un test interdit par ailleurs de décider à partir d'un pipeline, la cause de la
+première panne.
 
 ---
 
