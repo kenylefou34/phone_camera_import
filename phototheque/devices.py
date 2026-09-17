@@ -116,6 +116,19 @@ class DeviceStore:
                 self._cx.commit()
         return len(perimes)
 
+    def is_pending(self, device_id: str) -> bool:
+        """Vrai si cet appairage existe encore et n'a jamais servi.
+
+        Faux s'il a été confirmé par un téléphone, révoqué, ou purgé après
+        expiration. Permet à /pair de réafficher son appairage en cours plutôt
+        que d'en créer un nouveau à chaque visite.
+        """
+        with self._lock:
+            cur = self._cx.execute(
+                "SELECT 1 FROM devices WHERE id=? AND confirmed_at IS NULL", (device_id,)
+            )
+            return cur.fetchone() is not None
+
     def list(self) -> list:
         with self._lock:
             cur = self._cx.execute(

@@ -152,3 +152,35 @@ def test_pair_page_publishes_a_reachable_url(tmp_path, monkeypatch):
     r = client.get("/pair")
     assert "essai-hote.local:8787" in r.text
     assert "nuc.local" not in r.text
+
+
+def test_pair_page_reuses_the_same_qr_while_valid(tmp_path, monkeypatch):
+    """Recharger /pair ne doit PAS créer un second identifiant.
+
+    Un GET ne doit rien modifier. Avant ce correctif, chaque appel — sonde de
+    supervision, préchargement du navigateur, vérification du script
+    d'installation — fabriquait une clé d'accès.
+    """
+    a, client = _client(tmp_path, monkeypatch)
+    premier = client.get("/pair")
+    second = client.get("/pair")
+
+    assert premier.status_code == second.status_code == 200
+    assert premier.text == second.text, "un nouveau QR a été généré"
+    assert len(a.devices().list()) == 1
+
+
+def test_pair_page_issues_a_new_qr_once_the_previous_is_used(tmp_path, monkeypatch):
+    """Une fois le téléphone appairé, la page propose un appairage neuf."""
+    a, client = _client(tmp_path, monkeypatch)
+    client.get("/pair")
+    en_cours = a.devices().list()[0]["id"]
+    # Le téléphone scanne et se connecte : l'appairage est confirmé.
+    _, secret = a._appairage_en_cours
+    assert a.devices().validate(secret) == en_cours
+
+    client.get("/pair")
+
+    liste = a.devices().list()
+    assert len(liste) == 2
+    assert sum(1 for d in liste if d["en_attente"]) == 1

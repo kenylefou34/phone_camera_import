@@ -104,3 +104,14 @@ def test_old_catalog_without_confirmed_column_keeps_working(tmp_path):
     assert st.list()[0]["en_attente"] is False
     assert st.purge_pending() == 0
     st.close()
+
+
+def test_is_pending_reflects_the_confirmation_state():
+    """Permet à /pair de savoir si son appairage en cours est encore proposable."""
+    st = DeviceStore(":memory:")
+    dev_id, secret = st.pair("Pixel")
+    assert st.is_pending(dev_id) is True
+    st.validate(secret)
+    assert st.is_pending(dev_id) is False       # confirmé
+    assert st.is_pending("inconnu") is False    # supprimé ou jamais vu
+    st.close()

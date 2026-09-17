@@ -114,13 +114,34 @@ def revoke_device(device_id: str) -> dict:
     return {"revoked": devices().revoke(device_id)}
 
 
+# Appairage actuellement proposé : (id, secret en clair). Gardé en mémoire
+# uniquement — le secret n'est jamais écrit sur disque, seule son empreinte
+# l'est. Perdu au redémarrage du service, ce qui est sans conséquence : la
+# page en proposera simplement un nouveau.
+_appairage_en_cours = None
+
+
 @app.get("/pair", response_class=HTMLResponse)
 def pair() -> str:
-    # Chaque affichage crée un secret : on retire d'abord les appairages
-    # proposés puis jamais utilisés, sinon la moindre visite de cette page
-    # laisserait une clé d'accès valable indéfiniment.
+    """Affiche le QR d'appairage. Un GET ne doit RIEN créer de nouveau.
+
+    Recharger la page réaffiche le même QR tant qu'il est valable. Sans cela,
+    chaque appel fabriquait une clé d'accès : sonde de supervision,
+    préchargement du navigateur, vérification du script d'installation...
+    Un appairage neuf n'est émis qu'une fois le précédent utilisé par un
+    téléphone, expiré, ou révoqué.
+    """
+    global _appairage_en_cours
     devices().purge_pending()
-    _, secret = devices().pair("Nouveau téléphone")
+
+    if _appairage_en_cours is not None:
+        identifiant, _ = _appairage_en_cours
+        if not devices().is_pending(identifiant):
+            _appairage_en_cours = None      # confirmé, expiré ou révoqué
+    if _appairage_en_cours is None:
+        _appairage_en_cours = devices().pair("Nouveau téléphone")
+
+    _, secret = _appairage_en_cours
     url = config.PUBLIC_URL
     charge = json.dumps(pairing.pairing_payload(url, secret))
     svg = pairing.qr_svg(charge)
