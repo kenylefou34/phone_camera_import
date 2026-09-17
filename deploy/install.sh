@@ -131,13 +131,22 @@ else
     # source du script Python (visible dans un journal en cas d'erreur). Il
     # transite donc uniquement par l'entrée standard, jamais interpolé ; seul
     # $racine (non secret) passe par sys.argv, comme pour le certificat.
-    printf '%s' "$MOT_DE_PASSE" | "$PYTHON" -c '
+    #
+    # Sous-shell avec umask 077 : sans cela, le fichier naîtrait avec les
+    # droits par défaut le temps très court qui sépare la redirection « > »
+    # du `chmod` ci-dessous. En pratique $CONFIG_DIR (0700) referme déjà
+    # cette fenêtre, mais pour un fichier d'identifiants on ne veut pas
+    # dépendre d'une protection posée ailleurs : avec cet umask, le fichier
+    # n'existe jamais autrement qu'en 0600. Le `chmod` explicite est conservé
+    # ensuite : il rend l'intention lisible et rattrape le cas d'un fichier
+    # préexistant avec des droits trop larges.
+    (umask 077; printf '%s' "$MOT_DE_PASSE" | "$PYTHON" -c '
 import sys
 sys.path.insert(0, sys.argv[1])
 from phototheque import adminauth
 mot_de_passe = sys.stdin.read()
 print(adminauth.empreinte(mot_de_passe))
-' "$racine" > "$ADMIN"
+' "$racine" > "$ADMIN")
     chmod 600 "$ADMIN"
     printf '\n\033[1m    ┌─────────────────────────────────────────────┐\033[0m\n'
     printf '\033[1m    │  Identifiants d'"'"'administration              │\033[0m\n'
