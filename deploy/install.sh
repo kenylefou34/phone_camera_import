@@ -237,9 +237,39 @@ fi
 etape "8/9  Installation et démarrage"
 
 sudo cp deploy/${SERVICE}.service "$UNITE"
-sudo cp deploy/avahi-${SERVICE}.service "$AVAHI"
 info "$UNITE"
+
+# Nom affiché par l'application dans sa liste de serveurs. « %h » est le nom
+# de la machine, un nom technique ; un nom choisi (ex. « Photothèque du
+# salon ») est plus parlant, et reste correct si le service change un jour
+# de matériel.
+if [ -f "$CONFIG_DIR/nom" ]; then
+    NOM_AFFICHE=$(head -1 "$CONFIG_DIR/nom")
+else
+    NOM_AFFICHE="phototheque sur %h"
+fi
+# Le nom est injecté dans un fichier XML (l'annonce Avahi) : « & », « < » et
+# « > » y sont invalides tels quels. Un fichier invalide ferait qu'Avahi
+# refuse de le charger — l'annonce réseau disparaîtrait sans aucun message.
+# On échappe donc ces caractères en entités XML plutôt que de rejeter le nom :
+# un usager non technique ne comprendrait pas pourquoi son nom serait
+# refusé, et l'entité XML est de toute façon décodée à l'affichage — le nom
+# apparaît intact sur le réseau.
+#
+# La substitution passe par Python, pas par `sed` : le nom peut contenir
+# « / », « & » ou « \ », qui ont chacun un sens particulier pour `sed`
+# (délimiteur habituel, référence arrière, échappement). Un remplacement
+# littéral en Python n'a pas ce problème.
+"$PYTHON" - "deploy/avahi-${SERVICE}.service" "$NOM_AFFICHE" <<'PY' | sudo tee "$AVAHI" >/dev/null
+import sys
+gabarit, nom = sys.argv[1], sys.argv[2]
+nom_xml = nom.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+with open(gabarit, encoding="utf-8") as f:
+    contenu = f.read()
+sys.stdout.write(contenu.replace("NOM_AFFICHE", nom_xml))
+PY
 info "$AVAHI"
+info "annoncé sur le réseau sous : ${NOM_AFFICHE}"
 
 sudo systemctl daemon-reload
 sudo systemctl enable ${SERVICE}.service

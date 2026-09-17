@@ -338,3 +338,106 @@ racine="{DEPOT}"
         "la garde du prochain lancement le prendrait pour un mot de passe "
         "valide et ne le régénérerait jamais"
     )
+
+
+# --- nom convivial annoncé en mDNS -------------------------------------------
+
+def test_l_annonce_mdns_porte_un_nom_substituable():
+    """install.sh doit pouvoir remplacer le nom affiché sur le réseau."""
+    annonce = (LIB.parent / "avahi-phototheque.service").read_text()
+    assert "NOM_AFFICHE" in annonce
+    script = "\n".join(_lignes_de_code(LIB.parent / "install.sh"))
+    assert "NOM_AFFICHE" in script
+
+
+def _bloc_nom_affiche():
+    """Le bloc qui décide du nom affiché sur le réseau et l'injecte dans le
+    gabarit Avahi, extrait du script réel (même raison que les blocs
+    précédents : ne pas retaper le code à la main, au risque de diverger
+    silencieusement du code réellement livré)."""
+    texte = INSTALL.read_text()
+    debut = texte.index('if [ -f "$CONFIG_DIR/nom" ]; then')
+    marqueur_fin = 'info "annoncé sur le réseau sous : ${NOM_AFFICHE}"'
+    fin = texte.index(marqueur_fin, debut) + len(marqueur_fin)
+    return texte[debut:fin]
+
+
+def _executer_bloc_nom_affiche(config_dir, avahi_dest):
+    """Exécute le bloc dans un bash isolé. `sudo` est neutralisé (le bloc
+    écrit normalement dans un fichier système via `sudo tee`) ; le gabarit
+    utilisé est le vrai fichier du dépôt, comme en production."""
+    script = f'''
+set -euo pipefail
+info() {{ printf '%s\\n' "$*"; }}
+sudo() {{ "$@"; }}
+CONFIG_DIR="{config_dir}"
+SERVICE="phototheque"
+AVAHI="{avahi_dest}"
+PYTHON=python3
+{_bloc_nom_affiche()}
+'''
+    return subprocess.run(["bash", "-c", script], cwd=DEPOT,
+                           capture_output=True, text=True)
+
+
+def test_annonce_par_defaut_inchangee_sans_fichier_nom(tmp_path):
+    """Sans ~/.config/phototheque/nom, l'annonce doit rester exactement celle
+    d'avant cette tâche : pas de régression sur le comportement par défaut."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    avahi = tmp_path / "avahi-phototheque.service"
+    r = _executer_bloc_nom_affiche(config_dir, avahi)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    contenu = avahi.read_text()
+    assert '<name replace-wildcards="yes">phototheque sur %h</name>' in contenu
+
+
+def test_nom_choisi_remplace_le_nom_par_defaut(tmp_path):
+    """Un fichier ~/.config/phototheque/nom présent doit remplacer le nom."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "nom").write_text("Photothèque du salon\n")
+    avahi = tmp_path / "avahi-phototheque.service"
+    r = _executer_bloc_nom_affiche(config_dir, avahi)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    contenu = avahi.read_text()
+    assert '<name replace-wildcards="yes">Photothèque du salon</name>' in contenu
+
+
+def test_nom_avec_caracteres_speciaux_xml_reste_une_annonce_valide(tmp_path):
+    """Un nom contenant &, < ou > casserait le XML s'il était injecté tel
+    quel — Avahi refuserait alors de charger le fichier, et l'annonce réseau
+    disparaîtrait sans aucun message. Le fichier produit doit rester un XML
+    valide, et le nom, une fois décodé, doit correspondre exactement à ce
+    que l'usager a tapé (pas de troncature au premier caractère spécial)."""
+    import xml.etree.ElementTree as ET
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    nom = "Salon & Cuisine <chez les Dupont>"
+    (config_dir / "nom").write_text(nom + "\n")
+    avahi = tmp_path / "avahi-phototheque.service"
+    r = _executer_bloc_nom_affiche(config_dir, avahi)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+
+    arbre = ET.parse(avahi)  # lève une exception si le XML est invalide
+    assert arbre.getroot().find("name").text == nom
+
+
+def test_nom_avec_caracteres_speciaux_pour_sed_ne_casse_pas_la_substitution(tmp_path):
+    """Le nom peut contenir des caractères qui ont un sens particulier pour
+    `sed` (`/` le délimiteur usuel, `&` la référence arrière, `\\`
+    l'échappement) : la méthode de substitution retenue doit les ignorer et
+    les transmettre tels quels."""
+    import xml.etree.ElementTree as ET
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    nom = "Salon/Cuisine \\1 & Cie"
+    (config_dir / "nom").write_text(nom + "\n")
+    avahi = tmp_path / "avahi-phototheque.service"
+    r = _executer_bloc_nom_affiche(config_dir, avahi)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+
+    arbre = ET.parse(avahi)
+    assert arbre.getroot().find("name").text == nom

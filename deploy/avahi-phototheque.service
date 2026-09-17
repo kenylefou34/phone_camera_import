@@ -1,7 +1,7 @@
 <?xml version="1.0" standalone='no'?>
 <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
 <service-group>
-  <name replace-wildcards="yes">phototheque sur %h</name>
+  <name replace-wildcards="yes">NOM_AFFICHE</name>
   <service>
     <type>_phototheque._tcp</type>
     <port>8787</port>
