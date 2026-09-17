@@ -198,8 +198,17 @@ cd ~/phone_camera_import && git pull && ./deploy/install.sh
 
 Puis, dans un navigateur :
 
-- `http://IZQUIERDO-NUC.local:8787/` — page d'administration
-- `http://IZQUIERDO-NUC.local:8787/pair` — QR code d'appairage
+- `https://IZQUIERDO-NUC.local:8787/` — page d'administration
+- `https://IZQUIERDO-NUC.local:8787/pair` — QR code d'appairage
+
+> **Au premier accès, le navigateur affiche un avertissement de sécurité.**
+> C'est normal : le certificat est fabriqué par le NUC lui-même, aucune
+> autorité extérieure ne le garantit. Clique sur « Paramètres avancés » puis
+> « Continuer ». À faire une fois par appareil.
+>
+> L'identifiant est `admin` et le mot de passe est affiché par
+> `./deploy/install.sh` à la première installation. Pour en changer :
+> `rm ~/.config/phototheque/admin` puis relancer le script.
 
 **📖 [`docs/DEPLOIEMENT.md`](docs/DEPLOIEMENT.md)** détaille chaque étape, le
 paramétrage, le dépannage, le retour en arrière et la variante Docker.

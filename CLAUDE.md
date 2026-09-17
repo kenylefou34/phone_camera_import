@@ -33,7 +33,12 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
 - ✅ **Appairage durci** : un QR affiché crée un appairage *en attente* qui
   expire au bout de 10 min s'il n'est jamais utilisé (le premier usage le
   confirme définitivement) ; `/pair` fait le ménage à chaque visite. La base
-  des appareils n'est plus ouverte à l'import du module. **101 tests**.
+  des appareils n'est plus ouverte à l'import du module.
+- ✅ **Transport chiffré + admin protégée + horizon de synchro** (issues #3, #10,
+  #2) : HTTPS auto-signé épinglable par l'app, mot de passe admin sur `/`,
+  `/pair`, `/devices` et la révocation, horizon par (appareil, dossier).
+  Adresse : `https://IZQUIERDO-NUC.local:8787/`, identifiant `admin`.
+  **177 tests**.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
@@ -83,9 +88,12 @@ python3 -m mediasort --catalog ~/mediasort_catalog.db --backfill-signatures
 
 # Serveur (sur le NUC) — installation ET mise à jour, idempotent :
 cd ~/phone_camera_import && git pull && ./deploy/install.sh
-# puis http://IZQUIERDO-NUC.local:8787/ (admin) et /pair (QR)
+# puis https://IZQUIERDO-NUC.local:8787/ (admin, identifiant "admin") et /pair (QR)
 #   (nuc.local ne résout PAS : la machine s'annonce en <hostname>.local)
-# Lancement manuel (dev) :
+#   (le navigateur avertit au premier accès : certificat auto-signé, normal)
+#   (mot de passe affiché une seule fois par install.sh ; pour le changer :
+#    rm ~/.config/phototheque/admin puis relancer install.sh)
+# Lancement manuel (dev, sans TLS) :
 ~/.venv-server/bin/uvicorn phototheque.app:app --host 0.0.0.0 --port 8787
 
 # Déploiement détaillé, dépannage, retour arrière : docs/DEPLOIEMENT.md

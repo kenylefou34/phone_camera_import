@@ -29,14 +29,14 @@ peut pas saisir de mot de passe.
 
 ### Ce que tu dois voir
 
-Sept étapes numérotées, puis :
+Neuf étapes numérotées, puis :
 
 ```
     /        200  ok
     /pair    200  ok
     /status  401  ok
     état      : active / enabled
-    admin     : http://IZQUIERDO-NUC.local:8787/
+    admin     : https://IZQUIERDO-NUC.local:8787/
 ```
 
 `401` sur `/status` est **normal** : cette adresse exige une authentification.
@@ -95,7 +95,50 @@ bibliothèque standard. Seuls `exiftool` et `ffmpeg` lui sont utiles, côté sys
 sudo apt-get install -y libimage-exiftool-perl ffmpeg
 ```
 
-### 3. Retrait de l'ancien service
+### 3. Certificat du serveur
+
+```bash
+mkdir -p ~/.config/phototheque && chmod 700 ~/.config/phototheque
+openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+    -subj "/CN=$(hostname).local" \
+    -addext "subjectAltName=DNS:$(hostname).local,DNS:localhost,IP:127.0.0.1" \
+    -keyout ~/.config/phototheque/key.pem -out ~/.config/phototheque/cert.pem
+```
+
+Le service ne parle plus qu'en **HTTPS** : sans certificat, pas de démarrage.
+N'ayant personne pour garantir ce certificat (pas d'autorité extérieure,
+contrairement à un site public), il est **auto-signé** — d'où l'avertissement
+du navigateur au premier accès, normal, détaillé plus bas.
+
+Si le certificat existe déjà, le script le garde tel quel et affiche son
+empreinte — c'est elle que l'application épingle pour reconnaître le NUC (voir
+plus bas, section « Le certificat et le mot de passe »).
+
+### 4. Mot de passe d'administration
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(12))"
+```
+
+Un mot de passe est tiré au hasard et son empreinte enregistrée dans
+`~/.config/phototheque/admin` (jamais le mot de passe en clair). Il protège
+`/`, `/pair`, `/devices` et la révocation d'un appareil.
+
+**Il n'est affiché qu'une seule fois**, à la création :
+
+```
+    ┌─────────────────────────────────────────────┐
+    │  Identifiants d'administration               │
+    │  utilisateur : admin                         │
+    │  mot de passe : xxxxxxxxxxxxxxxxxxxxxxxxxx   │
+    └─────────────────────────────────────────────┘
+```
+
+**Note-le tout de suite.** Si le fichier `admin` existe déjà, cette étape ne
+fait rien et n'affiche rien : le mot de passe en place est conservé. Pour en
+changer, voir la section « Le certificat et le mot de passe » plus bas.
+
+### 5. Retrait de l'ancien service
 
 ```bash
 sudo systemctl disable --now mediaserve.service
@@ -120,7 +163,7 @@ donne un état incohérent.
 > La condition était inversée, le nettoyage sauté. La détection se fait
 > maintenant sur l'existence du fichier d'unité — déterministe, sans pipeline.
 
-### 4. Reprise des appairages
+### 6. Reprise des appairages
 
 ```bash
 mv ~/mediaserve_devices.db ~/phototheque_devices.db
@@ -146,7 +189,7 @@ est mise de côté sous `*.vide-<horodatage>` plutôt que supprimée.
 Le catalogue des médias, lui, ne change pas de nom : il s'appelle
 `~/mediasort_catalog.db` d'après le trieur, qui n'a pas été renommé.
 
-### 5. Le port est-il libre ?
+### 7. Le port est-il libre ?
 
 ```bash
 ss -lptn 'sport = :8787'
@@ -156,7 +199,7 @@ Filet de sécurité avant de démarrer : même sans ancienne unité, un `uvicorn
 lancé à la main peut tenir le port. Le script s'arrête avec un message clair
 plutôt que de laisser systemd boucler.
 
-### 6. Installation de l'unité systemd et de l'annonce réseau
+### 8. Installation de l'unité systemd et de l'annonce réseau
 
 ```bash
 sudo cp deploy/phototheque.service /etc/systemd/system/
@@ -171,7 +214,7 @@ sudo systemctl restart avahi-daemon
 - **`enable`** : le service démarrera automatiquement à chaque boot du NUC.
 - **`--now`** : et démarre aussi tout de suite.
 - **`restart avahi-daemon`** : Avahi ne relit ses fichiers de service qu'au
-  redémarrage. C'est lui qui permet d'écrire `http://IZQUIERDO-NUC.local:8787`
+  redémarrage. C'est lui qui permet d'écrire `https://IZQUIERDO-NUC.local:8787`
   au lieu de retenir l'adresse IP, et qui permettra à l'app Android de trouver
   le NUC seule.
 
@@ -185,18 +228,35 @@ sudo systemctl restart avahi-daemon
 > avahi-browse -tpr _phototheque._tcp
 > ```
 
+**Nom convivial (facultatif).** Par défaut l'annonce réseau porte
+`phototheque sur <nom d'hôte>` (ex. `phototheque sur IZQUIERDO-NUC`), un nom
+technique. Pour afficher autre chose (« Photothèque du salon ») :
+
+```bash
+echo "Photothèque du salon" > ~/.config/phototheque/nom
+./deploy/install.sh
+```
+
+Un fichier absent, vide ou ne contenant que des espaces retombe sur le nom par
+défaut — jamais sur une annonce sans nom.
+
 `enable` et `active` sont deux choses distinctes : `active` veut dire « il tourne
 en ce moment », `enabled` veut dire « il repartira au prochain démarrage ».
 
-### 7. Vérification
+### 9. Vérification
 
-Il n'y a **pas de `curl` sur le NUC** : on interroge avec Python.
+Il n'y a **pas de `curl` sur le NUC** : on interroge avec Python. Le certificat
+étant auto-signé, personne ne le garantit pour Python non plus : on désactive
+donc la vérification pour cet appel local, avec
+`ssl._create_unverified_context()`.
 
 ```bash
 ~/.venv-server/bin/python -c "
-import urllib.request
+import ssl, urllib.request
+contexte = ssl._create_unverified_context()
 for p in ('/', '/pair'):
-    print(p, urllib.request.urlopen('http://127.0.0.1:8787' + p, timeout=5).status)
+    print(p, urllib.request.urlopen('https://127.0.0.1:8787' + p, timeout=5,
+                                     context=contexte).status)
 "
 ```
 
@@ -237,6 +297,53 @@ sudo systemctl restart phototheque
 
 ---
 
+## Le certificat et le mot de passe
+
+`install.sh` fabrique les deux à la première installation, dans
+`~/.config/phototheque/` :
+
+| Fichier | Rôle | Si tu le supprimes |
+|---|---|---|
+| `cert.pem`, `key.pem` | certificat du serveur | un nouveau est fabriqué — **tous les téléphones appairés sont rejetés** et doivent être réappairés |
+| `admin` | empreinte du mot de passe | un nouveau mot de passe est tiré et affiché |
+| `nom` | nom affiché sur le réseau (facultatif) | retour à « phototheque sur <machine> » |
+
+**Ne supprime jamais le certificat sans raison.** L'application épingle son
+empreinte : la changer revient à changer d'identité aux yeux des téléphones.
+
+**Mot de passe perdu ou à changer :**
+
+```bash
+rm ~/.config/phototheque/admin
+./deploy/install.sh
+```
+
+Le script relance la fabrication (étape 4/9) et affiche un nouveau mot de
+passe — **une seule fois**, comme à la première installation. Note-le
+immédiatement.
+
+### Migrer vers une autre machine
+
+Le téléphone retrouve le serveur par le réseau, pas par son adresse : il cherche
+le service `_phototheque._tcp` et reconnaît le bon au certificat. Deux façons de
+déménager :
+
+**Garder les appairages** — copier la configuration et les données :
+
+```bash
+scp -r ~/.config/phototheque nouvelle-machine:~/.config/
+scp ~/mediasort_catalog.db ~/phototheque_devices.db nouvelle-machine:~/
+```
+
+Puis `./deploy/install.sh` sur la nouvelle machine. Les téléphones continuent de
+fonctionner sans rien faire. Réserve : le certificat copié porte les noms de
+l'ancienne machine, donc le navigateur redeviendra avertissant.
+
+**Repartir propre** — ne rien copier, lancer `./deploy/install.sh`, puis
+réappairer chaque téléphone avec un nouveau QR.
+
+---
+
 ## Consulter et dépanner
 
 ```bash
@@ -249,9 +356,12 @@ journalctl -u phototheque -b         # depuis le dernier démarrage du NUC
 | Symptôme | Cause probable | Quoi faire |
 |---|---|---|
 | Le service ne démarre pas au boot | Disque `Famille` non monté | `mountpoint -q /media/izquierdo/Famille` ; l'unité l'attend via `RequiresMountsFor`, il suffit de monter le disque |
-| `Address already in use` | Ancien service encore actif | `systemctl list-unit-files \| grep -E 'mediaserve\|phototheque'` puis retirer l'ancien (étape 3) |
+| `Address already in use` | Ancien service encore actif | `systemctl list-unit-files \| grep -E 'mediaserve\|phototheque'` puis retirer l'ancien (étape 5) |
 | L'adresse `.local` est inaccessible, l'IP fonctionne | Annonce mDNS absente, ou mauvais nom d'hôte | `sudo systemctl restart avahi-daemon` ; vérifier le nom réel avec `hostname` et ce qui est annoncé avec `avahi-browse -tpr _phototheque._tcp` depuis une autre machine |
-| Téléphones soudain non reconnus | Base d'appairage perdue | Vérifier `~/phototheque_devices.db` ; l'ancienne était `~/mediaserve_devices.db` (étape 4) |
+| `http://IZQUIERDO-NUC.local:8787/` ne répond plus, message peu explicite du navigateur | Le service ne parle plus qu'en HTTPS : un même port ne sert pas les deux protocoles | Taper `https://IZQUIERDO-NUC.local:8787/` |
+| Le navigateur affiche un avertissement de sécurité en `https://` | Certificat auto-signé — normal, personne d'extérieur ne le garantit | Cliquer « Paramètres avancés » puis « Continuer » ; une fois par appareil |
+| Mot de passe d'administration perdu | — | `rm ~/.config/phototheque/admin && ./deploy/install.sh` : un nouveau est tiré et affiché |
+| Téléphones soudain non reconnus | Base d'appairage perdue | Vérifier `~/phototheque_devices.db` ; l'ancienne était `~/mediaserve_devices.db` (étape 6) |
 | Le QR d'appairage reste blanc | Page servie par une version antérieure au correctif | Relancer `git pull && ./deploy/install.sh` : le code n'est pas rechargé tout seul |
 | `database is locked` | Écriture concurrente sur le catalogue | Vérifier qu'un `--backfill-signatures` ne tourne pas : `pgrep -af "python3 -m mediasort"` |
 
@@ -291,7 +401,11 @@ Tout est surchargeable par variables d'environnement (voir
 | `CATALOG_DB` | `~/mediasort_catalog.db` | Catalogue anti-doublon |
 | `INCOMING_DIR` | `<LIBRARY_DIR>/incoming` | Dépôt temporaire des envois |
 | `DEVICES_DB` | `~/phototheque_devices.db` | Appareils appairés |
-| `PUBLIC_URL` | `http://<nom d'hôte>.local:<PORT>` | Adresse publiée dans le QR d'appairage |
+| `CONFIG_DIR` | `~/.config/phototheque` | Dossier du certificat, du mot de passe et du nom convivial |
+| `CERT_FILE` | `<CONFIG_DIR>/cert.pem` | Certificat TLS du serveur |
+| `KEY_FILE` | `<CONFIG_DIR>/key.pem` | Clé privée du certificat |
+| `ADMIN_FILE` | `<CONFIG_DIR>/admin` | Empreinte du mot de passe d'administration |
+| `PUBLIC_URL` | `https://<nom d'hôte>.local:<PORT>` | Adresse publiée dans le QR d'appairage |
 
 ---
 
@@ -443,7 +557,7 @@ Tu obtiens un fichier `catalogue-phototheque.tgz` dans le dossier courant.
   machine hôte, et l'application ne fait aucune annonce elle-même. En Docker, il
   faut donc utiliser `http://localhost:8787` en local, ou l'adresse IP de la
   machine depuis un téléphone. Pour retrouver le nom `.local`, installe le
-  fichier d'annonce sur l'hôte comme à l'étape 6 de la section systemd.
+  fichier d'annonce sur l'hôte comme à l'étape 8 de la section systemd.
   Pense alors à renseigner `PUBLIC_URL` (tableau du paramétrage ci-dessus) pour
   que le QR code affiche une adresse joignable depuis le téléphone.
 - **Les fichiers créés par le conteneur appartiennent à `root`** sur ta machine
