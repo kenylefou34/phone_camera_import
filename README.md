@@ -156,6 +156,18 @@ python3 -m mediasort --catalog ~/mediasort_catalog.db --backfill-signatures
 Une signature n'est **jamais** une preuve d'égalité : quand elle correspond à
 une entrée connue, l'empreinte complète est calculée pour trancher.
 
+### Empreinte calculée pendant la copie
+
+Quand un fichier est réellement rangé, son empreinte est calculée **au fil de la
+copie** : chaque bloc lu est à la fois haché et écrit. Le fichier n'est donc
+traversé que deux fois (lecture de la source, relecture de la destination pour
+vérifier) au lieu de trois. Mesuré sur le NUC avec une vidéo de 3,6 Gio :
+**47,9 s → 34,9 s (-27 %)**.
+
+La garantie de sûreté est inchangée : la source n'est supprimée que si la
+destination relue est identique octet pour octet, et les métadonnées (dont la
+date de modification, qui sert de dernier recours à la datation) sont conservées.
+
 ### Tests
 
 ```bash

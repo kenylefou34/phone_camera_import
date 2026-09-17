@@ -1,12 +1,11 @@
 """Orchestration : parcourt une source, range chaque média en toute sûreté."""
 
 import logging
-import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import classify, config, dates
-from .hashing import file_hash, quick_signature
+from .hashing import copy_and_hash, file_hash, quick_signature
 
 log = logging.getLogger("mediasort")
 
@@ -117,17 +116,22 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
 
             dest = _chemin_libre(dest)
             dest.parent.mkdir(parents=True, exist_ok=True)
-            # Le rangement réel exige l'empreinte complète : elle sert de clé au
+            # Copie en UNE seule lecture de la source : l'empreinte est calculée
+            # au vol pendant l'écriture (issue #14). Elle sert de clé au
             # catalogue ET de référence pour vérifier la copie.
-            if empreinte is None:
-                empreinte = file_hash(p)
-            shutil.copy2(p, dest)
-            # Copie sûre : on vérifie l'empreinte à destination avant de retirer la source.
-            if file_hash(dest) != empreinte:
+            empreinte_copiee = copy_and_hash(p, dest)
+            if empreinte is not None and empreinte_copiee != empreinte:
+                # L'empreinte du contrôle anti-doublon et celle lue à la copie
+                # diffèrent : la source a changé entre-temps, on ne touche à rien.
+                report.errors += 1
+                log.error("La source a changé pendant le tri : %s", p)
+                continue
+            # Copie sûre : on relit la destination avant de retirer la source.
+            if file_hash(dest) != empreinte_copiee:
                 report.errors += 1
                 log.error("Empreinte différente après copie : %s", dest)
                 continue
-            catalog.add_media(empreinte, p.stat().st_size, str(dest),
+            catalog.add_media(empreinte_copiee, p.stat().st_size, str(dest),
                               dr.date.isoformat() if dr.date else None, dr.source,
                               signature)
             p.unlink()

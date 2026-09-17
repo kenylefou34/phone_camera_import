@@ -134,3 +134,62 @@ def test_sort_detects_duplicate_when_catalog_has_no_signatures(tmp_path, monkeyp
     assert report.duplicates == 1
     assert report.sorted == 0
     cat.close()
+
+
+def test_sort_does_not_hash_the_source_twice(tmp_path, monkeypatch):
+    """La source n'est plus hachée séparément : l'empreinte vient de la copie."""
+    _force_date(monkeypatch, datetime.date(2023, 5, 26))
+    src = tmp_path / "src"; src.mkdir()
+    lib = tmp_path / "lib"; lib.mkdir()
+    (src / "grosse-video.mp4").write_bytes(b"video" * 1000)
+    cat = Catalog(":memory:")
+    haches = []
+    vrai_hash = sorter.file_hash
+    monkeypatch.setattr(sorter, "file_hash",
+                        lambda p: (haches.append(pathlib.Path(p)), vrai_hash(p))[1])
+
+    report = sorter.sort_folder(src, lib, cat, dry_run=False)
+
+    assert report.sorted == 1
+    # Seule la destination est relue pour vérifier la copie.
+    assert all(lib in chemin.parents for chemin in haches), haches
+    assert len(haches) == 1
+    cat.close()
+
+
+def test_sort_keeps_source_when_copy_is_corrupted(tmp_path, monkeypatch):
+    """Copie corrompue : erreur comptée, source CONSERVÉE, rien au catalogue."""
+    _force_date(monkeypatch, datetime.date(2023, 5, 26))
+    src = tmp_path / "src"; src.mkdir()
+    lib = tmp_path / "lib"; lib.mkdir()
+    (src / "a.jpg").write_bytes(b"photo-a")
+    cat = Catalog(":memory:")
+    # La relecture de la destination ne correspond pas à ce qui a été copié.
+    monkeypatch.setattr(sorter, "file_hash", lambda p: "empreinte-corrompue")
+
+    report = sorter.sort_folder(src, lib, cat, dry_run=False)
+
+    assert report.errors == 1
+    assert (src / "a.jpg").exists()  # la source n'est JAMAIS supprimée sur erreur
+    assert cat.count() == 0
+    cat.close()
+
+
+def test_sort_keeps_source_when_it_changes_during_copy(tmp_path, monkeypatch):
+    """Source modifiée entre le contrôle anti-doublon et la copie : erreur, source gardée."""
+    _force_date(monkeypatch, datetime.date(2023, 5, 26))
+    src = tmp_path / "src"; src.mkdir()
+    lib = tmp_path / "lib"; lib.mkdir()
+    (src / "a.jpg").write_bytes(b"photo-a")
+    cat = Catalog(":memory:")
+    cat.add_media("autre-media", 1, "/lib/z.jpg", None, "seed")  # sans signature
+    assert cat.signatures_complete() is False  # pré-filtre off => empreinte connue
+    monkeypatch.setattr(sorter, "copy_and_hash",
+                        lambda source, destination: "empreinte-differente")
+
+    report = sorter.sort_folder(src, lib, cat, dry_run=False)
+
+    assert report.errors == 1
+    assert (src / "a.jpg").exists()
+    assert cat.count() == 1  # rien d'ajouté
+    cat.close()

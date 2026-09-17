@@ -28,3 +28,47 @@ def test_quick_signature_small_file(tmp_path):
     from mediasort.hashing import quick_signature
     p = tmp_path / "petit.bin"; p.write_bytes(b"court")
     assert isinstance(quick_signature(p), str) and len(quick_signature(p)) == 64
+
+
+def test_copy_and_hash_copies_content_and_returns_its_hash(tmp_path):
+    """La copie est fidèle et l'empreinte renvoyée est celle du contenu."""
+    src = tmp_path / "video.mp4"
+    contenu = b"bloc-de-video" * 200000  # plusieurs blocs de lecture
+    src.write_bytes(contenu)
+    dest = tmp_path / "copie.mp4"
+
+    empreinte = hashing.copy_and_hash(src, dest)
+
+    assert dest.read_bytes() == contenu
+    assert empreinte == hashing.file_hash(src)
+
+
+def test_copy_and_hash_preserves_mtime(tmp_path):
+    """La date de modification est conservée (dernier recours de datation)."""
+    import os
+    src = tmp_path / "a.jpg"; src.write_bytes(b"photo")
+    os.utime(src, (1000000000, 1000000000))  # 2001-09-09
+    dest = tmp_path / "b.jpg"
+
+    hashing.copy_and_hash(src, dest)
+
+    assert dest.stat().st_mtime == src.stat().st_mtime
+
+
+def test_copy_and_hash_reads_the_source_only_once(tmp_path, monkeypatch):
+    """La source n'est ouverte en lecture qu'une seule fois."""
+    import builtins
+    src = tmp_path / "a.jpg"; src.write_bytes(b"photo")
+    dest = tmp_path / "b.jpg"
+    lectures = []
+    vrai_open = builtins.open
+
+    def espion(fichier, mode="r", *a, **kw):
+        if "r" in mode and str(fichier) == str(src):
+            lectures.append(str(fichier))
+        return vrai_open(fichier, mode, *a, **kw)
+
+    monkeypatch.setattr(builtins, "open", espion)
+    hashing.copy_and_hash(src, dest)
+
+    assert len(lectures) == 1

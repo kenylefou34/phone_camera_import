@@ -26,7 +26,10 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   répondent, `/status` exige l'authentification.
 - ✅ **Pré-filtre par signature rapide** (issue #9) : le trieur évite la lecture
   intégrale d'un fichier dont la signature est inconnue (~1000× plus rapide sur
-  une vidéo de 3 Go : 28,6 s → 0,028 s). **72 tests**.
+  une vidéo de 3 Go : 28,6 s → 0,028 s).
+- ✅ **Empreinte calculée pendant la copie** (issue #14) : un fichier rangé n'est
+  plus traversé que 2 fois au lieu de 3 (mesuré sur le NUC, vidéo de 3,6 Gio :
+  47,9 s → 34,9 s, -27 %). **78 tests**.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
 ## ⚠️ À faire sur le NUC (une fois)
@@ -44,8 +47,8 @@ Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan de
 dossiers, client d'upload). Améliorations/Phase 2 tracées en issues #2 à #10
 et #14 (`gh issue list`). Notamment : #2 horizon de synchro initial,
 #3 HTTPS+épinglage, #4 doublons existants, #5 floues/rafales, #6 re-datation,
-#7 sauvegarde Famille, #10 durcir la surface d'admin, #14 empreinte calculée
-pendant la copie (3 lectures → 2). (#8, #9 et #11 sont faites.)
+#7 sauvegarde Famille, #10 durcir la surface d'admin.
+(#8, #9, #11 et #14 sont faites.)
 À faire aussi : **fusionner `dev` → `main`** — PR #13 ouverte.
 
 ## NUC (machine cible)

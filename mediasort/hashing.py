@@ -1,6 +1,7 @@
 """Empreinte de contenu d'un fichier (SHA-256), lue par blocs."""
 
 import hashlib
+import shutil
 from pathlib import Path
 
 _BLOC = 1024 * 1024  # 1 Mio
@@ -30,4 +31,27 @@ def quick_signature(path: Path, chunk: int = 65536) -> str:
         if taille > chunk:
             f.seek(max(0, taille - chunk))
             h.update(f.read(chunk))
+    return h.hexdigest()
+
+
+def copy_and_hash(source: Path, destination: Path) -> str:
+    """Copie 'source' vers 'destination' en calculant l'empreinte au passage.
+
+    La source n'est lue qu'UNE seule fois : chaque bloc est à la fois haché et
+    écrit. Cela épargne une traversée complète du fichier par rapport à
+    « file_hash() puis shutil.copy2() » — décisif sur les vidéos de plusieurs
+    gigaoctets (issue #14).
+
+    Les métadonnées sont recopiées comme le ferait shutil.copy2(). Ce n'est pas
+    cosmétique : la date de modification sert de dernier recours à la datation
+    (voir dates.date_from_filesystem).
+
+    Renvoie l'empreinte SHA-256 des octets lus dans la source.
+    """
+    h = hashlib.sha256()
+    with open(source, "rb") as f_source, open(destination, "wb") as f_destination:
+        for bloc in iter(lambda: f_source.read(_BLOC), b""):
+            h.update(bloc)
+            f_destination.write(bloc)
+    shutil.copystat(source, destination)
     return h.hexdigest()
