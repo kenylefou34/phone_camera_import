@@ -372,6 +372,30 @@ Ce que #12 devra implémenter, et qui ne bougera plus après ce lot :
 
 Le champ `url` du QR porte désormais un schéma `https`.
 
+### Extensions acceptées à l'envoi
+
+Le serveur **n'accepte que les extensions photo et vidéo qu'il sait ranger**
+(celles de `mediasort/config.py` : `.png .jpg .jpeg .bmp .dng .heic .webp` et
+`.mp4 .mkv .avi .mov .m4v .wmv .3gp`). `POST /sync/upload` répond **`400`** pour
+toute autre extension — `.webm`, `.gif`, `.tiff`, `.avif`, `.jfif`, `.mts`,
+`.mpg`, les formats bruts `.raw/.cr2/.nef/.arw`… — et le fichier n'est alors
+jamais écrit sur le NUC.
+
+Ce que l'application doit en faire : **garder le fichier sur le téléphone** et
+poursuivre la synchro normalement. Un refus n'est pas une panne et ne doit ni
+interrompre la session, ni empêcher le `commit` : l'horizon avance pour tout le
+reste.
+
+Pourquoi ce choix plutôt que bloquer l'horizon sur les fichiers ignorés :
+bloquer créerait un blocage **permanent** — le téléphone repropose le fichier,
+il est ignoré à nouveau, l'horizon n'avance jamais pour ce dossier. Auparavant
+le serveur acceptait tout, répondait « bien reçu », puis le trieur ignorait
+l'extension inconnue, le nettoyage de session supprimait le fichier et
+l'horizon avançait : le média était **perdu définitivement et en silence**.
+
+Élargir cette liste est un changement de `mediasort/config.py`, côté serveur ;
+l'application n'a rien à coder en dur.
+
 ---
 
 ## 7. Stratégie de test

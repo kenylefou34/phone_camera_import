@@ -549,3 +549,84 @@ def test_un_tri_avec_des_erreurs_ne_fait_pas_avancer_l_horizon(tmp_path, monkeyp
 
     assert r.status_code == 200
     assert a.devices().get_horizons(dev_id) == {}
+
+
+def _session_ouverte(client, entetes):
+    """Ouvre une session de synchro et renvoie son identifiant."""
+    return client.post("/sync/plan", headers=entetes,
+                       json={"files": []}).json()["session"]
+
+
+def test_une_extension_que_le_trieur_ignore_est_refusee_a_l_upload(tmp_path, monkeypatch):
+    """Perte définitive et silencieuse, reproduite avec un .webm.
+
+    Le serveur acceptait n'importe quelle extension et répondait « bien
+    reçu ». Le trieur, lui, ignore les extensions qu'il ne connaît pas : le
+    fichier n'était ni rangé ni même compté, le nettoyage de fin de session le
+    supprimait, et le bilan sans erreur faisait avancer l'horizon. Le
+    téléphone ne le reproposait donc jamais : média perdu, sans un mot.
+
+    Refuser à l'upload garde le fichier SUR LE TÉLÉPHONE et laisse l'horizon
+    avancer pour tout le reste.
+    """
+    import io
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = _session_ouverte(client, h)
+
+    r = client.post("/sync/upload", headers=h,
+                    data={"session": session, "path": "Movies/film.webm"},
+                    files={"file": ("film.webm", io.BytesIO(b"video"), "video/webm")})
+
+    assert r.status_code == 400
+    assert ".webm" in r.json()["detail"]
+    dossier = tmp_path / "incoming" / session
+    assert not dossier.exists(), "le fichier refusé a quand même été écrit sur le NUC"
+
+
+def test_un_jpg_passe_toujours_a_l_upload(tmp_path, monkeypatch):
+    """Le cas normal ne doit pas être cassé par le refus des extensions."""
+    import hashlib, io
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = _session_ouverte(client, h)
+    contenu = b"une vraie photo"
+
+    r = client.post("/sync/upload", headers=h,
+                    data={"session": session, "path": "DCIM/Camera/a.jpg"},
+                    files={"file": ("a.jpg", io.BytesIO(contenu), "image/jpeg")})
+
+    assert r.status_code == 200
+    assert r.json()["hash"] == hashlib.sha256(contenu).hexdigest()
+
+
+def test_une_extension_refusee_n_empeche_pas_la_session_de_se_terminer(tmp_path, monkeypatch):
+    """Enchaînement complet : un .webm refusé, un .jpg accepté, puis commit.
+
+    Le refus ne doit pas bloquer la synchro : les médias que le serveur sait
+    ranger sont rangés et l'horizon avance normalement pour eux.
+    """
+    import datetime, io
+    import mediasort.dates as d
+    monkeypatch.setattr(d, "date_from_metadata", lambda p: datetime.date(2023, 5, 26))
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = _session_ouverte(client, h)
+
+    refuse = client.post("/sync/upload", headers=h,
+                         data={"session": session, "path": "Movies/film.webm"},
+                         files={"file": ("film.webm", io.BytesIO(b"v"), "video/webm")})
+    accepte = client.post("/sync/upload", headers=h,
+                          data={"session": session, "path": "DCIM/Camera/a.jpg"},
+                          files={"file": ("a.jpg", io.BytesIO(b"photo"), "image/jpeg")})
+    commit = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": 1726574400.0}})
+
+    assert refuse.status_code == 400 and accepte.status_code == 200
+    assert commit.status_code == 200
+    assert commit.json()["errors"] == 0 and commit.json()["sorted"] == 1
+    assert (tmp_path / "Photos" / "2023" / "05 MAI" / "a.jpg").exists()
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1726574400.0}

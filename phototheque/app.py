@@ -3,11 +3,13 @@
 import base64
 import datetime
 import json
+from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from mediasort import classify
 from mediasort.catalog import Catalog
 from mediasort.hashing import file_hash
 from . import adminauth, config, ingest, pairing, sessions, stats, tls, web
@@ -119,6 +121,26 @@ def sync_plan(req: PlanRequest, _: str = Depends(require_device)) -> dict:
 @app.post("/sync/upload")
 async def sync_upload(session: str = Form(...), path: str = Form(...),
                       file: UploadFile = File(...), _: str = Depends(require_device)) -> dict:
+    """Reçoit un média. Refuse les extensions que le trieur ne sait pas ranger.
+
+    Sans ce refus, le média était perdu en silence : accepté ici (« bien
+    reçu »), ignoré par le trieur qui ne connaît pas l'extension, supprimé
+    avec le dossier de session, et l'horizon avançait quand même puisque le
+    bilan ne comptait aucune erreur. Le téléphone ne le reproposait jamais.
+
+    On refuse plutôt que de bloquer l'horizon : bloquer créerait un blocage
+    PERMANENT (le téléphone repropose, le fichier est ignoré, l'horizon
+    n'avance jamais pour ce dossier). Refuser garde le fichier sur le
+    téléphone, donne un signal clair à l'application, et laisse l'horizon
+    avancer pour tout le reste.
+    """
+    extension = Path(path).suffix
+    if classify.media_type(extension) is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"extension non prise en charge : « {extension or path} » —"
+                   " le serveur n'accepte que les photos et vidéos qu'il sait ranger",
+        )
     contenu = await file.read()
     try:
         dest = sessions.save_upload(config.INCOMING_DIR, session, path, contenu)
