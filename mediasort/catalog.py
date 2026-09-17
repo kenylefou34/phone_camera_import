@@ -125,7 +125,7 @@ class Catalog:
         Le travail se fait par lots de 'lot' lignes, et chaque lot est d'abord
         calculé EN ENTIER (lectures disque, aucune transaction ouverte) avant
         d'être écrit d'un seul coup. C'est important : le traitement dure une
-        heure sur un gros catalogue, et le service mediaserve écrit dans le même
+        heure sur un gros catalogue, et le service phototheque écrit dans le même
         fichier. Le verrou d'écriture SQLite n'est donc tenu que le temps des
         UPDATE (quelques millisecondes), pas pendant les lectures.
 

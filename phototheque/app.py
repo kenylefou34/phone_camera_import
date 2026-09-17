@@ -11,7 +11,7 @@ from mediasort.hashing import file_hash
 from . import config, ingest, pairing, sessions, stats, web
 from .devices import DeviceStore
 
-app = FastAPI(title="mediaserve")
+app = FastAPI(title="phototheque")
 devices = DeviceStore(config.DEVICES_DB)
 
 

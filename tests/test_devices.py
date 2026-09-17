@@ -1,4 +1,4 @@
-from mediaserve.devices import DeviceStore
+from phototheque.devices import DeviceStore
 
 
 def test_pair_validate_revoke():

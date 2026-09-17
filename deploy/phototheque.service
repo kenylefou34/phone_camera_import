@@ -1,5 +1,5 @@
 [Unit]
-Description=mediaserve (ingestion medias)
+Description=phototheque (ingestion medias)
 After=network-online.target
 Wants=network-online.target
 # Ne démarre qu'une fois le disque de la bibliothèque monté (monté par udisks
@@ -9,7 +9,7 @@ RequiresMountsFor=/media/izquierdo/Famille
 [Service]
 User=izquierdo
 WorkingDirectory=/home/izquierdo/phone_camera_import
-ExecStart=/home/izquierdo/.venv-server/bin/uvicorn mediaserve.app:app --host 0.0.0.0 --port 8787
+ExecStart=/home/izquierdo/.venv-server/bin/uvicorn phototheque.app:app --host 0.0.0.0 --port 8787
 Restart=on-failure
 RestartSec=5
 

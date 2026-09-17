@@ -18,10 +18,10 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
 - ✅ **Catalogue complet** : `~/mediasort_catalog.db` sur le NUC = **44 669 médias
   uniques** (sur 59 884 fichiers → ~15 200 doublons dans la biblio, cf. issue #4).
 - ✅ **Backlog WhatsApp trié** (4 rangés, 92 doublons évités) ; bruit nettoyé.
-- ✅ **Service `mediaserve/`** (sous-projet 2) : FastAPI, appairage QR, handshake
+- ✅ **Service `phototheque/`** (sous-projet 2, renommé depuis `mediaserve` le 17/09) : FastAPI, appairage QR, handshake
   anti-doublon, upload, commit (bilan détaillé), page d'admin (appareils +
   camembert disque), mDNS/Avahi, systemd + Docker. Validé sur le NUC.
-- ✅ **Déployé en service permanent** (issue #11) : `mediaserve.service` actif et
+- ✅ **Déployé en service permanent** (issue #11) : `phototheque.service` actif et
   `enabled` sur le NUC depuis le 2026-09-14, 0 redémarrage. `/` et `/pair`
   répondent, `/status` exige l'authentification.
 - ✅ **Pré-filtre par signature rapide** (issue #9) : le trieur évite la lecture
@@ -76,11 +76,13 @@ python3 -m mediasort --source <dossier> --library /media/izquierdo/Famille \
 # Compléter les signatures d'un ancien catalogue (réactive le pré-filtre) :
 python3 -m mediasort --catalog ~/mediasort_catalog.db --backfill-signatures
 
-# Serveur (sur le NUC, venv) :
-~/.venv-server/bin/uvicorn mediaserve.app:app --host 0.0.0.0 --port 8787
+# Serveur (sur le NUC) — installation ET mise à jour, idempotent :
+cd ~/phone_camera_import && git pull && ./deploy/install.sh
 # puis http://nuc.local:8787/ (admin) et /pair (QR)
+# Lancement manuel (dev) :
+~/.venv-server/bin/uvicorn phototheque.app:app --host 0.0.0.0 --port 8787
 
-# Déploiement : voir deploy/ (mediaserve.service, avahi, Dockerfile) + README.
+# Déploiement détaillé, dépannage, retour arrière : docs/DEPLOIEMENT.md
 ```
 
 ## Binaire C++ existant (`main.cpp`)

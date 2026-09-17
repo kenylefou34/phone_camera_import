@@ -1,5 +1,10 @@
 # Plan d'implémentation — Service d'ingestion + découverte réseau (sous-projet 2, v1)
 
+> ⚠️ **Document historique (14/09/2026).** Le module `mediaserve` a été
+> renommé `phototheque` le 17/09/2026. Les noms employés ci-dessous sont
+> ceux de l'époque et sont conservés tels quels : ce texte est le compte
+> rendu de ce qui a été conçu et fait ce jour-là.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Construire `mediaserve`, un service FastAPI sur le NUC qui reçoit les médias poussés par le téléphone (sans doublon), les range via `mediasort`, expose une page web d'admin, et se rend trouvable en mDNS.

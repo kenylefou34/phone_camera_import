@@ -1,5 +1,5 @@
 import datetime
-from mediaserve import ingest
+from phototheque import ingest
 from mediasort import dates
 from mediasort.catalog import Catalog
 

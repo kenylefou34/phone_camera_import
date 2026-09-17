@@ -1,4 +1,4 @@
-from mediaserve import pairing
+from phototheque import pairing
 
 
 def test_pairing_payload():

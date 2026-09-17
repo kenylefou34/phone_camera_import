@@ -1,5 +1,5 @@
 import pytest
-from mediaserve import sessions
+from phototheque import sessions
 
 
 def test_save_upload_writes_under_session(tmp_path):

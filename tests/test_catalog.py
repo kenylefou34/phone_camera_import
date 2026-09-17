@@ -132,7 +132,7 @@ def test_backfill_signatures_saves_progress_if_interrupted(tmp_path, monkeypatch
     """Rattrapage par lots : une interruption ne perd pas le travail déjà fait.
 
     Important en vrai : le rattrapage dure ~1 h sur 44 669 médias et le service
-    mediaserve écrit dans le même catalogue. Un seul commit final tiendrait le
+    phototheque écrit dans le même catalogue. Un seul commit final tiendrait le
     verrou d'écriture tout ce temps.
     """
     import pytest

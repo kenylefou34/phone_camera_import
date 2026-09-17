@@ -1,5 +1,10 @@
 # Spec — Service d'ingestion + découverte réseau (Phase 1, sous-projet 2, v1)
 
+> ⚠️ **Document historique (14/09/2026).** Le module `mediaserve` a été
+> renommé `phototheque` le 17/09/2026. Les noms employés ci-dessous sont
+> ceux de l'époque et sont conservés tels quels : ce texte est le compte
+> rendu de ce qui a été conçu et fait ce jour-là.
+
 *Rédigé le 2026-09-14. Document de conception, en français. Tout le code produit
 sera commenté et documenté en français.*
 

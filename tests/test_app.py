@@ -1,6 +1,6 @@
 import datetime, hashlib, importlib, io
 from fastapi.testclient import TestClient
-from mediaserve import web
+from phototheque import web
 
 
 def test_admin_html_contains_devices_and_pie():
@@ -18,8 +18,8 @@ def _client(tmp_path, monkeypatch):
     monkeypatch.setenv("CATALOG_DB", str(tmp_path / "cat.db"))
     monkeypatch.setenv("INCOMING_DIR", str(tmp_path / "incoming"))
     monkeypatch.setenv("DEVICES_DB", str(tmp_path / "dev.db"))
-    import mediaserve.config as c; importlib.reload(c)
-    import mediaserve.app as a; importlib.reload(a)
+    import phototheque.config as c; importlib.reload(c)
+    import phototheque.app as a; importlib.reload(a)
     return a, TestClient(a.app)
 
 
@@ -78,4 +78,4 @@ def test_pair_page_creates_device_and_qr(tmp_path, monkeypatch):
 def test_admin_page_renders(tmp_path, monkeypatch):
     a, client = _client(tmp_path, monkeypatch)
     r = client.get("/")
-    assert r.status_code == 200 and "mediaserve" in r.text
+    assert r.status_code == 200 and "phototheque" in r.text

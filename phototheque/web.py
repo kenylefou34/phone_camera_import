@@ -21,8 +21,8 @@ def admin_html(devices: list, disk: dict, media: dict) -> str:
     ) or "<li>Aucun appareil appairé</li>"
     pie = stats.pie_svg(disk["utilise"], disk["libre"])
     return f"""<!doctype html><html lang="fr"><head><meta charset="utf-8">
-<title>mediaserve — admin</title></head><body>
-<h1>mediaserve</h1>
+<title>phototheque — admin</title></head><body>
+<h1>phototheque</h1>
 <p><a href="/pair">➕ Appairer un nouveau téléphone (QR)</a></p>
 <h2>Appareils appairés</h2><ul>{lignes}</ul>
 <h2>Disque</h2>{pie}

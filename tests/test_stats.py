@@ -1,5 +1,5 @@
 from pathlib import Path
-from mediaserve import stats
+from phototheque import stats
 from mediasort.catalog import Catalog
 
 
