@@ -42,10 +42,11 @@ python3 -m mediasort --catalog ~/mediasort_catalog.db --backfill-signatures
 ## Feuille de route (issues GitHub)
 Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
 dossiers, client d'upload). Améliorations/Phase 2 tracées en issues #2 à #10
-(`gh issue list`). Notamment : #2 horizon de synchro initial, #3 HTTPS+épinglage,
-#4 doublons existants, #5 floues/rafales, #6 re-datation, #7 sauvegarde Famille,
-#10 durcir la surface d'admin. (#8, #9 et #11 sont faites.)
-À faire aussi : **fusionner `dev` → `main`** (main est en retard).
+et #14 (`gh issue list`). Notamment : #2 horizon de synchro initial,
+#3 HTTPS+épinglage, #4 doublons existants, #5 floues/rafales, #6 re-datation,
+#7 sauvegarde Famille, #10 durcir la surface d'admin, #14 empreinte calculée
+pendant la copie (3 lectures → 2). (#8, #9 et #11 sont faites.)
+À faire aussi : **fusionner `dev` → `main`** — PR #13 ouverte.
 
 ## NUC (machine cible)
 - `ssh izquierdo@192.168.1.21` (clé configurée, hôte `IZQUIERDO-NUC`, Ubuntu 26.04,
