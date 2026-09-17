@@ -31,8 +31,14 @@ def test_le_catalogue_ne_gere_plus_les_horizons():
     cat.close()
 
 
-def test_un_catalogue_existant_avec_synchros_s_ouvre_toujours(tmp_path):
-    """Une base d'avant ce lot garde sa table : on ne touche pas à 44 669 lignes."""
+def test_un_catalogue_existant_garde_sa_table_synchros_et_ses_lignes(tmp_path):
+    """Une base d'avant ce lot garde sa table héritée ET son contenu.
+
+    On ne touche pas à une table d'une base de 44 669 lignes sans raison, et
+    un DROP mal ciblé est irréversible. Ce test relit la table par une
+    connexion indépendante après l'ouverture : sans cette relecture, un
+    DROP TABLE ajouté par erreur dans __init__ passerait inaperçu.
+    """
     import sqlite3
     db = tmp_path / "ancien.db"
     cx = sqlite3.connect(str(db))
@@ -41,12 +47,24 @@ def test_un_catalogue_existant_avec_synchros_s_ouvre_toujours(tmp_path):
                " date_import TEXT, signature TEXT)")
     cx.execute("CREATE TABLE synchros (dossier TEXT PRIMARY KEY, dernier_ts REAL)")
     cx.execute("INSERT INTO medias (empreinte, taille, chemin) VALUES ('h',1,'/a.jpg')")
+    cx.execute("INSERT INTO synchros VALUES ('Camera', 1234.5)")
+    cx.execute("INSERT INTO synchros VALUES ('WhatsApp', 6789.0)")
     cx.commit(); cx.close()
 
     cat = Catalog(db)
-
     assert cat.count() == 1
     cat.close()
+
+    # Relecture par une connexion indépendante : la table héritée et ses
+    # lignes doivent être strictement intactes.
+    cx = sqlite3.connect(str(db))
+    tables = {r[0] for r in cx.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "synchros" in tables, "la table héritée a disparu"
+    assert cx.execute("SELECT COUNT(*) FROM synchros").fetchone()[0] == 2
+    assert cx.execute(
+        "SELECT dernier_ts FROM synchros WHERE dossier='Camera'").fetchone()[0] == 1234.5
+    cx.close()
 
 
 def test_seed_from_library_indexes_media(tmp_path):
