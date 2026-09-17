@@ -138,12 +138,15 @@ def sync_commit(req: CommitRequest, dev_id: str = Depends(require_device)) -> di
     finally:
         cat.close()
     sessions.cleanup(config.INCOMING_DIR, req.session)
-    # L'horizon n'avance QU'APRÈS un tri réussi : si la synchro échoue en
-    # route, la prochaine reprend depuis le dernier point sûr. On peut
-    # reproposer deux fois les mêmes fichiers — l'anti-doublon les écarte —
-    # mais on ne peut jamais en perdre.
-    for dossier, ts in req.horizons.items():
-        devices().set_horizon(dev_id, dossier, ts)
+    # L'horizon n'avance qu'après un tri INTÉGRALEMENT réussi. Si un seul
+    # fichier a échoué, il est resté dans la session — que le nettoyage
+    # ci-dessus vient de supprimer. Avancer l'horizon dirait au téléphone
+    # « bien reçu » pour un média qui n'existe plus nulle part : perte
+    # définitive et silencieuse. On préfère qu'il repropose tout le dossier ;
+    # l'anti-doublon écartera les fichiers déjà rangés sans les transférer.
+    if bilan["errors"] == 0:
+        for dossier, ts in req.horizons.items():
+            devices().set_horizon(dev_id, dossier, ts)
     return bilan
 
 

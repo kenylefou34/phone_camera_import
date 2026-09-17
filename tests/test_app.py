@@ -496,3 +496,56 @@ def test_le_commit_sans_horizons_reste_accepte(tmp_path, monkeypatch):
     r = client.post("/sync/commit", headers={"Authorization": f"Bearer {secret}"},
                     json={"session": "inexistante"})
     assert r.status_code == 404      # refusée pour la session, pas pour le format
+
+
+def test_un_tri_qui_leve_une_exception_ne_fait_pas_avancer_l_horizon(tmp_path, monkeypatch):
+    """Le scénario central : la synchro casse en route, l'horizon ne bouge pas."""
+    import io
+    from phototheque import ingest
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": [
+        {"path": "DCIM/Camera/a.jpg", "size": 3, "hash": "abc"}]}).json()["session"]
+    client.post("/sync/upload", headers=h,
+                data={"session": session, "path": "DCIM/Camera/a.jpg"},
+                files={"file": ("a.jpg", io.BytesIO(b"abc"), "image/jpeg")})
+
+    def tri_qui_casse(*a, **kw):
+        raise OSError("disque plein")
+
+    monkeypatch.setattr(ingest, "sort_session", tri_qui_casse)
+    with pytest.raises(OSError):
+        client.post("/sync/commit", headers=h, json={
+            "session": session, "horizons": {"DCIM/Camera": 1726574400.0}})
+
+    assert a.devices().get_horizons(dev_id) == {}
+
+
+def test_un_tri_avec_des_erreurs_ne_fait_pas_avancer_l_horizon(tmp_path, monkeypatch):
+    """Tri « réussi » mais un fichier a échoué : il a été supprimé avec la session.
+
+    Faire avancer l'horizon reviendrait à dire au téléphone « bien reçu »
+    pour un média qui n'existe plus nulle part. On préfère qu'il repropose.
+    """
+    import io
+    from phototheque import ingest
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": [
+        {"path": "DCIM/Camera/a.jpg", "size": 3, "hash": "abc"}]}).json()["session"]
+    client.post("/sync/upload", headers=h,
+                data={"session": session, "path": "DCIM/Camera/a.jpg"},
+                files={"file": ("a.jpg", io.BytesIO(b"abc"), "image/jpeg")})
+
+    monkeypatch.setattr(ingest, "sort_session", lambda *a, **kw: {
+        "sorted": 0, "duplicates": 0, "to_triage": 0, "skipped": 0, "errors": 1,
+        "photos": 0, "videos": 0, "whatsapp": 0, "octets_ranges": 0,
+        "par_source_date": {}, "par_annee_mois": {}})
+
+    r = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": 1726574400.0}})
+
+    assert r.status_code == 200
+    assert a.devices().get_horizons(dev_id) == {}
