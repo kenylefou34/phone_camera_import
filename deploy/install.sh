@@ -243,10 +243,18 @@ info "$UNITE"
 # de la machine, un nom technique ; un nom choisi (ex. « Photothèque du
 # salon ») est plus parlant, et reste correct si le service change un jour
 # de matériel.
+NOM_AFFICHE="phototheque sur %h"
 if [ -f "$CONFIG_DIR/nom" ]; then
-    NOM_AFFICHE=$(head -1 "$CONFIG_DIR/nom")
-else
-    NOM_AFFICHE="phototheque sur %h"
+    nom_lu=$(head -1 "$CONFIG_DIR/nom")
+    # Un fichier vide ou ne contenant que des blancs veut dire « je n'ai
+    # rien choisi », pas « je veux un nom vide » : un nom vide casserait la
+    # découverte réseau (fichier XML refusé par Avahi, ou service annoncé
+    # sans nom) sans le moindre message d'erreur. On ne retient donc le
+    # contenu du fichier que s'il reste quelque chose une fois les espaces
+    # retirés.
+    if [ -n "$(printf '%s' "$nom_lu" | tr -d '[:space:]')" ]; then
+        NOM_AFFICHE="$nom_lu"
+    fi
 fi
 # Le nom est injecté dans un fichier XML (l'annonce Avahi) : « & », « < » et
 # « > » y sont invalides tels quels. Un fichier invalide ferait qu'Avahi

@@ -356,7 +356,7 @@ def _bloc_nom_affiche():
     précédents : ne pas retaper le code à la main, au risque de diverger
     silencieusement du code réellement livré)."""
     texte = INSTALL.read_text()
-    debut = texte.index('if [ -f "$CONFIG_DIR/nom" ]; then')
+    debut = texte.index('NOM_AFFICHE="phototheque sur %h"')
     marqueur_fin = 'info "annoncé sur le réseau sous : ${NOM_AFFICHE}"'
     fin = texte.index(marqueur_fin, debut) + len(marqueur_fin)
     return texte[debut:fin]
@@ -441,3 +441,33 @@ def test_nom_avec_caracteres_speciaux_pour_sed_ne_casse_pas_la_substitution(tmp_
 
     arbre = ET.parse(avahi)
     assert arbre.getroot().find("name").text == nom
+
+
+def test_un_fichier_nom_vide_retombe_sur_le_defaut(tmp_path):
+    """Fichier vide = « je n'ai rien choisi », pas « annonce un nom vide ».
+
+    Un nom vide casserait la découverte réseau sans aucun message d'erreur :
+    fichier XML potentiellement refusé par Avahi, ou service annoncé sans
+    nom — dans les deux cas le téléphone ne trouve plus rien, en silence.
+    """
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "nom").write_text("")
+    avahi = tmp_path / "avahi-phototheque.service"
+    r = _executer_bloc_nom_affiche(config_dir, avahi)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    contenu = avahi.read_text()
+    assert '<name replace-wildcards="yes">phototheque sur %h</name>' in contenu
+
+
+def test_un_fichier_nom_avec_seulement_des_espaces_retombe_sur_le_defaut(tmp_path):
+    """Même chose pour un fichier ne contenant que des blancs (espaces,
+    tabulation, ligne vide) : ce n'est pas davantage un nom choisi."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "nom").write_text("   \t  \n")
+    avahi = tmp_path / "avahi-phototheque.service"
+    r = _executer_bloc_nom_affiche(config_dir, avahi)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+    contenu = avahi.read_text()
+    assert '<name replace-wildcards="yes">phototheque sur %h</name>' in contenu
