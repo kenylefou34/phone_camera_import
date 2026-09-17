@@ -19,6 +19,16 @@ def test_media_stats(tmp_path):
     assert m["photos"] == 1 and m["videos"] == 1
 
 
-def test_pie_svg(tmp_path):
-    svg = stats.pie_svg(used=700, free=300)
-    assert "<svg" in svg and "</svg>" in svg
+def test_disk_level_thresholds():
+    """Le niveau d'alerte du disque, calculé à part pour être testable.
+
+    Un ratio contre une limite se lit sur une jauge, pas sur un camembert à
+    deux parts : la couleur seule ne doit pas porter l'information, d'où ce
+    niveau qui sera aussi écrit en toutes lettres.
+    """
+    assert stats.disk_level(10) == "ok"
+    assert stats.disk_level(79) == "ok"
+    assert stats.disk_level(80) == "warning"
+    assert stats.disk_level(89) == "warning"
+    assert stats.disk_level(90) == "critical"
+    assert stats.disk_level(100) == "critical"

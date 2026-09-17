@@ -3,14 +3,60 @@ from fastapi.testclient import TestClient
 from phototheque import web
 
 
-def test_admin_html_contains_devices_and_pie():
+def test_admin_html_contains_devices_and_figures():
     html = web.admin_html(
         devices=[{"id": "abc", "label": "Pixel", "paired_at": "2026-09-14"}],
         disk={"total": 1000, "utilise": 700, "libre": 300, "pourcentage_utilise": 70},
         media={"photos": 40000, "videos": 4669},
     )
-    assert "Pixel" in html and "abc" in html
-    assert "<svg" in html and "/pair" in html
+    assert "Pixel" in html and "abc" in html and "/pair" in html
+    assert "40 000" in html and "4 669" in html   # chiffres lisibles, espaces fines
+
+
+def test_admin_meter_reflects_disk_usage():
+    """La jauge remplit exactement le pourcentage occupé."""
+    html = web.admin_html(
+        devices=[],
+        disk={"total": 1000, "utilise": 430, "libre": 570, "pourcentage_utilise": 43},
+        media={"photos": 1, "videos": 1},
+    )
+    assert "width:43%" in html.replace(" ", "")
+
+
+def test_admin_warns_in_words_not_only_in_colour():
+    """Disque presque plein : un mot, pas seulement une couleur.
+
+    Règle d'accessibilité : une couleur d'état ne porte jamais l'information
+    seule (daltonisme, impression, contraste forcé).
+    """
+    plein = web.admin_html(
+        devices=[],
+        disk={"total": 1000, "utilise": 940, "libre": 60, "pourcentage_utilise": 94},
+        media={"photos": 1, "videos": 1})
+    assert "presque plein" in plein.lower()
+
+    normal = web.admin_html(
+        devices=[],
+        disk={"total": 1000, "utilise": 100, "libre": 900, "pourcentage_utilise": 10},
+        media={"photos": 1, "videos": 1})
+    assert "presque plein" not in normal.lower()
+
+
+def test_pages_support_dark_mode():
+    """Les deux pages suivent le thème clair/sombre du système."""
+    html = web.admin_html(
+        devices=[], disk={"total": 1, "utilise": 0, "libre": 1, "pourcentage_utilise": 0},
+        media={"photos": 0, "videos": 0})
+    assert "prefers-color-scheme: dark" in html
+    assert "prefers-color-scheme: dark" in web.pair_html("<svg></svg>", "http://x:8787")
+
+
+def test_pair_html_keeps_the_qr_on_a_light_background():
+    """Le QR est noir sur fond transparent : en thème sombre il disparaîtrait."""
+    html = web.pair_html("<svg id=\"qr\"></svg>", "http://essai.local:8787")
+    assert "<svg id=\"qr\">" in html
+    assert "http://essai.local:8787" in html
+    assert "#fff" in html.lower() or "#ffffff" in html.lower()
 
 
 def test_admin_html_marks_pending_pairings():
@@ -184,3 +230,23 @@ def test_pair_page_issues_a_new_qr_once_the_previous_is_used(tmp_path, monkeypat
     liste = a.devices().list()
     assert len(liste) == 2
     assert sum(1 for d in liste if d["en_attente"]) == 1
+
+
+def test_admin_shows_readable_dates():
+    """Les dates sont lisibles, pas au format machine."""
+    html = web.admin_html(
+        devices=[{"id": "a", "label": "Pixel", "paired_at": "2026-09-15T21:04:11",
+                  "en_attente": False}],
+        disk={"total": 1, "utilise": 0, "libre": 1, "pourcentage_utilise": 0},
+        media={"photos": 0, "videos": 0})
+    assert "15 sept. 2026 à 21:04" in html
+    assert "2026-09-15T21:04:11" not in html
+
+
+def test_admin_tolerates_an_unreadable_date():
+    """Une date inattendue s'affiche telle quelle plutôt que de casser la page."""
+    html = web.admin_html(
+        devices=[{"id": "a", "label": "Pixel", "paired_at": "bizarre", "en_attente": False}],
+        disk={"total": 1, "utilise": 0, "libre": 1, "pourcentage_utilise": 0},
+        media={"photos": 0, "videos": 0})
+    assert "bizarre" in html

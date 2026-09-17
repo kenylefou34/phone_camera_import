@@ -144,10 +144,7 @@ def pair() -> str:
     _, secret = _appairage_en_cours
     url = config.PUBLIC_URL
     charge = json.dumps(pairing.pairing_payload(url, secret))
-    svg = pairing.qr_svg(charge)
-    return (f'<!doctype html><meta charset="utf-8"><title>Appairage</title>'
-            f'<h1>Scanne ce QR avec l\'app</h1>{svg}'
-            f'<p>Ou saisis manuellement : <code>{url}</code></p>')
+    return web.pair_html(pairing.qr_svg(charge), url)
 
 
 @app.get("/", response_class=HTMLResponse)
