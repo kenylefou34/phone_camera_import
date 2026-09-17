@@ -6,11 +6,14 @@ boucle de redémarrage. Les deux sont maintenant des fonctions isolées, sans
 effet de bord, appelables depuis ces tests.
 """
 
+import os
 import sqlite3
 import subprocess
 from pathlib import Path
 
 LIB = Path(__file__).resolve().parent.parent / "deploy" / "lib.sh"
+INSTALL = LIB.parent / "install.sh"
+DEPOT = LIB.parent.parent
 
 
 def appeler(fonction, *arguments):
@@ -143,3 +146,118 @@ def test_l_unite_systemd_sert_en_https():
     """L'unité passe le certificat à uvicorn."""
     unite = (LIB.parent / "phototheque.service").read_text()
     assert "--ssl-keyfile" in unite and "--ssl-certfile" in unite
+
+
+# --- fabrication du certificat dans install.sh : les deux blocs -------------
+#
+# Ces deux blocs vivent dans install.sh, pas dans lib.sh (ce ne sont pas des
+# fonctions de décision réutilisables) : on les extrait donc du script réel
+# pour les exécuter isolément, plutôt que de les retaper à la main dans le
+# test (ce qui pourrait diverger silencieusement du code réellement livré).
+
+def _position_bloc_certificat():
+    """Repère (texte, début du "then", début du "else") du if/else qui décide
+    de fabriquer ou non le certificat. Ancré sur `if certificat_present`, car
+    `\\nelse\\n` seul correspondrait au premier "else" du fichier (celui du
+    bloc venv, plus haut) et non à celui qu'on veut extraire."""
+    texte = INSTALL.read_text()
+    debut_if = texte.index('if certificat_present "$CERT" "$CLE"; then')
+    debut_then = texte.index("\n", debut_if) + 1
+    debut_else = texte.index("\nelse\n", debut_then)
+    return texte, debut_then, debut_else
+
+
+def _bloc_empreinte_si_deja_present():
+    """Le corps du "then" : certificat déjà en place, on affiche l'empreinte."""
+    texte, debut_then, debut_else = _position_bloc_certificat()
+    return texte[debut_then:debut_else]
+
+
+def _bloc_fabrication_si_absent():
+    """Le corps du "else" (sans le "fi" final, qui referme le "if" d'appel) :
+    fabrication du certificat, y compris la gestion de l'échec d'openssl."""
+    texte, _, debut_else = _position_bloc_certificat()
+    debut = debut_else + len("\nelse\n")
+    marqueur_fin = 'info "certificat créé"'
+    fin = texte.index(marqueur_fin, debut) + len(marqueur_fin)
+    return texte[debut:fin]
+
+
+def test_empreinte_tolere_une_apostrophe_dans_les_chemins(tmp_path):
+    """Avant correction : `$racine` et `$CERT` étaient injectés tels quels
+    dans une chaîne Python délimitée par des apostrophes (`'$CERT'`) passée à
+    `python -c "..."`. Une apostrophe dans l'un des deux chemins cassait la
+    syntaxe Python. Après correction : les valeurs passent par sys.argv (le
+    heredoc est quoté, `<<'PY'`), donc leur contenu n'a plus d'importance."""
+    dossier = tmp_path / "dossier d'un usager"
+    dossier.mkdir()
+    cert = dossier / "cert.pem"
+    cle = dossier / "key.pem"
+    subprocess.run(
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+         "-days", "1", "-subj", "/CN=test", "-keyout", str(cle), "-out", str(cert)],
+        check=True, capture_output=True,
+    )
+    # Le dépôt lui-même est atteint par un chemin contenant une apostrophe :
+    # un lien symbolique, pour ne pas dépendre d'un vrai dépôt à ce nom.
+    lien_racine = tmp_path / "d'un lien vers le dépôt"
+    lien_racine.symlink_to(DEPOT)
+
+    script = f'''
+set -euo pipefail
+info() {{ printf '%s\\n' "$*"; }}
+PYTHON=python3
+racine="{lien_racine}"
+CERT="{cert}"
+{_bloc_empreinte_si_deja_present()}
+printf '%s' "$empreinte"
+'''
+    r = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+    assert r.returncode == 0, f"stdout={r.stdout!r} stderr={r.stderr!r}"
+
+    from phototheque import tls
+    assert r.stdout.strip().splitlines()[-1] == tls.empreinte_certificat(cert)
+
+
+def test_echec_openssl_n_est_plus_avale_silencieusement(tmp_path):
+    """Avant correction : `openssl ... 2>/dev/null` sans vérification de code
+    de sortie. Sous `set -e`, un échec d'openssl arrêtait le script SANS
+    AUCUN MESSAGE (stderr jeté à /dev/null). Après correction : la sortie
+    d'erreur est capturée puis affichée, et `echec` est appelé explicitement
+    avec une piste de dépannage."""
+    faux_bin = tmp_path / "bin"
+    faux_bin.mkdir()
+    faux_openssl = faux_bin / "openssl"
+    faux_openssl.write_text(
+        "#!/usr/bin/env bash\n"
+        "echo 'erreur simulee : impossible d ecrire la cle' >&2\n"
+        "exit 1\n"
+    )
+    faux_openssl.chmod(0o755)
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    cle = config_dir / "key.pem"
+    cert = config_dir / "cert.pem"
+
+    script = f'''
+set -euo pipefail
+info() {{ printf '%s\\n' "$*"; }}
+echec() {{ printf 'ECHEC : %s\\n' "$*" >&2; exit 1; }}
+CONFIG_DIR="{config_dir}"
+CLE="{cle}"
+CERT="{cert}"
+{_bloc_fabrication_si_absent()}
+echo NE_DEVRAIT_JAMAIS_S_AFFICHER
+'''
+    r = subprocess.run(
+        ["bash", "-c", script],
+        capture_output=True, text=True,
+        env={**os.environ, "PATH": f"{faux_bin}:{os.environ['PATH']}"},
+    )
+    assert r.returncode == 1
+    assert "erreur simulee" in r.stdout + r.stderr, \
+        "le message d'erreur d'openssl a été avalé (régression du bug corrigé)"
+    assert "ECHEC" in r.stderr
+    assert "NE_DEVRAIT_JAMAIS_S_AFFICHER" not in r.stdout
+    assert not cert.exists()

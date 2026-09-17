@@ -83,19 +83,36 @@ chmod 700 "$CONFIG_DIR"
 
 if certificat_present "$CERT" "$CLE"; then
     info "certificat déjà en place, conservé"
-    info "empreinte : $("$PYTHON" -c "
-import sys; sys.path.insert(0, '$racine')
+    empreinte=$("$PYTHON" - "$racine" "$CERT" <<'PY'
+import sys
+sys.path.insert(0, sys.argv[1])
 from phototheque import tls
-print(tls.empreinte_certificat('$CERT'))")"
+print(tls.empreinte_certificat(sys.argv[2]))
+PY
+)
+    info "empreinte : $empreinte"
 else
     # L'adresse du NUC, pour que joindre le service par son IP n'ajoute pas
-    # une seconde erreur au navigateur.
+    # une seconde erreur au navigateur. Absente si le réseau n'est pas prêt :
+    # on se contente alors des noms, plutôt que de fabriquer un SAN invalide.
     IP=$(hostname -I | awk '{print $1}')
+    noms="DNS:$(hostname).local,DNS:localhost,IP:127.0.0.1"
+    if [ -n "$IP" ]; then
+        noms="$noms,IP:${IP}"
+    else
+        info "ATTENTION : adresse IP introuvable, le certificat ne couvrira"
+        info "            que les noms. L'accès par IP avertira le navigateur."
+    fi
+
     info "fabrication d'un certificat auto-signé (10 ans)"
-    openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
+    if ! erreur=$(openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
         -subj "/CN=$(hostname).local" \
-        -addext "subjectAltName=DNS:$(hostname).local,DNS:localhost,IP:${IP},IP:127.0.0.1" \
-        -keyout "$CLE" -out "$CERT" 2>/dev/null
+        -addext "subjectAltName=${noms}" \
+        -keyout "$CLE" -out "$CERT" 2>&1); then
+        info "$erreur"
+        echec "la fabrication du certificat a échoué (message ci-dessus).
+    Vérifiez qu'openssl est installé et que $CONFIG_DIR est accessible en écriture."
+    fi
     chmod 600 "$CLE"
     info "certificat créé"
 fi
