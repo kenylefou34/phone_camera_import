@@ -1,6 +1,7 @@
 """Application FastAPI du service d'ingestion."""
 
 import base64
+import datetime
 import json
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
@@ -175,6 +176,20 @@ def charge_appairage() -> str:
         config.PUBLIC_URL, secret, _empreinte_du_certificat()))
 
 
+def _page_appairage() -> str:
+    """Rend la page d'appairage pour l'appairage en cours.
+
+    La date proposée est l'horizon déjà enregistré pour cet appareil s'il y
+    en a un (retour sur la page après un POST), sinon aujourd'hui — repli
+    qui évite de remonter tout l'historique d'un téléphone neuf.
+    """
+    identifiant, _ = _appairage_en_cours
+    depuis = (devices().get_horizon_initial(identifiant)
+              or datetime.date.today().isoformat())
+    return web.pair_html(pairing.qr_svg(charge_appairage()),
+                         config.PUBLIC_URL, depuis)
+
+
 @app.get("/pair", response_class=HTMLResponse)
 def pair(_: None = Depends(require_admin)) -> str:
     """Affiche le QR d'appairage. Un GET ne doit RIEN créer de nouveau.
@@ -195,7 +210,21 @@ def pair(_: None = Depends(require_admin)) -> str:
     if _appairage_en_cours is None:
         _appairage_en_cours = devices().pair("Nouveau téléphone")
 
-    return web.pair_html(pairing.qr_svg(charge_appairage()), config.PUBLIC_URL)
+    return _page_appairage()
+
+
+@app.post("/pair", response_class=HTMLResponse)
+def pair_depuis(depuis: str = Form(...), _: None = Depends(require_admin)) -> str:
+    """Enregistre la date à partir de laquelle l'appareil remontera ses médias."""
+    try:
+        datetime.date.fromisoformat(depuis)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date invalide (AAAA-MM-JJ)")
+    if _appairage_en_cours is None:
+        raise HTTPException(status_code=409, detail="aucun appairage en cours")
+    identifiant, _secret = _appairage_en_cours
+    devices().set_horizon_initial(identifiant, depuis)
+    return _page_appairage()
 
 
 @app.get("/", response_class=HTMLResponse)
