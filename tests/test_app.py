@@ -806,3 +806,81 @@ def test_un_horodatage_futur_est_ramene_a_maintenant(tmp_path, monkeypatch):
     client.post("/sync/commit", headers=h, json={
         "session": session2, "horizons": {"DCIM/Camera": 1726574400.0}})
     assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1726574400.0}
+
+
+def _horizons_bruts(client, entetes, session, corps_json):
+    """Envoie un commit dont le corps JSON est écrit à la main.
+
+    `json=` refuserait NaN et ±Infinity : ce ne sont pas du JSON standard.
+    L'application Android, elle, peut parfaitement les produire — c'est le
+    cas reproduit — et FastAPI les accepte à la lecture.
+    """
+    return client.post("/sync/commit", headers={**entetes,
+                                                "Content-Type": "application/json"},
+                       content=corps_json)
+
+
+def test_un_horizon_non_fini_est_ignore_sans_bloquer_les_autres_dossiers(
+        tmp_path, monkeypatch):
+    """NaN est la seule valeur que min() ne sait pas borner : min(nan, x) vaut
+    nan. SQLite l'enregistre en NULL, la contrainte NOT NULL de
+    horizons.dernier_ts lève, et rien ne l'attrape : le client reçoit une
+    erreur 500 et les horizons sont écrits À MOITIÉ — le dossier fautif ne
+    progresse alors jamais.
+
+    On ignore le dossier fautif plutôt que de rejeter tout l'envoi : un
+    horodatage aberrant sur un dossier ne doit pas faire échouer la synchro
+    des autres, ni empêcher de valider des médias déjà rangés.
+    """
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    r = _horizons_bruts(client, h, session,
+                        '{"session": "%s", "horizons":'
+                        ' {"DCIM/Camera": 1726574400.0, "Zbug": NaN}}' % session)
+
+    assert r.status_code == 200
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1726574400.0}
+
+
+def test_un_horizon_moins_l_infini_ne_casse_pas_le_contrat_de_l_app(
+        tmp_path, monkeypatch):
+    """-Infinity passait la borne (min(-inf, now) == -inf), était enregistré,
+    et GET /sync/horizon le rendait en `null` — ce qui casse le contrat
+    `dossiers: dict[str, float]` que l'application Android code en dur.
+    """
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    r = _horizons_bruts(client, h, session,
+                        '{"session": "%s", "horizons":'
+                        ' {"DCIM/Camera": 1726574400.0, "Zbug": -Infinity}}' % session)
+
+    assert r.status_code == 200
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1726574400.0}
+    dossiers = client.get("/sync/horizon", headers=h).json()["dossiers"]
+    assert "Zbug" not in dossiers
+    assert all(isinstance(ts, float) for ts in dossiers.values()), dossiers
+
+
+def test_un_horizon_plus_l_infini_reste_ramene_a_maintenant(tmp_path, monkeypatch):
+    """Ce qui marchait déjà doit continuer : +Infinity est borné, pas ignoré."""
+    import time
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    avant = time.time()
+    r = _horizons_bruts(client, h, session,
+                        '{"session": "%s", "horizons": {"DCIM/Camera": Infinity}}'
+                        % session)
+    apres = time.time()
+
+    assert r.status_code == 200
+    enregistre = a.devices().get_horizons(dev_id)["DCIM/Camera"]
+    assert avant <= enregistre <= apres, enregistre

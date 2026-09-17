@@ -381,10 +381,25 @@ toute autre extension — `.webm`, `.gif`, `.tiff`, `.avif`, `.jfif`, `.mts`,
 `.mpg`, les formats bruts `.raw/.cr2/.nef/.arw`… — et le fichier n'est alors
 jamais écrit sur le NUC.
 
-Ce que l'application doit en faire : **garder le fichier sur le téléphone** et
-poursuivre la synchro normalement. Un refus n'est pas une panne et ne doit ni
-interrompre la session, ni empêcher le `commit` : l'horizon avance pour tout le
-reste.
+Ce que l'application doit en faire : poursuivre la synchro normalement. Un
+refus n'est pas une panne et ne doit ni interrompre la session, ni empêcher le
+`commit`.
+
+**Dit franchement : ce média ne sera jamais importé.** Le fichier reste sur le
+téléphone, mais l'horizon du dossier avance au-dessus de lui dès la synchro
+suivante — il ne sera donc plus jamais proposé. C'est un choix assumé : bloquer
+l'horizon à la place créerait un blocage **permanent** du dossier (le téléphone
+repropose le fichier, il est refusé à nouveau, l'horizon n'avance plus jamais),
+ce qui reviendrait à sacrifier tous les médias suivants pour un seul.
+
+La contrepartie est que le fichier reste **intact sur le téléphone** : rien
+n'est détruit, contrairement au comportement d'avant cette correction, où le
+média était accepté, ignoré par le trieur, puis supprimé avec le dossier de
+session. Pour le récupérer, deux voies, toutes deux manuelles :
+
+1. le rapatrier autrement (copie directe, puis `mediasort` sur le dossier) ;
+2. élargir les extensions reconnues dans `mediasort/config.py` — ce qui suppose
+   que le trieur sache aussi **dater** le format, pas seulement l'accepter.
 
 Pourquoi ce choix plutôt que bloquer l'horizon sur les fichiers ignorés :
 bloquer créerait un blocage **permanent** — le téléphone repropose le fichier,

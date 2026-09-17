@@ -3,6 +3,7 @@
 import base64
 import datetime
 import json
+import math
 import time
 from pathlib import Path
 
@@ -194,7 +195,27 @@ def sync_commit(req: CommitRequest, dev_id: str = Depends(require_device)) -> di
         # connus, que l'anti-doublon écarte sans les transférer.
         maintenant = time.time()
         for dossier, ts in req.horizons.items():
-            devices().set_horizon(dev_id, dossier, min(ts, maintenant))
+            # Une valeur non finie ne peut pas être bornée : min(nan, x) vaut
+            # nan — la seule valeur que min() ne rattrape pas — SQLite
+            # l'enregistre en NULL et la contrainte NOT NULL de
+            # horizons.dernier_ts lève, ce qui renvoyait une erreur 500 au
+            # téléphone après avoir écrit les horizons À MOITIÉ. Et -inf
+            # passait la borne, était enregistré, puis ressortait en `null`
+            # de /sync/horizon : contrat `dossiers: dict[str, float]` cassé.
+            # On ignore le dossier fautif plutôt que de rejeter tout l'envoi :
+            # un horodatage aberrant sur un dossier ne doit pas faire échouer
+            # la synchro des autres, ni empêcher de valider des médias déjà
+            # rangés. Silencieusement, faute de journal dans ce module.
+            #
+            # Le contrôle porte sur la valeur BORNÉE et non sur `ts` : c'est
+            # ce qu'on s'apprête à écrire qui doit être un instant réel. +inf
+            # est ainsi ramené à maintenant, comme il l'était déjà — le borner
+            # fonctionne parfaitement — tandis que nan et -inf, que min() ne
+            # rattrape pas, sont les seuls écartés.
+            horizon = min(ts, maintenant)
+            if not math.isfinite(horizon):
+                continue
+            devices().set_horizon(dev_id, dossier, horizon)
     return bilan
 
 
