@@ -121,7 +121,7 @@ def pair() -> str:
     # laisserait une clé d'accès valable indéfiniment.
     devices().purge_pending()
     _, secret = devices().pair("Nouveau téléphone")
-    url = f"http://nuc.local:{config.PORT}"
+    url = config.PUBLIC_URL
     charge = json.dumps(pairing.pairing_payload(url, secret))
     svg = pairing.qr_svg(charge)
     return (f'<!doctype html><meta charset="utf-8"><title>Appairage</title>'

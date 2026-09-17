@@ -143,3 +143,12 @@ def test_pair_page_purges_stale_pairings(tmp_path, monkeypatch):
     restants = a.devices().list()
     assert len(restants) == 1, restants
     assert restants[0]["id"] != ancien
+
+
+def test_pair_page_publishes_a_reachable_url(tmp_path, monkeypatch):
+    """Le QR et le texte affiché portent l'URL réelle du serveur."""
+    monkeypatch.setenv("PUBLIC_URL", "http://essai-hote.local:8787")
+    a, client = _client(tmp_path, monkeypatch)
+    r = client.get("/pair")
+    assert "essai-hote.local:8787" in r.text
+    assert "nuc.local" not in r.text

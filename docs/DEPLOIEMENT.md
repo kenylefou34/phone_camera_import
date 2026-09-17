@@ -143,8 +143,19 @@ sudo systemctl restart avahi-daemon
 - **`enable`** : le service démarrera automatiquement à chaque boot du NUC.
 - **`--now`** : et démarre aussi tout de suite.
 - **`restart avahi-daemon`** : Avahi ne relit ses fichiers de service qu'au
-  redémarrage. C'est lui qui permet d'écrire `http://nuc.local:8787` au lieu de
-  retenir l'adresse IP, et qui permettra à l'app Android de trouver le NUC seule.
+  redémarrage. C'est lui qui permet d'écrire `http://IZQUIERDO-NUC.local:8787`
+  au lieu de retenir l'adresse IP, et qui permettra à l'app Android de trouver
+  le NUC seule.
+
+> **Le nom d'hôte compte.** La machine s'annonce sous `<nom d'hôte>.local`,
+> ici `IZQUIERDO-NUC.local`. `nuc.local` ne résout pas. L'URL publiée dans le
+> QR d'appairage est donc déduite du nom d'hôte réel (`PUBLIC_URL` dans
+> `phototheque/config.py`) et non écrite en dur — sinon l'app scannerait une
+> adresse injoignable. Vérifier ce qui est réellement annoncé, depuis une
+> autre machine du réseau :
+> ```bash
+> avahi-browse -tpr _phototheque._tcp
+> ```
 
 `enable` et `active` sont deux choses distinctes : `active` veut dire « il tourne
 en ce moment », `enabled` veut dire « il repartira au prochain démarrage ».
@@ -211,7 +222,7 @@ journalctl -u phototheque -b         # depuis le dernier démarrage du NUC
 |---|---|---|
 | Le service ne démarre pas au boot | Disque `Famille` non monté | `mountpoint -q /media/izquierdo/Famille` ; l'unité l'attend via `RequiresMountsFor`, il suffit de monter le disque |
 | `Address already in use` | Ancien service encore actif | `systemctl list-unit-files \| grep -E 'mediaserve\|phototheque'` puis retirer l'ancien (étape 4) |
-| `http://nuc.local:8787` inaccessible, l'IP fonctionne | Annonce mDNS absente | `sudo systemctl restart avahi-daemon` ; vérifier `/etc/avahi/services/avahi-phototheque.service` |
+| L'adresse `.local` est inaccessible, l'IP fonctionne | Annonce mDNS absente, ou mauvais nom d'hôte | `sudo systemctl restart avahi-daemon` ; vérifier le nom réel avec `hostname` et ce qui est annoncé avec `avahi-browse -tpr _phototheque._tcp` depuis une autre machine |
 | Téléphones soudain non reconnus | Base d'appairage perdue | Vérifier `~/phototheque_devices.db` ; l'ancienne était `~/mediaserve_devices.db` (étape 3) |
 | `database is locked` | Écriture concurrente sur le catalogue | Vérifier qu'un `--backfill-signatures` ne tourne pas : `pgrep -af "python3 -m mediasort"` |
 
@@ -251,6 +262,7 @@ Tout est surchargeable par variables d'environnement (voir
 | `CATALOG_DB` | `~/mediasort_catalog.db` | Catalogue anti-doublon |
 | `INCOMING_DIR` | `<LIBRARY_DIR>/incoming` | Dépôt temporaire des envois |
 | `DEVICES_DB` | `~/phototheque_devices.db` | Appareils appairés |
+| `PUBLIC_URL` | `http://<nom d'hôte>.local:<PORT>` | Adresse publiée dans le QR d'appairage |
 
 ---
 

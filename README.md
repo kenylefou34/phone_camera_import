@@ -196,7 +196,10 @@ démarrage automatique au boot, et vérification. Il est **idempotent** — c'es
 aussi la commande à rejouer après chaque `git pull`, car le code n'est pas
 rechargé tout seul.
 
-Ouvre ensuite `http://nuc.local:8787/` (admin) et `http://nuc.local:8787/pair` (QR).
+Ouvre ensuite `http://IZQUIERDO-NUC.local:8787/` (admin) et `/pair` (QR).
+L'adresse est celle sous laquelle la machine s'annonce en mDNS, soit
+`<nom d'hôte>.local` ; le script la rappelle à la fin. Elle est surchargeable
+par la variable `PUBLIC_URL`.
 
 **📖 [`docs/DEPLOIEMENT.md`](docs/DEPLOIEMENT.md)** détaille chaque étape, le
 paramétrage par variables d'environnement, le dépannage, le retour en arrière et

@@ -83,7 +83,8 @@ python3 -m mediasort --catalog ~/mediasort_catalog.db --backfill-signatures
 
 # Serveur (sur le NUC) — installation ET mise à jour, idempotent :
 cd ~/phone_camera_import && git pull && ./deploy/install.sh
-# puis http://nuc.local:8787/ (admin) et /pair (QR)
+# puis http://IZQUIERDO-NUC.local:8787/ (admin) et /pair (QR)
+#   (nuc.local ne résout PAS : la machine s'annonce en <hostname>.local)
 # Lancement manuel (dev) :
 ~/.venv-server/bin/uvicorn phototheque.app:app --host 0.0.0.0 --port 8787
 
