@@ -3,6 +3,7 @@
 import base64
 import datetime
 import json
+import time
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
@@ -185,8 +186,15 @@ def sync_commit(req: CommitRequest, dev_id: str = Depends(require_device)) -> di
     # définitive et silencieuse. On préfère qu'il repropose tout le dossier ;
     # l'anti-doublon écartera les fichiers déjà rangés sans les transférer.
     if bilan["errors"] == 0:
+        # Borne haute : un horodatage dans le futur — horloge d'appareil photo
+        # mal réglée, bug de l'application, valeur aberrante — FERMERAIT
+        # définitivement le dossier, puisque toute photo suivante serait sous
+        # l'horizon et ne serait plus jamais proposée. Le sens inverse est
+        # bénin : un horizon qui recule fait reproposer des fichiers déjà
+        # connus, que l'anti-doublon écarte sans les transférer.
+        maintenant = time.time()
         for dossier, ts in req.horizons.items():
-            devices().set_horizon(dev_id, dossier, ts)
+            devices().set_horizon(dev_id, dossier, min(ts, maintenant))
     return bilan
 
 

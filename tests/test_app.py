@@ -772,3 +772,37 @@ def test_un_certificat_abime_ne_casse_pas_la_page_d_appairage(
 
     assert r.status_code == 200, description
     assert json.loads(a.charge_appairage())["cert_sha256"] is None, description
+
+
+def test_un_horodatage_futur_est_ramene_a_maintenant(tmp_path, monkeypatch):
+    """Une borne haute sur l'horizon : sinon un dossier se referme pour toujours.
+
+    Un horodatage dans le futur — horloge d'appareil photo mal réglée, bug de
+    l'application, valeur aberrante — enregistré tel quel fermerait
+    définitivement le dossier : toutes les photos suivantes seraient sous
+    l'horizon et ne seraient plus jamais proposées. La direction inverse est
+    bénigne : un horizon qui recule fait reproposer des fichiers déjà connus,
+    que l'anti-doublon écarte sans les transférer.
+    """
+    import time
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+    an_2100 = 4102444800.0
+
+    avant = time.time()
+    r = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": an_2100}})
+    apres = time.time()
+
+    assert r.status_code == 200
+    enregistre = a.devices().get_horizons(dev_id)["DCIM/Camera"]
+    assert avant <= enregistre <= apres, enregistre
+
+    # ...et la synchro suivante fonctionne normalement : le dossier n'est pas
+    # refermé, un horodatage plausible est enregistré tel quel.
+    session2 = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+    client.post("/sync/commit", headers=h, json={
+        "session": session2, "horizons": {"DCIM/Camera": 1726574400.0}})
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1726574400.0}
