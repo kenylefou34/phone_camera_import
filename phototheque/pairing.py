@@ -7,7 +7,18 @@ import qrcode.image.svg
 
 
 def pairing_payload(url: str, token: str, cert_sha256=None) -> dict:
-    """Données encodées dans le QR : où joindre le NUC + secret (+ empreinte certif future)."""
+    """Données encodées dans le QR d'appairage. Trois champs, et pas un de plus :
+
+    - `url` : où joindre le serveur (schéma `https`). Sert à l'amorçage et de
+      secours ; l'identité du serveur, elle, c'est son certificat.
+    - `token` : le secret que l'application enverra en
+      « Authorization: Bearer <token> ». Montré une seule fois.
+    - `cert_sha256` : SHA-256 du certificat au format DER, en hexadécimal
+      minuscule — l'empreinte que l'application ÉPINGLE pour reconnaître le
+      serveur. Vaut `null` quand le service tourne sans certificat (lancement
+      à la main en HTTP, ou certificat abîmé) : le serveur n'est alors pas
+      épinglable.
+    """
     return {"url": url, "token": token, "cert_sha256": cert_sha256}
 
 

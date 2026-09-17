@@ -23,9 +23,9 @@ unite_installee() {
 nb_appareils() {
     # Affiche le nombre d'appareils appairés dans la base passée en argument.
     # Affiche 0 si le fichier n'existe pas, n'est pas une base lisible, ou
-    # n'a pas encore de table 'devices' — ce dernier cas se produit quand la
-    # base a été créée par un simple import du module (phototheque/app.py
-    # instancie DeviceStore au chargement).
+    # n'a pas encore de table 'devices' — ce dernier cas s'est produit quand la
+    # base était créée par un simple import du module (phototheque/app.py
+    # instanciait DeviceStore au chargement, jusqu'au 17/09/2026).
     local base=$1
     if [ ! -f "$base" ]; then
         echo 0
@@ -46,7 +46,7 @@ doit_reprendre() {
     # nouvelle : l'ancienne contient des appareils et la nouvelle n'en a aucun.
     #
     # Le critère est le CONTENU, pas l'existence du fichier : une base vide
-    # créée au passage par un import doit pouvoir être remplacée. À l'inverse,
+    # laissée là par un outil de passage doit pouvoir être remplacée. À l'inverse,
     # une nouvelle base déjà peuplée n'est jamais écrasée.
     local ancienne=$1 nouvelle=$2
     local anciens nouveaux

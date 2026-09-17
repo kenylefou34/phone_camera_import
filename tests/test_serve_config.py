@@ -19,11 +19,16 @@ def test_config_env_override(monkeypatch):
 
 
 def test_public_url_uses_the_real_hostname(monkeypatch):
-    """L'URL publiée doit être celle du NUC, pas un nom d'hôte écrit en dur.
+    """L'URL publiée : le nom d'hôte réel, et le schéma https (issue #3).
 
     Régression : l'URL était figée à « http://nuc.local:8787 », qui ne résout
     pas — la machine s'annonce en mDNS sous IZQUIERDO-NUC.local. Le QR code
     d'appairage encodait donc une adresse injoignable pour l'app.
+
+    Le schéma est vérifié ici aussi : le service ne parle plus qu'en HTTPS, et
+    un QR en « http:// » serait injoignable pour la même raison. (Un second
+    test qui n'assertait que cela, avec exactement la même préparation, a été
+    fusionné ici.)
     """
     import importlib, socket
     monkeypatch.delenv("PUBLIC_URL", raising=False)
@@ -34,7 +39,7 @@ def test_public_url_uses_the_real_hostname(monkeypatch):
 
 
 def test_public_url_can_be_overridden(monkeypatch):
-    """Surchargeable : nom personnalisé, autre port, HTTPS à venir (#3)."""
+    """Surchargeable : nom personnalisé, autre port, ou variante Docker (HTTP)."""
     import importlib
     monkeypatch.setenv("PUBLIC_URL", "https://photos.maison:8443")
     cfg = importlib.reload(importlib.import_module("phototheque.config"))
@@ -51,12 +56,3 @@ def test_chemins_du_certificat_par_defaut(monkeypatch):
     assert cfg.CERT_FILE == Path.home() / ".config" / "phototheque" / "cert.pem"
     assert cfg.KEY_FILE == Path.home() / ".config" / "phototheque" / "key.pem"
 
-
-def test_public_url_est_en_https(monkeypatch):
-    """L'adresse publiée dans le QR passe en HTTPS (issue #3)."""
-    import importlib, socket
-    monkeypatch.delenv("PUBLIC_URL", raising=False)
-    monkeypatch.delenv("PORT", raising=False)
-    monkeypatch.setattr(socket, "gethostname", lambda: "ESSAI-HOTE")
-    cfg = importlib.reload(importlib.import_module("phototheque.config"))
-    assert cfg.PUBLIC_URL == "https://ESSAI-HOTE.local:8787"

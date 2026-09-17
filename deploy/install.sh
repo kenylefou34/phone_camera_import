@@ -113,9 +113,15 @@ else
         echec "la fabrication du certificat a échoué (message ci-dessus).
     Vérifiez qu'openssl est installé et que $CONFIG_DIR est accessible en écriture."
     fi
-    chmod 600 "$CLE"
     info "certificat créé"
 fi
+
+# Hors de la branche de création, et rejoué à chaque installation : une clé
+# arrivée autrement (restauration d'une sauvegarde, copie de migration depuis
+# une autre machine) garderait sinon les droits de son origine, qui peuvent
+# être bien plus larges. Une clé privée lisible par tous les utilisateurs de la
+# machine n'est plus une clé privée.
+chmod 600 "$CLE"
 
 # --------------------------------------------------------------------------
 etape "4/9  Mot de passe d'administration"
@@ -194,10 +200,12 @@ etape "6/9  Reprise des appairages"
 # La base des appareils appairés portait l'ancien nom. Sans reprise, les
 # téléphones déjà configurés seraient rejetés et il faudrait tout réappairer.
 #
-# Le critère est le CONTENU et non l'existence du fichier : importer
-# phototheque.app crée la base au passage (DeviceStore est instancié au
-# chargement du module), donc un simple test d'existence peut voir un fichier
-# vide et conclure à tort que la reprise a déjà eu lieu.
+# Le critère est le CONTENU et non l'existence du fichier : jusqu'au
+# 17/09/2026, importer phototheque.app créait la base au passage (DeviceStore
+# était instancié au chargement du module), et un simple test d'existence a vu
+# un fichier vide et conclu à tort que la reprise avait déjà eu lieu. La base
+# n'est plus ouverte qu'à la première utilisation réelle, mais le critère reste
+# le contenu : une base vide traînante ne doit jamais bloquer la reprise.
 ancienne_base="$HOME/${ANCIEN_SERVICE}_devices.db"
 nouvelle_base="$HOME/${SERVICE}_devices.db"
 

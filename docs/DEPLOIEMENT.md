@@ -102,11 +102,19 @@ sudo apt-get install -y libimage-exiftool-perl ffmpeg
 
 ```bash
 mkdir -p ~/.config/phototheque && chmod 700 ~/.config/phototheque
+IP=$(hostname -I | awk '{print $1}')      # l'adresse du NUC sur le réseau
 openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
     -subj "/CN=$(hostname).local" \
-    -addext "subjectAltName=DNS:$(hostname).local,DNS:localhost,IP:127.0.0.1" \
+    -addext "subjectAltName=DNS:$(hostname).local,DNS:localhost,IP:127.0.0.1,IP:${IP}" \
     -keyout ~/.config/phototheque/key.pem -out ~/.config/phototheque/cert.pem
+chmod 600 ~/.config/phototheque/key.pem
 ```
+
+**`IP:${IP}` n'est pas facultatif** : sans ce nom alternatif, joindre le
+service par son adresse IP (par exemple quand le `.local` ne résout pas)
+ajoute une seconde erreur à l'avertissement du navigateur. Le script réel le
+pose ; si l'adresse est introuvable, il se contente des noms plutôt que de
+fabriquer un nom alternatif invalide.
 
 Le service ne parle plus qu'en **HTTPS** : sans certificat, pas de démarrage.
 N'ayant personne pour garantir ce certificat (pas d'autorité extérieure,
@@ -119,9 +127,26 @@ plus bas, section « Le certificat et le mot de passe »).
 
 ### 4. Mot de passe d'administration
 
+Depuis la racine du dépôt :
+
 ```bash
-python3 -c "import secrets; print(secrets.token_urlsafe(12))"
+MOT_DE_PASSE=$(python3 -c "import secrets; print(secrets.token_urlsafe(12))")
+printf 'mot de passe : %s\n' "$MOT_DE_PASSE"      # à noter tout de suite
+(umask 077; printf '%s' "$MOT_DE_PASSE" | ~/.venv-server/bin/python -c '
+import sys
+from phototheque import adminauth
+print(adminauth.empreinte(sys.stdin.read()))
+' > ~/.config/phototheque/admin.nouveau)
+mv ~/.config/phototheque/admin.nouveau ~/.config/phototheque/admin
+chmod 600 ~/.config/phototheque/admin
 ```
+
+Les trois précautions ne sont pas du décor : le mot de passe ne transite que
+par l'entrée standard (jamais dans une ligne de commande, visible de tous via
+`ps`), `umask 077` fait naître le fichier en `0600` dès sa création, et
+l'écriture passe par un fichier temporaire — un échec en cours de route
+laisserait sinon un fichier `admin` vide, que le lancement suivant prendrait
+pour un mot de passe valide, fermant l'administration en silence.
 
 Un mot de passe est tiré au hasard et son empreinte enregistrée dans
 `~/.config/phototheque/admin` (jamais le mot de passe en clair). Il protège

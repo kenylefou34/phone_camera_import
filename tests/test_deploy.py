@@ -92,9 +92,10 @@ def test_nb_appareils_zero_si_base_sans_table(tmp_path):
 def test_doit_reprendre_quand_la_nouvelle_base_est_vide(tmp_path):
     """Le cas qui a échoué : la nouvelle base existe mais elle est vide.
 
-    Importer phototheque.app crée la base (DeviceStore est instancié au
-    chargement du module) : un simple test d'existence conclut à tort que la
-    reprise a déjà eu lieu.
+    Importer phototheque.app créait la base (DeviceStore était instancié au
+    chargement du module) : un simple test d'existence concluait à tort que la
+    reprise avait déjà eu lieu. L'ouverture est devenue paresseuse, mais une
+    base vide traînante ne doit toujours pas bloquer la reprise.
     """
     ancienne, nouvelle = tmp_path / "a.db", tmp_path / "n.db"
     _base_appareils(ancienne, 5)
