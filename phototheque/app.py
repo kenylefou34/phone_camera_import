@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from mediasort.catalog import Catalog
 from mediasort.hashing import file_hash
-from . import config, ingest, pairing, sessions, stats, web
+from . import config, ingest, pairing, sessions, stats, tls, web
 from .devices import DeviceStore
 
 app = FastAPI(title="phototheque")
@@ -121,6 +121,26 @@ def revoke_device(device_id: str) -> dict:
 _appairage_en_cours = None
 
 
+def _empreinte_du_certificat():
+    """Empreinte du certificat servi, ou None s'il n'y en a pas.
+
+    Absent = service lancé à la main en HTTP pour du développement. On ne
+    casse pas la page d'appairage pour autant ; l'application saura que le
+    serveur n'est pas épinglable.
+    """
+    try:
+        return tls.empreinte_certificat(config.CERT_FILE)
+    except OSError:
+        return None
+
+
+def charge_appairage() -> str:
+    """Le JSON encodé dans le QR : où joindre le serveur, jeton, empreinte."""
+    _, secret = _appairage_en_cours
+    return json.dumps(pairing.pairing_payload(
+        config.PUBLIC_URL, secret, _empreinte_du_certificat()))
+
+
 @app.get("/pair", response_class=HTMLResponse)
 def pair() -> str:
     """Affiche le QR d'appairage. Un GET ne doit RIEN créer de nouveau.
@@ -141,10 +161,7 @@ def pair() -> str:
     if _appairage_en_cours is None:
         _appairage_en_cours = devices().pair("Nouveau téléphone")
 
-    _, secret = _appairage_en_cours
-    url = config.PUBLIC_URL
-    charge = json.dumps(pairing.pairing_payload(url, secret))
-    return web.pair_html(pairing.qr_svg(charge), url)
+    return web.pair_html(pairing.qr_svg(charge_appairage()), config.PUBLIC_URL)
 
 
 @app.get("/", response_class=HTMLResponse)

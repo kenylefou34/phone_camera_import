@@ -250,3 +250,37 @@ def test_admin_tolerates_an_unreadable_date():
         disk={"total": 1, "utilise": 0, "libre": 1, "pourcentage_utilise": 0},
         media={"photos": 0, "videos": 0})
     assert "bizarre" in html
+
+
+def test_pair_qr_transporte_l_empreinte_du_certificat(tmp_path, monkeypatch):
+    """Le QR porte l'empreinte que l'application épinglera (issue #3)."""
+    import json
+    import subprocess
+    from phototheque import tls
+
+    cert = tmp_path / "cert.pem"
+    subprocess.run(
+        ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1",
+         "-subj", "/CN=essai.local", "-keyout", str(tmp_path / "key.pem"),
+         "-out", str(cert)],
+        check=True, capture_output=True)
+    monkeypatch.setenv("CERT_FILE", str(cert))
+
+    a, client = _client(tmp_path, monkeypatch)
+    client.get("/pair")                      # crée l'appairage en cours
+    charge = json.loads(a.charge_appairage())
+
+    assert charge["cert_sha256"] == tls.empreinte_certificat(cert)
+
+
+def test_pair_sans_certificat_ne_casse_pas(tmp_path, monkeypatch):
+    """Service lancé à la main en HTTP : pas de certificat, pas d'empreinte."""
+    import json
+    monkeypatch.setenv("CERT_FILE", str(tmp_path / "absent.pem"))
+    a, client = _client(tmp_path, monkeypatch)
+    client.get("/pair")                      # crée l'appairage en cours
+
+    charge = json.loads(a.charge_appairage())
+
+    assert charge["cert_sha256"] is None
+    assert client.get("/pair").status_code == 200
