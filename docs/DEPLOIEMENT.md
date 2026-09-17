@@ -412,10 +412,20 @@ Tout est surchargeable par variables d'environnement (voir
 | `INCOMING_DIR` | `<LIBRARY_DIR>/incoming` | Dépôt temporaire des envois |
 | `DEVICES_DB` | `~/phototheque_devices.db` | Appareils appairés |
 | `CONFIG_DIR` | `~/.config/phototheque` | Dossier du certificat, du mot de passe et du nom convivial |
-| `CERT_FILE` | `<CONFIG_DIR>/cert.pem` | Certificat TLS du serveur |
-| `KEY_FILE` | `<CONFIG_DIR>/key.pem` | Clé privée du certificat |
 | `ADMIN_FILE` | `<CONFIG_DIR>/admin` | Empreinte du mot de passe d'administration |
 | `PUBLIC_URL` | `https://<nom d'hôte>.local:<PORT>` | Adresse publiée dans le QR d'appairage |
+
+> **`CERT_FILE` et `KEY_FILE` ne sont volontairement pas dans ce tableau.**
+> L'unité systemd passe les chemins du certificat en dur à `uvicorn`
+> (`--ssl-certfile`, `--ssl-keyfile`) : ce sont eux qui décident du certificat
+> **réellement servi**. Les variables, elles, ne décident que du certificat
+> dont le service calcule l'empreinte pour le QR d'appairage. Les surcharger
+> seules donne donc la pire panne possible du lot : uvicorn sert le certificat
+> A, le QR annonce l'empreinte du certificat B, l'application épingle B, se
+> connecte à A et échoue sans message compréhensible — alors que tout le reste
+> fonctionne. Si tu déplaces le certificat, modifie **aussi** les deux
+> arguments `--ssl-*` dans `deploy/phototheque.service`, et garde une seule
+> vérité sur son emplacement.
 
 ---
 
@@ -510,8 +520,11 @@ docker compose -f deploy/docker-compose.yml up -d --build
 docker compose -f deploy/docker-compose.yml ps        # doit afficher « running »
 ```
 
-Puis ouvre `http://localhost:8787/` dans un navigateur. Tu dois voir la page
-d'administration. `http://localhost:8787/pair` affiche le QR d'appairage.
+Puis ouvre `http://localhost:8787/` dans un navigateur. **Tu obtiendras une
+demande de mot de passe à laquelle rien ne répond** : voir « Les limites, dites
+franchement » ci-dessous — dans cette variante, l'administration et l'appairage
+ne sont pas accessibles. Le conteneur, lui, tourne bien : les journaux
+ci-dessous le confirment.
 
 En cas de doute, lis ce que dit l'application :
 
@@ -570,6 +583,17 @@ Tu obtiens un fichier `catalogue-phototheque.tgz` dans le dossier courant.
   fichier d'annonce sur l'hôte comme à l'étape 8 de la section systemd.
   Pense alors à renseigner `PUBLIC_URL` (tableau du paramétrage ci-dessus) pour
   que le QR code affiche une adresse joignable depuis le téléphone.
+- **L'administration et l'appairage ne sont pas accessibles.** `/`, `/pair` et
+  `/devices` répondent `401` **pour toujours**, et il n'y a donc aucun moyen
+  d'appairer un téléphone dans cette variante. La raison : le mot de passe
+  d'administration est fabriqué par `install.sh`, que Docker n'utilise pas. Le
+  `Dockerfile` ne définit ni `CONFIG_DIR` ni `ADMIN_FILE`, et le
+  `docker-compose.yml` ne monte aucun volume de configuration : le fichier
+  d'empreinte est donc absent, et un fichier absent ferme l'administration —
+  c'est volontaire, mieux vaut refuser que laisser la surface ouverte. La
+  variante Docker sert donc à **faire tourner et essayer le service**, pas à
+  l'exploiter avec un téléphone. Corriger cela demanderait d'y porter le
+  certificat et le mot de passe, ce qui n'est pas au programme de ce lot.
 - **Le conteneur sert en HTTP, pas en HTTPS.** Le certificat est fabriqué par
   `install.sh`, que la variante Docker n'utilise pas. Conséquence à connaître :
   l'adresse publiée dans le QR d'appairage vaut `https://…` par défaut, alors
