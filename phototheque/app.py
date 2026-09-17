@@ -1,5 +1,6 @@
 """Application FastAPI du service d'ingestion."""
 
+import base64
 import json
 
 from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
@@ -8,7 +9,7 @@ from pydantic import BaseModel
 
 from mediasort.catalog import Catalog
 from mediasort.hashing import file_hash
-from . import config, ingest, pairing, sessions, stats, tls, web
+from . import adminauth, config, ingest, pairing, sessions, stats, tls, web
 from .devices import DeviceStore
 
 app = FastAPI(title="phototheque")
@@ -39,6 +40,36 @@ def require_device(authorization: str = Header(default="")) -> str:
     if not dev_id:
         raise HTTPException(status_code=401, detail="jeton invalide")
     return dev_id
+
+
+def require_admin(authorization: str = Header(default="")) -> None:
+    """Dépendance d'auth admin : « Authorization: Basic <utilisateur:secret> ».
+
+    Le navigateur affiche sa propre fenêtre de connexion dès qu'on répond 401
+    avec l'en-tête WWW-Authenticate. Sans cet en-tête il n'affiche rien.
+
+    Un fichier de mot de passe absent ferme l'administration : le service n'a
+    pas encore été installé par deploy/install.sh, mieux vaut refuser que
+    laisser la surface ouverte.
+    """
+    refus = HTTPException(
+        status_code=401, detail="authentification requise",
+        headers={"WWW-Authenticate": 'Basic realm="phototheque"'},
+    )
+    try:
+        enregistre = config.ADMIN_FILE.read_text().strip()
+    except OSError:
+        raise refus
+    prefixe = "Basic "
+    if not authorization.startswith(prefixe):
+        raise refus
+    try:
+        identifiants = base64.b64decode(authorization[len(prefixe):]).decode()
+        utilisateur, _, secret = identifiants.partition(":")
+    except (ValueError, UnicodeDecodeError):
+        raise refus
+    if utilisateur != "admin" or not adminauth.verifier(secret, enregistre):
+        raise refus
 
 
 def _media_counts() -> dict:
@@ -103,14 +134,14 @@ def sync_commit(req: CommitRequest, _: str = Depends(require_device)) -> dict:
     return bilan
 
 
-# ---- surface d'admin locale (sans auth) ----
+# ---- surface d'admin, protégée par mot de passe (issue #10) ----
 @app.get("/devices")
-def list_devices() -> list:
+def list_devices(_: None = Depends(require_admin)) -> list:
     return devices().list()
 
 
 @app.post("/devices/{device_id}/revoke")
-def revoke_device(device_id: str) -> dict:
+def revoke_device(device_id: str, _: None = Depends(require_admin)) -> dict:
     return {"revoked": devices().revoke(device_id)}
 
 
@@ -142,7 +173,7 @@ def charge_appairage() -> str:
 
 
 @app.get("/pair", response_class=HTMLResponse)
-def pair() -> str:
+def pair(_: None = Depends(require_admin)) -> str:
     """Affiche le QR d'appairage. Un GET ne doit RIEN créer de nouveau.
 
     Recharger la page réaffiche le même QR tant qu'il est valable. Sans cela,
@@ -165,6 +196,6 @@ def pair() -> str:
 
 
 @app.get("/", response_class=HTMLResponse)
-def admin() -> str:
+def admin(_: None = Depends(require_admin)) -> str:
     d = stats.disk_stats(config.LIBRARY_DIR)
     return web.admin_html(devices().list(), d, _media_counts())

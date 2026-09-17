@@ -1,4 +1,5 @@
 import datetime, hashlib, importlib, io
+import pytest
 from fastapi.testclient import TestClient
 from phototheque import web
 
@@ -102,10 +103,11 @@ def test_status_with_token(tmp_path, monkeypatch):
 
 
 def test_list_and_revoke_device(tmp_path, monkeypatch):
+    entetes = _avec_admin(tmp_path, monkeypatch)
     a, client = _client(tmp_path, monkeypatch)
     dev_id, secret = a.devices().pair("Pixel")
-    assert any(d["id"] == dev_id for d in client.get("/devices").json())
-    assert client.post(f"/devices/{dev_id}/revoke").status_code == 200
+    assert any(d["id"] == dev_id for d in client.get("/devices", headers=entetes).json())
+    assert client.post(f"/devices/{dev_id}/revoke", headers=entetes).status_code == 200
     assert client.get("/status", headers={"Authorization": f"Bearer {secret}"}).status_code == 401
 
 
@@ -134,16 +136,18 @@ def test_sync_flow_dedup_and_commit(tmp_path, monkeypatch):
 
 
 def test_pair_page_creates_device_and_qr(tmp_path, monkeypatch):
+    entetes = _avec_admin(tmp_path, monkeypatch)
     a, client = _client(tmp_path, monkeypatch)
     avant = len(a.devices().list())
-    r = client.get("/pair")
+    r = client.get("/pair", headers=entetes)
     assert r.status_code == 200 and "<svg" in r.text
     assert len(a.devices().list()) == avant + 1
 
 
 def test_admin_page_renders(tmp_path, monkeypatch):
+    entetes = _avec_admin(tmp_path, monkeypatch)
     a, client = _client(tmp_path, monkeypatch)
-    r = client.get("/")
+    r = client.get("/", headers=entetes)
     assert r.status_code == 200 and "phototheque" in r.text
 
 
@@ -176,15 +180,16 @@ def test_pair_page_purges_stale_pairings(tmp_path, monkeypatch):
     ouverte par curiosité laissait une clé d'accès permanente.
     """
     from datetime import datetime, timedelta
+    entetes = _avec_admin(tmp_path, monkeypatch)
     a, client = _client(tmp_path, monkeypatch)
 
-    client.get("/pair")
+    client.get("/pair", headers=entetes)
     ancien = a.devices().list()[0]["id"]
     vieux = (datetime.now() - timedelta(minutes=11)).isoformat(timespec="seconds")
     a.devices()._cx.execute("UPDATE devices SET paired_at=? WHERE id=?", (vieux, ancien))
     a.devices()._cx.commit()
 
-    client.get("/pair")
+    client.get("/pair", headers=entetes)
 
     restants = a.devices().list()
     assert len(restants) == 1, restants
@@ -194,8 +199,9 @@ def test_pair_page_purges_stale_pairings(tmp_path, monkeypatch):
 def test_pair_page_publishes_a_reachable_url(tmp_path, monkeypatch):
     """Le QR et le texte affiché portent l'URL réelle du serveur."""
     monkeypatch.setenv("PUBLIC_URL", "http://essai-hote.local:8787")
+    entetes = _avec_admin(tmp_path, monkeypatch)
     a, client = _client(tmp_path, monkeypatch)
-    r = client.get("/pair")
+    r = client.get("/pair", headers=entetes)
     assert "essai-hote.local:8787" in r.text
     assert "nuc.local" not in r.text
 
@@ -207,9 +213,10 @@ def test_pair_page_reuses_the_same_qr_while_valid(tmp_path, monkeypatch):
     supervision, préchargement du navigateur, vérification du script
     d'installation — fabriquait une clé d'accès.
     """
+    entetes = _avec_admin(tmp_path, monkeypatch)
     a, client = _client(tmp_path, monkeypatch)
-    premier = client.get("/pair")
-    second = client.get("/pair")
+    premier = client.get("/pair", headers=entetes)
+    second = client.get("/pair", headers=entetes)
 
     assert premier.status_code == second.status_code == 200
     assert premier.text == second.text, "un nouveau QR a été généré"
@@ -218,14 +225,15 @@ def test_pair_page_reuses_the_same_qr_while_valid(tmp_path, monkeypatch):
 
 def test_pair_page_issues_a_new_qr_once_the_previous_is_used(tmp_path, monkeypatch):
     """Une fois le téléphone appairé, la page propose un appairage neuf."""
+    entetes = _avec_admin(tmp_path, monkeypatch)
     a, client = _client(tmp_path, monkeypatch)
-    client.get("/pair")
+    client.get("/pair", headers=entetes)
     en_cours = a.devices().list()[0]["id"]
     # Le téléphone scanne et se connecte : l'appairage est confirmé.
     _, secret = a._appairage_en_cours
     assert a.devices().validate(secret) == en_cours
 
-    client.get("/pair")
+    client.get("/pair", headers=entetes)
 
     liste = a.devices().list()
     assert len(liste) == 2
@@ -265,9 +273,10 @@ def test_pair_qr_transporte_l_empreinte_du_certificat(tmp_path, monkeypatch):
          "-out", str(cert)],
         check=True, capture_output=True)
     monkeypatch.setenv("CERT_FILE", str(cert))
+    entetes = _avec_admin(tmp_path, monkeypatch)
 
     a, client = _client(tmp_path, monkeypatch)
-    client.get("/pair")                      # crée l'appairage en cours
+    client.get("/pair", headers=entetes)     # crée l'appairage en cours
     charge = json.loads(a.charge_appairage())
 
     assert charge["cert_sha256"] == tls.empreinte_certificat(cert)
@@ -277,10 +286,64 @@ def test_pair_sans_certificat_ne_casse_pas(tmp_path, monkeypatch):
     """Service lancé à la main en HTTP : pas de certificat, pas d'empreinte."""
     import json
     monkeypatch.setenv("CERT_FILE", str(tmp_path / "absent.pem"))
+    entetes = _avec_admin(tmp_path, monkeypatch)
     a, client = _client(tmp_path, monkeypatch)
-    client.get("/pair")                      # crée l'appairage en cours
+    client.get("/pair", headers=entetes)     # crée l'appairage en cours
 
     charge = json.loads(a.charge_appairage())
 
     assert charge["cert_sha256"] is None
-    assert client.get("/pair").status_code == 200
+    assert client.get("/pair", headers=entetes).status_code == 200
+
+
+ADRESSES_ADMIN = ["/", "/pair", "/devices"]
+
+
+def _avec_admin(tmp_path, monkeypatch, mot_de_passe="secret-admin"):
+    """Installe un mot de passe admin et renvoie l'en-tête correspondant."""
+    import base64
+    from phototheque import adminauth
+    fichier = tmp_path / "admin"
+    fichier.write_text(adminauth.empreinte(mot_de_passe, iterations=1000))
+    monkeypatch.setenv("ADMIN_FILE", str(fichier))
+    jeton = base64.b64encode(f"admin:{mot_de_passe}".encode()).decode()
+    return {"Authorization": f"Basic {jeton}"}
+
+
+@pytest.mark.parametrize("adresse", ADRESSES_ADMIN)
+def test_les_adresses_d_admin_exigent_un_mot_de_passe(adresse, tmp_path, monkeypatch):
+    """Un test par adresse : ajouter une route non protégée casse la suite."""
+    _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    r = client.get(adresse)
+    assert r.status_code == 401, adresse
+    assert "Basic" in r.headers.get("WWW-Authenticate", ""), adresse
+
+
+def test_revocation_exige_un_mot_de_passe(tmp_path, monkeypatch):
+    _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    assert client.post("/devices/peu-importe/revoke").status_code == 401
+
+
+@pytest.mark.parametrize("adresse", ADRESSES_ADMIN)
+def test_le_bon_mot_de_passe_ouvre_l_admin(adresse, tmp_path, monkeypatch):
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    assert client.get(adresse, headers=entetes).status_code == 200, adresse
+
+
+def test_un_mauvais_mot_de_passe_est_refuse(tmp_path, monkeypatch):
+    import base64
+    _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    faux = base64.b64encode(b"admin:pas-le-bon").decode()
+    r = client.get("/", headers={"Authorization": f"Basic {faux}"})
+    assert r.status_code == 401
+
+
+def test_sans_fichier_de_mot_de_passe_l_admin_est_fermee(tmp_path, monkeypatch):
+    """Pas encore installé : on refuse plutôt que d'ouvrir en grand."""
+    monkeypatch.setenv("ADMIN_FILE", str(tmp_path / "jamais-cree"))
+    a, client = _client(tmp_path, monkeypatch)
+    assert client.get("/").status_code == 401
