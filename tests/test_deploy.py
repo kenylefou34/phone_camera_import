@@ -261,3 +261,13 @@ echo NE_DEVRAIT_JAMAIS_S_AFFICHER
     assert "ECHEC" in r.stderr
     assert "NE_DEVRAIT_JAMAIS_S_AFFICHER" not in r.stdout
     assert not cert.exists()
+
+
+# --- mot de passe d'administration : ne jamais régénérer un secret existant --
+
+def test_install_ne_regenere_jamais_un_secret_existant():
+    """Régénérer le mot de passe ou le certificat casserait l'existant."""
+    script = "\n".join(_lignes_de_code(LIB.parent / "install.sh"))
+    # Les deux créations sont gardées par un test d'existence.
+    assert "certificat_present" in script
+    assert "[ -f \"$ADMIN\" ]" in script or "-f \"$ADMIN\"" in script

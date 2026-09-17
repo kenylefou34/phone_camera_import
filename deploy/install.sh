@@ -118,6 +118,37 @@ else
 fi
 
 # --------------------------------------------------------------------------
+etape "4/9  Mot de passe d'administration"
+
+ADMIN="$CONFIG_DIR/admin"
+if [ -f "$ADMIN" ]; then
+    info "mot de passe déjà défini, conservé"
+    info "(pour en changer : rm $ADMIN puis relancer ce script)"
+else
+    MOT_DE_PASSE=$("$PYTHON" -c "import secrets; print(secrets.token_urlsafe(12))")
+    # Le mot de passe ne doit apparaître nulle part dans une ligne de commande
+    # (visible de tout utilisateur via `ps`, le temps du processus) ni dans la
+    # source du script Python (visible dans un journal en cas d'erreur). Il
+    # transite donc uniquement par l'entrée standard, jamais interpolé ; seul
+    # $racine (non secret) passe par sys.argv, comme pour le certificat.
+    printf '%s' "$MOT_DE_PASSE" | "$PYTHON" -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from phototheque import adminauth
+mot_de_passe = sys.stdin.read()
+print(adminauth.empreinte(mot_de_passe))
+' "$racine" > "$ADMIN"
+    chmod 600 "$ADMIN"
+    printf '\n\033[1m    ┌─────────────────────────────────────────────┐\033[0m\n'
+    printf '\033[1m    │  Identifiants d'"'"'administration              │\033[0m\n'
+    printf '\033[1m    │  utilisateur : admin                        │\033[0m\n'
+    printf '\033[1m    │  mot de passe : %-27s │\033[0m\n' "$MOT_DE_PASSE"
+    printf '\033[1m    └─────────────────────────────────────────────┘\033[0m\n'
+    info "NOTE-LE MAINTENANT : il ne sera plus jamais affiché."
+    printf '\n'
+fi
+
+# --------------------------------------------------------------------------
 etape "5/9  Retrait de l'ancien service"
 
 # D'abord arrêter l'ancien service, AVANT de toucher à ses données : déplacer
