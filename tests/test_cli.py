@@ -64,3 +64,19 @@ def test_cli_requires_source_and_library_for_sorting(tmp_path, capsys):
         cli.main(["--catalog", str(tmp_path / "cat.db")])
     assert sortie.value.code == 2
     assert "source" in capsys.readouterr().err.lower()
+
+
+def test_cli_backfill_shows_progress(tmp_path, capsys):
+    """Le rattrapage affiche son avancement (il dure ~1 h en vrai)."""
+    db = tmp_path / "cat.db"
+    cat = Catalog(str(db))
+    for i in range(3):
+        media = tmp_path / f"m{i}.jpg"
+        media.write_bytes(f"media-{i}".encode())
+        cat.add_media(f"h{i}", 7, str(media), None, "seed")
+    cat.close()
+
+    cli.main(["--catalog", str(db), "--backfill-signatures"])
+
+    sortie = capsys.readouterr().out
+    assert "3/3" in sortie, sortie

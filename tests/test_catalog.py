@@ -126,3 +126,60 @@ def test_backfill_signatures_skips_unreadable_files(tmp_path):
     assert n == 0
     assert cat.signatures_complete() is False  # donc le pré-filtre reste désactivé
     cat.close()
+
+
+def test_backfill_signatures_saves_progress_if_interrupted(tmp_path, monkeypatch):
+    """Rattrapage par lots : une interruption ne perd pas le travail déjà fait.
+
+    Important en vrai : le rattrapage dure ~1 h sur 44 669 médias et le service
+    mediaserve écrit dans le même catalogue. Un seul commit final tiendrait le
+    verrou d'écriture tout ce temps.
+    """
+    import pytest
+    from mediasort import catalog as module_catalog
+
+    db = tmp_path / "cat.db"
+    cat = Catalog(db)
+    for i in range(3):
+        media = tmp_path / f"m{i}.jpg"
+        media.write_bytes(f"media-{i}".encode())
+        cat.add_media(f"h{i}", 7, str(media), None, "seed")
+
+    appels = []
+    vraie_signature = module_catalog.quick_signature
+
+    def signature_qui_casse(chemin):
+        appels.append(chemin)
+        if len(appels) == 3:
+            raise RuntimeError("interruption simulée (Ctrl-C, coupure...)")
+        return vraie_signature(chemin)
+
+    monkeypatch.setattr(module_catalog, "quick_signature", signature_qui_casse)
+
+    with pytest.raises(RuntimeError):
+        cat.backfill_signatures(lot=2)
+    cat.close()
+
+    # On rouvre la base : le premier lot doit être sur le disque.
+    cat = Catalog(db)
+    restantes = cat._cx.execute(
+        "SELECT COUNT(*) FROM medias WHERE signature IS NULL").fetchone()[0]
+    assert restantes < 3, "aucun lot enregistré : tout le travail serait perdu"
+    cat.close()
+
+
+def test_backfill_signatures_reports_progress(tmp_path):
+    """Le rattrapage rend compte de son avancement (traitement d'environ 1 h)."""
+    cat = Catalog(":memory:")
+    for i in range(4):
+        media = tmp_path / f"m{i}.jpg"
+        media.write_bytes(f"media-{i}".encode())
+        cat.add_media(f"h{i}", 7, str(media), None, "seed")
+
+    etapes = []
+    cat.backfill_signatures(lot=2, progression=lambda fait, total: etapes.append((fait, total)))
+
+    assert (2, 4) in etapes, f"pas de rapport intermédiaire par lot : {etapes}"
+    assert etapes[-1] == (4, 4)  # se termine sur 100 %
+    assert etapes.count((4, 4)) == 1  # pas d'appel en double à la fin
+    cat.close()

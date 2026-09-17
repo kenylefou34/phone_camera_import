@@ -42,7 +42,12 @@ def main(argv=None) -> int:
     cat = Catalog(args.catalog)
     try:
         if args.backfill_signatures:
-            n = cat.backfill_signatures()
+            def avancement(fait, total):
+                # flush : le traitement dure ~1 h, on veut voir bouger la sortie
+                # même quand elle est redirigée vers un fichier de journal.
+                print(f"  {fait}/{total} ({100 * fait // total} %)", flush=True)
+
+            n = cat.backfill_signatures(progression=avancement)
             reste = "" if cat.signatures_complete() else " (des fichiers restent introuvables)"
             print(f"Signatures complétées : {n}{reste}.")
             return 0
