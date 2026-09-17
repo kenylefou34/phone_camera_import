@@ -740,3 +740,35 @@ def test_une_session_vide_puis_une_synchro_normale(tmp_path, monkeypatch):
     assert refuse.status_code == 400
     assert commit.status_code == 200
     assert a.devices().get_horizons(dev_id) == {"Movies": 1726574400.0}
+
+
+@pytest.mark.parametrize("contenu,description", [
+    (b"-----BEGIN CERTIFICATE-----\nMIIDazCCAlOgAwIBAgIU\n", "PEM tronqué"),
+    (b"", "fichier vide"),
+    (b"\x00\x01\x02\xff\xfe", "contenu binaire"),
+])
+def test_un_certificat_abime_ne_casse_pas_la_page_d_appairage(
+        contenu, description, tmp_path, monkeypatch):
+    """Troisième occurrence de « fichier corrompu → erreur 500 » dans ce lot.
+
+    `tls.empreinte_certificat` lit le fichier en texte puis le décode : un PEM
+    tronqué ou vide lève ValueError, un contenu binaire UnicodeDecodeError.
+    Seul OSError était attrapé, donc `/pair` répondait 500. Le cas est
+    atteignable : un `openssl req` interrompu ou une copie de migration coupée
+    laisse un PEM tronqué.
+
+    Comme pour un certificat absent, on veut une page qui s'affiche et une
+    empreinte nulle — l'application saura simplement que le serveur n'est pas
+    épinglable.
+    """
+    import json
+    cert = tmp_path / "cert.pem"
+    cert.write_bytes(contenu)
+    monkeypatch.setenv("CERT_FILE", str(cert))
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+
+    r = client.get("/pair", headers=entetes)
+
+    assert r.status_code == 200, description
+    assert json.loads(a.charge_appairage())["cert_sha256"] is None, description

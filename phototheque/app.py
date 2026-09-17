@@ -231,10 +231,16 @@ def _empreinte_du_certificat():
     Absent = service lancé à la main en HTTP pour du développement. On ne
     casse pas la page d'appairage pour autant ; l'application saura que le
     serveur n'est pas épinglable.
+
+    Abîmé = même traitement. `empreinte_certificat` lit le fichier en texte
+    puis le décode : un PEM tronqué ou vide lève ValueError, un contenu
+    binaire UnicodeDecodeError (qui en dérive). Le cas est atteignable — un
+    `openssl req` interrompu, une copie de migration coupée — et n'attraper
+    qu'OSError transformait un fichier abîmé en erreur 500 sur /pair.
     """
     try:
         return tls.empreinte_certificat(config.CERT_FILE)
-    except OSError:
+    except (OSError, ValueError):
         return None
 
 
