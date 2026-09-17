@@ -115,3 +115,63 @@ def test_is_pending_reflects_the_confirmation_state():
     assert st.is_pending(dev_id) is False       # confirmé
     assert st.is_pending("inconnu") is False    # supprimé ou jamais vu
     st.close()
+
+
+def test_horizon_initial_aller_retour():
+    st = DeviceStore(":memory:")
+    dev_id, _ = st.pair("Pixel")
+    assert st.get_horizon_initial(dev_id) is None
+    st.set_horizon_initial(dev_id, "2026-09-17")
+    assert st.get_horizon_initial(dev_id) == "2026-09-17"
+    st.close()
+
+
+def test_les_horizons_sont_propres_a_chaque_appareil():
+    """Deux téléphones ne doivent pas partager le même horizon."""
+    st = DeviceStore(":memory:")
+    a, _ = st.pair("Pixel")
+    b, _ = st.pair("Tablette")
+    st.set_horizon(a, "DCIM/Camera", 1000.0)
+    st.set_horizon(b, "DCIM/Camera", 2000.0)
+    assert st.get_horizons(a) == {"DCIM/Camera": 1000.0}
+    assert st.get_horizons(b) == {"DCIM/Camera": 2000.0}
+    st.close()
+
+
+def test_les_horizons_sont_propres_a_chaque_dossier():
+    st = DeviceStore(":memory:")
+    dev_id, _ = st.pair("Pixel")
+    st.set_horizon(dev_id, "DCIM/Camera", 1000.0)
+    st.set_horizon(dev_id, "Movies", 2000.0)
+    assert st.get_horizons(dev_id) == {"DCIM/Camera": 1000.0, "Movies": 2000.0}
+    st.close()
+
+
+def test_un_horizon_ecrase_le_precedent():
+    st = DeviceStore(":memory:")
+    dev_id, _ = st.pair("Pixel")
+    st.set_horizon(dev_id, "DCIM/Camera", 1000.0)
+    st.set_horizon(dev_id, "DCIM/Camera", 3000.0)
+    assert st.get_horizons(dev_id) == {"DCIM/Camera": 3000.0}
+    st.close()
+
+
+def test_migration_d_une_base_sans_horizons(tmp_path):
+    """Une base d'avant ce lot s'ouvre sans perdre ses appareils."""
+    import sqlite3
+    from phototheque.devices import _hash
+    db = tmp_path / "ancienne.db"
+    cx = sqlite3.connect(str(db))
+    cx.execute("CREATE TABLE devices (id TEXT PRIMARY KEY, label TEXT,"
+               " secret_hash TEXT UNIQUE, paired_at TEXT, confirmed_at TEXT)")
+    cx.execute("INSERT INTO devices VALUES ('vieux','Pixel',?,"
+               "'2026-01-01T10:00:00','2026-01-01T10:00:00')",
+               (_hash("secret-historique"),))
+    cx.commit(); cx.close()
+
+    st = DeviceStore(db)
+
+    assert st.validate("secret-historique") == "vieux"
+    assert st.get_horizon_initial("vieux") is None   # aucune limite retroactive
+    assert st.get_horizons("vieux") == {}
+    st.close()
