@@ -23,6 +23,9 @@
 - L'application ne supprime **jamais** rien sur le téléphone.
 - Horizons envoyés au serveur : **secondes flottantes**.
 - Pas d'émulateur : les essais se font sur le téléphone réel par USB.
+- **Jamais `assert(...)` de Kotlin dans un test** : il dépend du drapeau `-ea` de
+  la JVM et, s'il était désactivé, le test passerait sans rien vérifier.
+  Toujours `assertTrue` / `assertEquals` de JUnit, qui vérifient inconditionnellement.
 - **Lancer un test ciblé :** `JAVA_HOME=~/outils/jdk17 ./gradlew testDebugUnitTest --tests '*XTest*'`.
   La tâche agrégée `test` éclate en variantes debug ET release, et le filtre
   `--tests` la fait alors échouer ; `testDebugUnitTest` est la bonne cible.
@@ -715,6 +718,7 @@ l'étape suivante, entre les lignes `BEGIN` et `END` incluses.
 package fr.izquierdo.phototheque.reseau
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
 import java.security.cert.CertificateException
@@ -739,7 +743,7 @@ class EpinglageTest {
     @Test fun l_empreinte_fait_64_caracteres_hexadecimaux_minuscules() {
         val e = Epinglage.empreinte(certificat())
         assertEquals(64, e.length)
-        assert(e.all { it in "0123456789abcdef" }) { "empreinte non hexadecimale : $e" }
+        assertTrue("empreinte non hexadecimale : $e", e.all { it in "0123456789abcdef" })
     }
 
     @Test fun le_bon_certificat_est_accepte() {
@@ -863,6 +867,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -928,8 +933,8 @@ class ClientServeurTest {
         serveur.enqueue(MockResponse().setBody("""{"sorted":1,"errors":0}"""))
         client.commit("s".repeat(32), mapOf("DCIM/Camera" to 1789000000.0))
         val corps = serveur.takeRequest().body.readUtf8()
-        assert(corps.contains("DCIM/Camera")) { corps }
-        assert(corps.contains("1789000000")) { corps }
+        assertTrue(corps, corps.contains("DCIM/Camera"))
+        assertTrue(corps, corps.contains("1789000000"))
     }
 }
 ```
@@ -1081,6 +1086,7 @@ git commit -m "feat(android): client des quatre appels du contrat serveur"
 package fr.izquierdo.phototheque.medias
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.InputStream
 
@@ -1115,7 +1121,7 @@ class EmpreintesTest {
             }
         }
         Empreintes.sha256(flux)
-        assert(plusGrandeDemande in 1..Empreintes.TAILLE_BLOC)
+        assertTrue(plusGrandeDemande in 1..Empreintes.TAILLE_BLOC)
     }
 }
 ```
