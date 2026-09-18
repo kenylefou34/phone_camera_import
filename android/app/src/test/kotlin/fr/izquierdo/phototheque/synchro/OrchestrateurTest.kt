@@ -3,7 +3,6 @@ package fr.izquierdo.phototheque.synchro
 import fr.izquierdo.phototheque.medias.Media
 import fr.izquierdo.phototheque.reseau.*
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.InputStream
@@ -88,6 +87,30 @@ class OrchestrateurTest {
             .synchroniser(setOf("DCIM/Camera"))
         assertEquals(0, bilan.envoyes)
         assertTrue(serveur.commitAppele)
+        assertEquals(mapOf("DCIM/Camera" to 100.0), serveur.horizonsEnvoyes)
+    }
+
+    @Test fun un_media_illisible_ne_fait_pas_echouer_la_synchro_ni_perdre_le_commit() {
+        // Cas banal : la photo a ete supprimee entre le listing et l'envoi.
+        // Sans filet, l'exception remontait hors de synchroniser() et le commit
+        // n'avait jamais lieu — les fichiers deja recus restaient bloques pour
+        // toujours dans le depot temporaire du NUC.
+        val bavard = media(100.0)
+        val muet = media(200.0, "disparu.jpg")
+        val source = object : SourceMedias {
+            override fun lister() = listOf(bavard, muet)
+            override fun ouvrir(media: Media): InputStream =
+                if (media.nom == "disparu.jpg") throw java.io.FileNotFoundException(media.nom)
+                else "contenu".byteInputStream()
+        }
+        val serveur = FauxServeur()
+
+        val bilan = Orchestrateur(source, serveur).synchroniser(setOf("DCIM/Camera"))
+
+        assertTrue("le commit doit avoir lieu malgre le media illisible", serveur.commitAppele)
+        assertEquals(1, bilan.envoyes)
+        assertEquals(1, bilan.echecs)
+        // L'horizon ne doit PAS passer par-dessus le media illisible.
         assertEquals(mapOf("DCIM/Camera" to 100.0), serveur.horizonsEnvoyes)
     }
 }
