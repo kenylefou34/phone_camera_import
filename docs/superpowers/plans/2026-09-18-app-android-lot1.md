@@ -416,6 +416,26 @@ class HorizonsTest {
         assertEquals(mapOf("DCIM/Camera" to 100.0), Horizons.calculer(envois))
     }
 
+    @Test fun une_extension_refusee_en_DERNIER_fait_quand_meme_avancer_l_horizon() {
+        // Le cas que `une_extension_refusee_ne_bloque_pas_l_horizon` ne couvre
+        // PAS : la-bas, un CONFIRME a 300 suit l'IGNORE et ecrase ce qu'il
+        // aurait pose, si bien que le test passe que IGNORE fasse avancer
+        // l'horizon ou qu'il soit purement saute. Ici, IGNORE est le dernier
+        // evenement du dossier : c'est le seul cas ou la propriete est
+        // observable.
+        //
+        // Enjeu reel : si IGNORE ne faisait pas avancer l'horizon, un dossier
+        // dont le dernier fichier est refuse resterait fige juste avant lui ;
+        // ce fichier serait repropose puis re-refuse a chaque synchro, et TOUS
+        // les medias suivants du dossier ne seraient jamais sauvegardes. C'est
+        // le blocage permanent que docs/CONTRAT-APP.md section 6 interdit.
+        val envois = listOf(
+            Envoi("DCIM/Camera", 100.0, Issue.CONFIRME),
+            Envoi("DCIM/Camera", 200.0, Issue.IGNORE),
+        )
+        assertEquals(mapOf("DCIM/Camera" to 200.0), Horizons.calculer(envois))
+    }
+
     @Test fun aucun_envoi_aucun_horizon() {
         assertEquals(emptyMap<String, Double>(), Horizons.calculer(emptyList()))
     }
@@ -481,7 +501,7 @@ object Horizons {
 - [ ] **Step 4 : Vérifier qu'ils passent**
 
 Run: `cd android && ./gradlew testDebugUnitTest --tests '*HorizonsTest*'`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5 : Valider par mutation**
 
@@ -489,7 +509,14 @@ Remplacer `if (envoi.dossier in arretes) continue` par `if (false) continue`, re
 Expected: `un_echec_au_milieu_arrete_l_horizon_avant_lui` ÉCHOUE. Restaurer ensuite.
 
 Puis remplacer `Issue.CONFIRME, Issue.IGNORE ->` par `Issue.CONFIRME ->` (et ajouter `Issue.IGNORE -> {}`), relancer :
-Expected: `une_extension_refusee_ne_bloque_pas_l_horizon` ÉCHOUE. Restaurer.
+Expected: `une_extension_refusee_en_DERNIER_fait_quand_meme_avancer_l_horizon` ÉCHOUE.
+Restaurer.
+
+**Attention :** cette seconde mutation ne casse PAS
+`une_extension_refusee_ne_bloque_pas_l_horizon`, où un `CONFIRME` postérieur
+écrase de toute façon ce qu'`IGNORE` aurait posé. Ce test-là ne prouve que
+« `IGNORE` ne bloque pas comme un `ECHEC` ». C'est le test « en DERNIER » qui
+prouve « `IGNORE` fait avancer l'horizon ». Les deux sont nécessaires.
 
 - [ ] **Step 6 : Commit**
 
