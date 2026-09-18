@@ -18,6 +18,13 @@ CONFIG_DIR: Path = Path(os.environ.get(
 CERT_FILE: Path = Path(os.environ.get("CERT_FILE", str(CONFIG_DIR / "cert.pem")))
 KEY_FILE: Path = Path(os.environ.get("KEY_FILE", str(CONFIG_DIR / "key.pem")))
 ADMIN_FILE: Path = Path(os.environ.get("ADMIN_FILE", str(CONFIG_DIR / "admin")))
+# Identifiant d'administration. Fichier ABSENT = « admin », le nom historique :
+# aucune installation antérieure au 18/09/2026 ne possède ce fichier, et son
+# absence ne doit surtout pas fermer l'administration. Pas un secret — il n'est
+# pas haché — juste un nom moins deviné que « admin » par les balayages
+# automatiques.
+ADMIN_USER_FILE: Path = Path(os.environ.get(
+    "ADMIN_USER_FILE", str(CONFIG_DIR / "utilisateur")))
 
 SERVICE_TYPE: str = "_phototheque._tcp"
 

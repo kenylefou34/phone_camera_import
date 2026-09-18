@@ -283,7 +283,7 @@ def test_un_echec_ne_laisse_pas_de_fichier_admin_vide(tmp_path):
     """
     # L'écriture doit passer par un fichier temporaire puis un déplacement,
     # jamais directement sur la destination finale. Depuis l'extraction de
-    # ecrire_empreinte_admin (partagée avec motdepasse.sh), la propriété se
+    # ecrire_empreinte_admin (partagée avec identifiants.sh), la propriété se
     # vérifie dans lib.sh — et install.sh ne doit plus écrire lui-même.
     fonction = "\n".join(_lignes_de_code(LIB))
     assert '> "$destination"' not in fonction, "écriture directe sur la destination finale"
@@ -351,7 +351,7 @@ racine="{DEPOT}"
 # --- écriture du mot de passe d'administration (deploy/lib.sh) ----------------
 #
 # Le mot de passe est écrit à deux endroits : par install.sh à la première
-# installation (tirage au hasard) et par motdepasse.sh quand le mainteneur en
+# installation (tirage au hasard) et par identifiants.sh quand le mainteneur en
 # choisit un. Les précautions d'écriture — umask, fichier temporaire, 0600 —
 # sont donc dans UNE fonction partagée, sous peine de voir les deux copies
 # diverger au premier correctif appliqué d'un seul côté.
@@ -418,7 +418,7 @@ def test_ecrire_empreinte_admin_remplace_un_mot_de_passe_existant(tmp_path):
 def test_un_echec_d_ecriture_laisse_intact_l_ancien_mot_de_passe(tmp_path):
     """Un échec en cours de route ne doit jamais verrouiller le mainteneur dehors.
 
-    Cas propre à motdepasse.sh : il écrase un fichier existant. Si l'écriture
+    Cas propre à identifiants.sh : il écrase un fichier existant. Si l'écriture
     échouait en détruisant l'ancien mot de passe sans écrire le nouveau,
     l'administration deviendrait inaccessible — sans message, puisque
     verifier() refuse proprement un fichier illisible.
@@ -456,25 +456,27 @@ def test_ecrire_empreinte_admin_accepte_les_caracteres_qui_piegent_le_shell(tmp_
     assert adminauth.verifier(complique, admin.read_text().strip())
 
 
-# --- deploy/motdepasse.sh : choisir son mot de passe --------------------------
+# --- deploy/identifiants.sh : choisir son mot de passe --------------------------
 #
 # install.sh en tire un au hasard à la première installation. Ce script-ci est
 # le seul moyen d'en CHOISIR un, et le seul moyen d'en changer sans réinstaller.
 
-MOTDEPASSE = LIB.parent / "motdepasse.sh"
+IDENTIFIANTS = LIB.parent / "identifiants.sh"
 
 
-def lancer_motdepasse(tmp_path, saisies, python="python3"):
+def lancer_identifiants(tmp_path, saisies, python="python3", identifiant=""):
     """Joue le script avec un dossier de configuration jetable.
 
-    `saisies` est la liste des lignes tapées au clavier (mot de passe, puis
-    confirmation). Le script est conçu pour lire sur l'entrée standard, ce qui
-    le rend testable sans pseudo-terminal.
+    `saisies` est la liste des lignes tapées au clavier APRÈS l'identifiant
+    (mot de passe, puis confirmation) ; `identifiant` est la première ligne,
+    vide par défaut pour conserver l'existant. Le script lit sur l'entrée
+    standard, ce qui le rend testable sans pseudo-terminal.
     """
+    saisies = [identifiant] + list(saisies)
     config = tmp_path / "config"
     config.mkdir(exist_ok=True)
     r = subprocess.run(
-        ["bash", str(MOTDEPASSE)],
+        ["bash", str(IDENTIFIANTS)],
         input="".join(ligne + "\n" for ligne in saisies),
         capture_output=True, text=True,
         env={**os.environ, "CONFIG_DIR": str(config), "PYTHON": python,
@@ -483,9 +485,9 @@ def lancer_motdepasse(tmp_path, saisies, python="python3"):
     return r, config / "admin"
 
 
-def test_motdepasse_refuse_un_mot_de_passe_vide(tmp_path):
+def test_identifiants_refuse_un_mot_de_passe_vide(tmp_path):
     """Un mot de passe vide fermerait l'administration sans le dire."""
-    r, admin = lancer_motdepasse(tmp_path, ["", ""])
+    r, admin = lancer_identifiants(tmp_path, ["", ""])
     # Un refus DÉLIBÉRÉ, pas un script absent ou planté : 127 (introuvable) et
     # 2 (erreur de syntaxe) passeraient un simple « != 0 » sans rien prouver.
     assert r.returncode == 1, f"code {r.returncode} : {r.stderr!r}"
@@ -493,14 +495,14 @@ def test_motdepasse_refuse_un_mot_de_passe_vide(tmp_path):
     assert not admin.exists(), "un mot de passe vide a été enregistré"
 
 
-def test_motdepasse_refuse_deux_saisies_differentes(tmp_path):
+def test_identifiants_refuse_deux_saisies_differentes(tmp_path):
     """La confirmation existe pour attraper la faute de frappe.
 
     Sans elle, une coquille dans un mot de passe qu'on ne voit pas s'affiche
     verrouille l'administration, et le mainteneur ne l'apprend qu'à la
     connexion suivante — sans savoir ce qu'il a tapé.
     """
-    r, admin = lancer_motdepasse(tmp_path, ["premier-essai", "second-essai"])
+    r, admin = lancer_identifiants(tmp_path, ["premier-essai", "second-essai"])
     assert r.returncode == 1, f"code {r.returncode} : {r.stderr!r}"
     sortie = (r.stdout + r.stderr).lower()
     assert "identique" in sortie or "diffèrent" in sortie or "different" in sortie, (
@@ -508,9 +510,9 @@ def test_motdepasse_refuse_deux_saisies_differentes(tmp_path):
     assert not admin.exists(), "un mot de passe non confirmé a été enregistré"
 
 
-def test_motdepasse_enregistre_le_mot_de_passe_choisi(tmp_path):
+def test_identifiants_enregistre_le_mot_de_passe_choisi(tmp_path):
     """Le cas nominal : ce qui est tapé devient le mot de passe du serveur."""
-    r, admin = lancer_motdepasse(tmp_path, ["archibald-42-lapin", "archibald-42-lapin"])
+    r, admin = lancer_identifiants(tmp_path, ["archibald-42-lapin", "archibald-42-lapin"])
     assert r.returncode == 0, r.stderr
 
     import sys
@@ -519,7 +521,7 @@ def test_motdepasse_enregistre_le_mot_de_passe_choisi(tmp_path):
     assert adminauth.verifier("archibald-42-lapin", admin.read_text().strip())
 
 
-def test_motdepasse_avertit_sur_un_mot_de_passe_court_sans_le_refuser(tmp_path):
+def test_identifiants_avertit_sur_un_mot_de_passe_court_sans_le_refuser(tmp_path):
     """Court = averti, pas interdit.
 
     Rien ne limite encore les essais côté serveur (issue #19) : la robustesse
@@ -527,7 +529,7 @@ def test_motdepasse_avertit_sur_un_mot_de_passe_court_sans_le_refuser(tmp_path):
     savoir. Mais c'est son réseau et son arbitrage — refuser son choix serait
     présomptueux.
     """
-    r, admin = lancer_motdepasse(tmp_path, ["court", "court"])
+    r, admin = lancer_identifiants(tmp_path, ["court", "court"])
     assert r.returncode == 0, r.stderr
     assert admin.exists(), "le mot de passe court aurait dû être accepté"
     sortie = (r.stdout + r.stderr).lower()
@@ -535,9 +537,9 @@ def test_motdepasse_avertit_sur_un_mot_de_passe_court_sans_le_refuser(tmp_path):
         f"aucun avertissement sur la longueur : {r.stdout!r} {r.stderr!r}")
 
 
-def test_motdepasse_refuse_de_tourner_sans_python_utilisable(tmp_path):
+def test_identifiants_refuse_de_tourner_sans_python_utilisable(tmp_path):
     """Venv absent : le dire franchement plutôt que d'échouer en cours d'écriture."""
-    r, admin = lancer_motdepasse(tmp_path, ["un-mot-de-passe-correct"] * 2,
+    r, admin = lancer_identifiants(tmp_path, ["un-mot-de-passe-correct"] * 2,
                                  python=str(tmp_path / "python-inexistant"))
     assert r.returncode == 1, f"code {r.returncode} : {r.stderr!r}"
     assert not admin.exists()
@@ -731,3 +733,67 @@ def test_le_test_de_fumee_attend_les_codes_reellement_renvoyes(tmp_path, monkeyp
             f"install.sh attend {code_attendu} sur {chemin}, "
             f"le service répond {reel} : l'installation se terminerait en ÉCHEC"
         )
+
+
+def test_identifiants_enregistre_l_identifiant_choisi(tmp_path):
+    """« admin » est le premier nom que tente tout balayage automatique."""
+    r, admin = lancer_identifiants(tmp_path, ["un-mot-de-passe-solide"] * 2,
+                                 identifiant="ken")
+    assert r.returncode == 0, r.stderr
+    assert (admin.parent / "utilisateur").read_text().strip() == "ken"
+
+
+def test_identifiants_vide_conserve_l_identifiant_actuel(tmp_path):
+    """Ne rien taper garde l'existant : on vient peut-être seulement changer
+    le mot de passe, et écraser l'identifiant au passage verrouillerait
+    dehors quelqu'un qui n'a rien demandé."""
+    lancer_identifiants(tmp_path, ["premier-mot-de-passe"] * 2, identifiant="ken")
+    r, admin = lancer_identifiants(tmp_path, ["second-mot-de-passe"] * 2, identifiant="")
+    assert r.returncode == 0, r.stderr
+    assert (admin.parent / "utilisateur").read_text().strip() == "ken"
+
+
+def test_identifiants_affiche_l_identifiant_actuel(tmp_path):
+    """Sans cet affichage, un identifiant oublié n'est récupérable que par SSH.
+
+    Ce n'est pas un secret — il n'est pas haché, contrairement au mot de
+    passe — donc rien n'interdit de le montrer à qui a déjà le droit de
+    lancer ce script.
+    """
+    lancer_identifiants(tmp_path, ["un-mot-de-passe-solide"] * 2, identifiant="ken")
+    r, _ = lancer_identifiants(tmp_path, ["un-mot-de-passe-solide"] * 2, identifiant="")
+    assert "ken" in r.stdout + r.stderr, "l'identifiant actuel n'est pas affiché"
+
+
+def test_identifiants_refuse_un_identifiant_contenant_deux_points(tmp_path):
+    """Un « : » rendrait l'identifiant intapable, sans que rien ne l'explique.
+
+    L'authentification HTTP Basic transmet « utilisateur:mot de passe » et le
+    serveur découpe sur le PREMIER deux-points : un nom qui en contient un ne
+    pourrait jamais être reconnu. Mieux vaut refuser tout de suite que livrer
+    une administration dont plus personne n'a la clé.
+    """
+    r, admin = lancer_identifiants(tmp_path, ["un-mot-de-passe-solide"] * 2,
+                                 identifiant="ken:izq")
+    assert r.returncode == 1, f"code {r.returncode} : {r.stderr!r}"
+    assert not (admin.parent / "utilisateur").exists()
+    assert not admin.exists(), "le mot de passe a été changé malgré le refus"
+
+
+def test_identifiants_affiche_fidelement_un_nom_contenant_un_espace(tmp_path):
+    """L'identifiant affiché doit être exactement celui que lit le serveur.
+
+    Le serveur ne rogne que les extrémités (adminauth.utilisateur fait un
+    .strip()). Un script qui supprimerait AUSSI les espaces intérieurs
+    afficherait « kenizq » là où il faut taper « ken izq » — et le mainteneur
+    chercherait longtemps pourquoi son identifiant est refusé.
+    """
+    r, admin = lancer_identifiants(tmp_path, ["un-mot-de-passe-solide"] * 2,
+                                   identifiant="ken izq")
+    assert r.returncode == 0, r.stderr
+    assert (admin.parent / "utilisateur").read_text().strip() == "ken izq"
+
+    # Relancé : il doit réafficher le nom intact.
+    r2, _ = lancer_identifiants(tmp_path, ["un-mot-de-passe-solide"] * 2, identifiant="")
+    assert "ken izq" in r2.stdout + r2.stderr, (
+        f"nom deforme a l'affichage : {r2.stdout!r}")

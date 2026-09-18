@@ -63,6 +63,11 @@ def require_admin(authorization: str = Header(default="")) -> None:
     Un fichier de mot de passe absent ferme l'administration : le service n'a
     pas encore été installé par deploy/install.sh, mieux vaut refuser que
     laisser la surface ouverte.
+
+    L'identifiant, lui, est relu à chaque requête comme le mot de passe : les
+    changer ne demande donc aucun redémarrage. Son absence vaut « admin »
+    (voir adminauth.utilisateur) ; c'est le mot de passe qui protège, pas ce
+    nom.
     """
     refus = HTTPException(
         status_code=401, detail="authentification requise",
@@ -83,7 +88,8 @@ def require_admin(authorization: str = Header(default="")) -> None:
         utilisateur, _, secret = identifiants.partition(":")
     except (ValueError, UnicodeDecodeError):
         raise refus
-    if utilisateur != "admin" or not adminauth.verifier(secret, enregistre):
+    attendu = adminauth.utilisateur(config.ADMIN_USER_FILE)
+    if utilisateur != attendu or not adminauth.verifier(secret, enregistre):
         raise refus
 
 

@@ -206,9 +206,9 @@ Puis, dans un navigateur :
 > autorité extérieure ne le garantit. Clique sur « Paramètres avancés » puis
 > « Continuer ». À faire une fois par appareil.
 >
-> L'identifiant est `admin` et le mot de passe est affiché par
-> `./deploy/install.sh` à la première installation. Pour en **choisir** un
-> autre : `./deploy/motdepasse.sh` (sans sudo, sans redémarrage).
+> L'identifiant est `admin` par défaut et le mot de passe est affiché par
+> `./deploy/install.sh` à la première installation. Pour **choisir** les deux :
+> `./deploy/identifiants.sh` (sans sudo, sans redémarrage).
 
 **📖 [`docs/DEPLOIEMENT.md`](docs/DEPLOIEMENT.md)** détaille chaque étape, le
 paramétrage, le dépannage, le retour en arrière et la variante Docker.

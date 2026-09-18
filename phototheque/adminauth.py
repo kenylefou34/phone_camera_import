@@ -57,3 +57,28 @@ def verifier(mot_de_passe: str, enregistre: str) -> bool:
     # Comparaison en temps constant : la durée de la réponse ne doit pas
     # révéler combien d'octets sont corrects.
     return hmac.compare_digest(brut, attendu)
+
+
+UTILISATEUR_PAR_DEFAUT = "admin"
+
+
+def utilisateur(fichier) -> str:
+    """Identifiant d'administration enregistré, ou « admin » à défaut.
+
+    Tout ce qui n'est pas un nom exploitable — fichier absent, vide, rempli
+    d'espaces, illisible — retombe sur « admin ». C'est délibérément l'inverse
+    de la règle appliquée au mot de passe, où le doute fait refuser : ici, un
+    fichier abîmé ne doit jamais verrouiller le mainteneur dehors, car plus
+    aucun identifiant ne fonctionnerait et il faudrait un accès SSH pour s'en
+    sortir. Le mot de passe, lui, continue de protéger dans tous les cas —
+    c'est lui le secret, pas ce nom.
+
+    Les espaces autour sont retirés : le fichier est écrit par un script
+    shell, une fin de ligne s'y glisse facilement, et personne ne pourrait
+    taper le saut de ligne en trop.
+    """
+    try:
+        nom = fichier.read_text().strip()
+    except (OSError, ValueError):
+        return UTILISATEUR_PAR_DEFAUT
+    return nom or UTILISATEUR_PAR_DEFAUT

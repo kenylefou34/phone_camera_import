@@ -919,3 +919,79 @@ def test_la_documentation_reste_activable_pour_le_developpement(tmp_path, monkey
     monkeypatch.setenv("DOCS_PUBLIQUES", "1")
     _, client = _client(tmp_path, monkeypatch)
     assert client.get("/openapi.json").status_code == 200
+
+
+# --- identifiant d'administration choisi -------------------------------------
+#
+# « admin » était écrit en dur. C'est le premier nom que tente n'importe quel
+# balayage automatique, avec « root » et « administrator ». En changer ne
+# remplace ni un mot de passe solide ni la limitation d'essais (#19) — c'est
+# une serrure de plus, pas une meilleure porte — mais ça ne coûte rien et ça
+# écarte le bruit de fond des attaques génériques.
+
+
+def _avec_identifiants(tmp_path, monkeypatch, utilisateur=None,
+                       mot_de_passe="le-mot-de-passe"):
+    """Prépare le fichier de mot de passe et, si demandé, celui d'identifiant."""
+    import base64
+    from phototheque import adminauth
+    fichier = tmp_path / "admin"
+    fichier.write_text(adminauth.empreinte(mot_de_passe, iterations=1000))
+    monkeypatch.setenv("ADMIN_FILE", str(fichier))
+    if utilisateur is not None:
+        f_util = tmp_path / "utilisateur"
+        f_util.write_text(utilisateur)
+        monkeypatch.setenv("ADMIN_USER_FILE", str(f_util))
+    else:
+        monkeypatch.setenv("ADMIN_USER_FILE", str(tmp_path / "jamais-cree"))
+
+    def entetes(util, mdp=mot_de_passe):
+        jeton = base64.b64encode(f"{util}:{mdp}".encode()).decode()
+        return {"Authorization": f"Basic {jeton}"}
+    return entetes
+
+
+def test_un_identifiant_choisi_remplace_admin(tmp_path, monkeypatch):
+    """Le nom choisi ouvre ; « admin » ne doit plus rien ouvrir du tout.
+
+    La seconde moitié est l'essentiel : si « admin » continuait de marcher en
+    parallèle, changer d'identifiant n'apporterait strictement rien.
+    """
+    entetes = _avec_identifiants(tmp_path, monkeypatch, utilisateur="ken")
+    _, client = _client(tmp_path, monkeypatch)
+    assert client.get("/", headers=entetes("ken")).status_code == 200
+    assert client.get("/", headers=entetes("admin")).status_code == 401
+
+
+def test_sans_fichier_d_identifiant_admin_reste_valable(tmp_path, monkeypatch):
+    """Compatibilité : une installation existante ne doit pas se fermer.
+
+    Le fichier d'identifiant n'existe sur aucune installation antérieure au
+    18/09/2026. Son absence doit valoir « admin », pas « personne ».
+    """
+    entetes = _avec_identifiants(tmp_path, monkeypatch, utilisateur=None)
+    _, client = _client(tmp_path, monkeypatch)
+    assert client.get("/", headers=entetes("admin")).status_code == 200
+
+
+def test_un_fichier_d_identifiant_vide_retombe_sur_admin(tmp_path, monkeypatch):
+    """Un fichier vide ou blanc ne doit verrouiller personne dehors.
+
+    Une écriture interrompue, un fichier créé par mégarde : sans ce filet,
+    plus AUCUN identifiant ne fonctionnerait et il faudrait un accès SSH pour
+    s'en sortir.
+    """
+    entetes = _avec_identifiants(tmp_path, monkeypatch, utilisateur="   \n")
+    _, client = _client(tmp_path, monkeypatch)
+    assert client.get("/", headers=entetes("admin")).status_code == 200
+
+
+def test_l_identifiant_est_insensible_aux_espaces_autour(tmp_path, monkeypatch):
+    """Un saut de ligne final ne doit pas rendre l'identifiant intapable.
+
+    Le fichier est écrit par un script shell ; une fin de ligne s'y glisse
+    facilement, et l'utilisateur ne pourrait jamais taper l'espace en trop.
+    """
+    entetes = _avec_identifiants(tmp_path, monkeypatch, utilisateur="ken\n")
+    _, client = _client(tmp_path, monkeypatch)
+    assert client.get("/", headers=entetes("ken")).status_code == 200

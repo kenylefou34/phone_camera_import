@@ -132,8 +132,8 @@ cd ~/phone_camera_import && git pull && ./deploy/install.sh
 #   (nuc.local ne résout PAS : la machine s'annonce en <hostname>.local)
 #   (le navigateur avertit au premier accès : certificat auto-signé, normal)
 #   (mot de passe affiché une seule fois par install.sh)
-# Choisir/changer le mot de passe d'administration (sans sudo ni redémarrage) :
-./deploy/motdepasse.sh
+# Choisir/changer identifiant ET mot de passe d'admin (sans sudo ni redémarrage) :
+./deploy/identifiants.sh
 # Lancement manuel (dev, sans TLS) :
 ~/.venv-server/bin/uvicorn phototheque.app:app --host 0.0.0.0 --port 8787
 

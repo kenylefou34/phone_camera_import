@@ -346,13 +346,15 @@ sudo systemctl restart phototheque
 **Ne supprime jamais le certificat sans raison.** L'application épingle son
 empreinte : la changer revient à changer d'identité aux yeux des téléphones.
 
-**Changer le mot de passe (en choisir un) :**
+**Changer les identifiants (en choisir) :**
 
 ```bash
-~/phone_camera_import/deploy/motdepasse.sh
+~/phone_camera_import/deploy/identifiants.sh
 ```
 
-Le script demande le nouveau mot de passe **deux fois**, sans jamais l'afficher
+Le script change **l'identifiant et le mot de passe**. Il affiche d'abord
+l'identifiant actuel ; le laisser vide le conserve. Puis il demande le nouveau
+mot de passe **deux fois**, sans jamais l'afficher
 — ni à l'écran, ni dans l'historique du terminal. La confirmation n'est pas une
 formalité : une coquille dans un mot de passe qu'on ne voit pas s'écrire ne se
 découvrirait qu'à la connexion suivante, sans moyen de savoir ce qui a été tapé.
@@ -365,9 +367,30 @@ ton arbitrage. Sache seulement que rien ne limite encore le nombre d'essais côt
 serveur (issue #19) : la longueur du mot de passe est donc la seule barrière.
 
 > **Pour vérifier, ouvre une fenêtre de navigation privée.** Tant qu'un
-> navigateur reste ouvert, il continue d'envoyer l'ancien mot de passe sans le
-> redemander — c'est le propre de l'authentification HTTP Basic, et ça donne
+> navigateur reste ouvert, il continue d'envoyer les anciens identifiants sans
+> les redemander — c'est le propre de l'authentification HTTP Basic, et ça donne
 > l'impression trompeuse que le changement n'a pas pris.
+
+**À propos de l'identifiant.** Il valait `admin` jusqu'au 18/09/2026, en dur
+dans le code. En changer écarte le bruit de fond des balayages automatiques, qui
+essaient `admin`, `root` et `administrator` avant tout le reste. Mais soyons
+clairs sur ce que ça vaut : **ce n'est pas un secret** — il n'est pas haché,
+contrairement au mot de passe, et il est stocké en clair dans
+`~/.config/phototheque/utilisateur`. C'est une gêne pour un attaquant, pas une
+protection. Ce qui protège reste le mot de passe.
+
+Un `:` y est refusé : l'authentification transmet `utilisateur:mot de passe` et
+le serveur découpe sur le premier deux-points, donc un tel nom ne pourrait
+jamais être reconnu.
+
+**Identifiant oublié :**
+
+```bash
+rm ~/.config/phototheque/utilisateur
+```
+
+Le fichier absent vaut `admin` — c'est le filet, et c'est aussi pourquoi un
+fichier vide ou abîmé ne verrouille personne dehors.
 
 **Mot de passe perdu :**
 
@@ -378,7 +401,7 @@ rm ~/.config/phototheque/admin
 
 Le script relance la fabrication (étape 4/9) et affiche un mot de passe tiré au
 hasard — **une seule fois**. Note-le immédiatement. Utilise plutôt
-`motdepasse.sh` ci-dessus si tu veux en choisir un.
+`identifiants.sh` ci-dessus si tu veux en choisir un.
 
 ### Migrer vers une autre machine
 
@@ -418,7 +441,8 @@ journalctl -u phototheque -b         # depuis le dernier démarrage du NUC
 | L'adresse `.local` est inaccessible, l'IP fonctionne | Annonce mDNS absente, ou mauvais nom d'hôte | `sudo systemctl restart avahi-daemon` ; vérifier le nom réel avec `hostname` et ce qui est annoncé avec `avahi-browse -tpr _phototheque._tcp` depuis une autre machine |
 | `http://IZQUIERDO-NUC.local:8787/` ne répond plus, message peu explicite du navigateur | Le service ne parle plus qu'en HTTPS : un même port ne sert pas les deux protocoles | Taper `https://IZQUIERDO-NUC.local:8787/` |
 | Le navigateur affiche un avertissement de sécurité en `https://` | Certificat auto-signé — normal, personne d'extérieur ne le garantit | Cliquer « Paramètres avancés » puis « Continuer » ; une fois par appareil |
-| Mot de passe d'administration à changer | — | `./deploy/motdepasse.sh` : il te le fait choisir, sans sudo ni redémarrage |
+| Identifiant ou mot de passe d'administration à changer | — | `./deploy/identifiants.sh` : il te les fait choisir, sans sudo ni redémarrage |
+| Identifiant d'administration oublié | — | `rm ~/.config/phototheque/utilisateur` : le fichier absent vaut `admin` |
 | Mot de passe d'administration perdu | — | `rm ~/.config/phototheque/admin && ./deploy/install.sh` : un nouveau est tiré et affiché |
 | Le mot de passe changé n'est pas pris en compte | Le navigateur renvoie l'ancien tant qu'il n'est pas fermé (HTTP Basic) | Réessayer dans une fenêtre de navigation privée |
 | Téléphones soudain non reconnus | Base d'appairage perdue | Vérifier `~/phototheque_devices.db` ; l'ancienne était `~/mediaserve_devices.db` (étape 6) |
@@ -463,6 +487,7 @@ Tout est surchargeable par variables d'environnement (voir
 | `DEVICES_DB` | `~/phototheque_devices.db` | Appareils appairés |
 | `CONFIG_DIR` | `~/.config/phototheque` | Dossier du certificat, du mot de passe et du nom convivial |
 | `ADMIN_FILE` | `<CONFIG_DIR>/admin` | Empreinte du mot de passe d'administration |
+| `ADMIN_USER_FILE` | `<CONFIG_DIR>/utilisateur` | Identifiant d'administration. **Absent = `admin`.** |
 | `PUBLIC_URL` | `https://<nom d'hôte>.local:<PORT>` | Adresse publiée dans le QR d'appairage |
 | `DOCS_PUBLIQUES` | *(vide)* | `1` rouvre `/docs`, `/redoc` et `/openapi.json`. **À laisser vide en service.** |
 

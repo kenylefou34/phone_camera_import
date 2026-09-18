@@ -129,12 +129,12 @@ etape "4/9  Mot de passe d'administration"
 ADMIN="$CONFIG_DIR/admin"
 if [ -f "$ADMIN" ]; then
     info "mot de passe déjà défini, conservé"
-    info "(pour en changer : ./deploy/motdepasse.sh)"
+    info "(pour en changer : ./deploy/identifiants.sh)"
 else
     MOT_DE_PASSE=$("$PYTHON" -c "import secrets; print(secrets.token_urlsafe(12))")
     # Toutes les précautions d'écriture (mot de passe uniquement par l'entrée
     # standard, umask 077, fichier temporaire puis mv, 0600) sont dans
-    # ecrire_empreinte_admin — partagée avec deploy/motdepasse.sh, qui permet
+    # ecrire_empreinte_admin — partagée avec deploy/identifiants.sh, qui permet
     # au mainteneur de CHOISIR son mot de passe plutôt que de subir celui-ci.
     # Une seule copie de ces précautions : deux divergeraient au premier
     # correctif appliqué d'un seul côté.

@@ -74,7 +74,7 @@ ecrire_empreinte_admin() {
     #   $1 fichier de destination, $2 interpréteur Python, $3 racine du dépôt
     #
     # Partagée par install.sh (mot de passe tiré au hasard à l'installation) et
-    # motdepasse.sh (mot de passe choisi par le mainteneur). Une seule copie :
+    # identifiants.sh (mot de passe choisi par le mainteneur). Une seule copie :
     # les précautions ci-dessous ont chacune coûté une revue, les dupliquer
     # garantirait qu'un correctif futur n'en corrige qu'une moitié.
     local destination=$1 python=$2 racine=$3
@@ -96,7 +96,7 @@ ecrire_empreinte_admin() {
     # directement sur la destination. Deux dangers distincts, selon l'appelant :
     # pour install.sh, un échec laisserait un fichier vide que la garde du
     # lancement suivant prendrait pour un mot de passe valide, fermant
-    # l'administration en silence ; pour motdepasse.sh, qui écrase un fichier
+    # l'administration en silence ; pour identifiants.sh, qui écrase un fichier
     # existant, un échec détruirait le mot de passe en cours sans le remplacer,
     # et verrouillerait le mainteneur dehors. Le `mv` final ne s'exécute que si
     # Python a réussi.
