@@ -21,6 +21,14 @@ ADMIN_FILE: Path = Path(os.environ.get("ADMIN_FILE", str(CONFIG_DIR / "admin")))
 
 SERVICE_TYPE: str = "_phototheque._tcp"
 
+# FastAPI publie par défaut /docs, /redoc et /openapi.json, SANS
+# authentification : la carte complète de l'API, plus un client interactif prêt
+# à s'en servir. Sur le NUC en service, c'était la seule porte sans serrure de
+# tout le service. Elles sont donc fermées, et rouvrables par cette variable
+# sur une machine de développement — ce qui évite de modifier le code pour les
+# consulter, puis de committer la réouverture sans y penser.
+DOCS_PUBLIQUES: bool = os.environ.get("DOCS_PUBLIQUES", "") == "1"
+
 # Adresse publiée dans le QR d'appairage et sur la page d'admin. Elle est
 # déduite du nom d'hôte réel : c'est sous « <nom>.local » qu'Avahi annonce la
 # machine sur le réseau. Un nom écrit en dur (« nuc.local ») ne résout pas et

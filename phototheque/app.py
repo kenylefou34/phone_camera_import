@@ -17,7 +17,14 @@ from mediasort.hashing import file_hash
 from . import adminauth, config, ingest, pairing, sessions, stats, tls, web
 from .devices import DeviceStore
 
-app = FastAPI(title="phototheque")
+# docs_url/redoc_url/openapi_url à None = les routes n'existent pas du tout,
+# et répondent donc 404. C'est voulu : un 401 annoncerait ce qu'il protège.
+app = FastAPI(
+    title="phototheque",
+    docs_url="/docs" if config.DOCS_PUBLIQUES else None,
+    redoc_url="/redoc" if config.DOCS_PUBLIQUES else None,
+    openapi_url="/openapi.json" if config.DOCS_PUBLIQUES else None,
+)
 
 _devices = None
 

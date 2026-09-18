@@ -464,6 +464,14 @@ Tout est surchargeable par variables d'environnement (voir
 | `CONFIG_DIR` | `~/.config/phototheque` | Dossier du certificat, du mot de passe et du nom convivial |
 | `ADMIN_FILE` | `<CONFIG_DIR>/admin` | Empreinte du mot de passe d'administration |
 | `PUBLIC_URL` | `https://<nom d'hôte>.local:<PORT>` | Adresse publiée dans le QR d'appairage |
+| `DOCS_PUBLIQUES` | *(vide)* | `1` rouvre `/docs`, `/redoc` et `/openapi.json`. **À laisser vide en service.** |
+
+> **`DOCS_PUBLIQUES` : à laisser vide.** FastAPI publie par défaut trois pages
+> — `/docs`, `/redoc` et `/openapi.json` — **sans aucun mot de passe**. Elles
+> décrivent toute l'API et `/docs` permet même de l'essayer depuis le
+> navigateur. Constaté ouvert sur le NUC le 18/09/2026, et refermé depuis :
+> elles répondent maintenant `404`. Ne mets `DOCS_PUBLIQUES=1` que sur une
+> machine de développement, jamais sur le NUC.
 
 > **`CERT_FILE` et `KEY_FILE` ne sont volontairement pas dans ce tableau.**
 > L'unité systemd passe les chemins du certificat en dur à `uvicorn`

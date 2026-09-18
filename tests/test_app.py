@@ -884,3 +884,38 @@ def test_un_horizon_plus_l_infini_reste_ramene_a_maintenant(tmp_path, monkeypatc
     assert r.status_code == 200
     enregistre = a.devices().get_horizons(dev_id)["DCIM/Camera"]
     assert avant <= enregistre <= apres, enregistre
+
+
+# --- documentation interactive de FastAPI ------------------------------------
+#
+# Constaté sur le NUC en service le 18/09/2026 : /docs, /redoc et
+# /openapi.json répondaient 200 SANS authentification. Personne ne les avait
+# ajoutées — FastAPI les publie par défaut. Elles livrent la carte complète de
+# l'API (chemins, formats attendus, codes de retour) et /docs est un client
+# interactif prêt à s'en servir. Rien d'autre sur ce service n'est ouvert : /,
+# /pair, /devices exigent le mot de passe, /status et /sync/* un jeton
+# d'appareil. C'était la seule porte sans serrure.
+
+
+def test_la_documentation_interactive_n_est_pas_publiee(tmp_path, monkeypatch):
+    """Les trois routes ouvertes par défaut de FastAPI doivent être fermées.
+
+    Un 404 et non un 401 : mieux vaut que la porte n'existe pas du tout
+    plutôt qu'elle annonce ce qu'elle protège.
+    """
+    monkeypatch.delenv("DOCS_PUBLIQUES", raising=False)
+    _, client = _client(tmp_path, monkeypatch)
+    for chemin in ("/docs", "/redoc", "/openapi.json"):
+        assert client.get(chemin).status_code == 404, f"{chemin} est publié"
+
+
+def test_la_documentation_reste_activable_pour_le_developpement(tmp_path, monkeypatch):
+    """DOCS_PUBLIQUES=1 les rouvre, sur une machine de développement.
+
+    Sans cette porte de sortie, la seule façon de consulter le schéma serait
+    de modifier le code — avec le risque de committer la réouverture et de la
+    déployer sans s'en rendre compte.
+    """
+    monkeypatch.setenv("DOCS_PUBLIQUES", "1")
+    _, client = _client(tmp_path, monkeypatch)
+    assert client.get("/openapi.json").status_code == 200
