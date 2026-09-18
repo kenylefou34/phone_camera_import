@@ -1,0 +1,8 @@
+# Catalogue de versions Gradle (vide pour l'instant : les tâches 1 utilisent
+# des chaînes de version directes dans build.gradle.kts). Prévu pour une
+# migration future si le projet grossit.
+[versions]
+
+[libraries]
+
+[plugins]
