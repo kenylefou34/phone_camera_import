@@ -65,4 +65,25 @@ class EpinglageTest {
         val attendue = Epinglage.empreinte(certificat()).uppercase()
         GestionnaireEpingle(attendue).checkServerTrusted(arrayOf(certificat()), "RSA")
     }
+
+    @Test fun une_chaine_vide_est_refusee() {
+        // Le trou classique de ce genre de code : une chaine sans certificat ne
+        // doit jamais etre traitee comme un cas passant. Sans ce test, un
+        // refactor en `chain!!.first()` ne ferait rougir personne.
+        try {
+            GestionnaireEpingle("ab".repeat(32)).checkServerTrusted(emptyArray(), "RSA")
+            fail("une chaine vide a ete acceptee")
+        } catch (e: CertificateException) {
+            // attendu
+        }
+    }
+
+    @Test fun une_chaine_nulle_est_refusee() {
+        try {
+            GestionnaireEpingle("ab".repeat(32)).checkServerTrusted(null, "RSA")
+            fail("une chaine nulle a ete acceptee")
+        } catch (e: CertificateException) {
+            // attendu
+        }
+    }
 }
