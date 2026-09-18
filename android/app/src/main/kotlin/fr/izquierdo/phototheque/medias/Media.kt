@@ -12,6 +12,15 @@ data class Media(
     val nom: String,
     val taille: Long,
     val instant: Double,
+    /**
+     * Vrai si le média vient de la collection Video de MediaStore.
+     *
+     * Cette information est CONNUE au moment de la lecture : c'est l'URI de
+     * collection interrogée qui la donne. La jeter puis la redeviner depuis
+     * l'extension du nom échoue sur un fichier sans extension — cas réel pour
+     * un média reçu puis renommé.
+     */
+    val estVideo: Boolean = false,
 ) {
     /** Chemin transmis au serveur dans `path`. */
     val chemin: String get() = "$dossier/$nom"

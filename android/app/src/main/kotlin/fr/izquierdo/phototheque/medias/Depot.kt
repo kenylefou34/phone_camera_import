@@ -3,6 +3,7 @@ package fr.izquierdo.phototheque.medias
 import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import fr.izquierdo.phototheque.synchro.Dates
@@ -29,10 +30,10 @@ class Depot(private val context: Context) : SourceMedias {
     )
 
     override fun lister(): List<Media> =
-        interroger(MediaStore.Images.Media.EXTERNAL_CONTENT_URI) +
-        interroger(MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+        interroger(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, estVideo = false) +
+        interroger(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, estVideo = true)
 
-    private fun interroger(uri: android.net.Uri): List<Media> {
+    private fun interroger(uri: Uri, estVideo: Boolean): List<Media> {
         val resultat = mutableListOf<Media>()
         context.contentResolver.query(uri, colonnes, null, null, null)?.use { c ->
             val iId = c.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
@@ -55,6 +56,9 @@ class Depot(private val context: Context) : SourceMedias {
                     nom = c.getString(iNom),
                     taille = c.getLong(iTaille),
                     instant = Dates.instantSecondes(prise, c.getLong(iModif)),
+                    // Connu par l'URI de collection interrogée : jamais redeviné
+                    // depuis l'extension du nom (qui peut manquer).
+                    estVideo = estVideo,
                 )
             }
         }
@@ -62,9 +66,11 @@ class Depot(private val context: Context) : SourceMedias {
     }
 
     override fun ouvrir(media: Media): InputStream {
-        val base = if (media.nom.substringAfterLast('.').lowercase() in VIDEOS)
-            MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-        else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        // Le type vient de la collection qui a produit la ligne, jamais de
+        // l'extension du nom : un fichier sans extension serait sinon cherché
+        // dans la mauvaise collection.
+        val base = if (media.estVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                   else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
         val uri = ContentUris.withAppendedId(base, media.id)
         return context.contentResolver.openInputStream(uri)
             ?: throw java.io.IOException("media illisible : ${media.chemin}")
@@ -87,9 +93,5 @@ class Depot(private val context: Context) : SourceMedias {
         val partiel = context.checkSelfPermission(
             "android.permission.READ_MEDIA_VISUAL_USER_SELECTED") == PackageManager.PERMISSION_GRANTED
         return !complet && partiel
-    }
-
-    private companion object {
-        val VIDEOS = setOf("mp4", "mkv", "avi", "mov", "m4v", "wmv", "3gp")
     }
 }
