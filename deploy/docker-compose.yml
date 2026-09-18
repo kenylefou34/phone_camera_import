@@ -1,0 +1,15 @@
+# Variante Docker : voir docs/DEPLOIEMENT.md, section « Variante Docker ».
+# Sur le NUC, le déploiement recommandé reste ./deploy/install.sh (systemd).
+services:
+  phototheque:
+    build: { context: .., dockerfile: deploy/Dockerfile }
+    ports:
+      - "8787:8787"
+    volumes:
+      # À ADAPTER : dossier de la bibliothèque sur la machine hôte.
+      - /media/izquierdo/Famille:/data/library
+      # Catalogue et appareils appairés, conservés entre deux redémarrages.
+      - phototheque-data:/data
+    restart: unless-stopped
+volumes:
+  phototheque-data:

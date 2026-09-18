@@ -1,0 +1,20 @@
+[Unit]
+Description=phototheque (ingestion medias)
+After=network-online.target
+Wants=network-online.target
+# Ne démarre qu'une fois le disque de la bibliothèque monté (monté par udisks
+# à l'ouverture de session ; le service attend ce montage).
+RequiresMountsFor=/media/izquierdo/Famille
+
+[Service]
+User=izquierdo
+WorkingDirectory=/home/izquierdo/phone_camera_import
+ExecStart=/home/izquierdo/.venv-server/bin/uvicorn phototheque.app:app \
+    --host 0.0.0.0 --port 8787 \
+    --ssl-keyfile /home/izquierdo/.config/phototheque/key.pem \
+    --ssl-certfile /home/izquierdo/.config/phototheque/cert.pem
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

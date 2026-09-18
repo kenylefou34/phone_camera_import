@@ -102,3 +102,12 @@ modules/
 build/*
 build/
 
+
+# Environnement Python / trieur de médias
+.venv/
+__pycache__/
+.pytest_cache/
+*.db
+
+# Espace de travail SDD (non versionné)
+.superpowers/
