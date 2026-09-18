@@ -22,6 +22,7 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
 
     private val coffre = Coffre(application)
     private val depot = Depot(application)
+    private val memoire = Memoire(application)
     private val _etat = MutableStateFlow(EtatSynchro())
     val etat = _etat.asStateFlow()
 
@@ -29,7 +30,13 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
     private val dossiers = setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp")
 
     init {
-        _etat.value = _etat.value.copy(appaire = coffre.charge() != null)
+        // Le compteur de jours est relu du disque : Android tue l'application
+        // en permanence, et un compteur reparti de zéro afficherait « Jamais
+        // sauvegardé » en rouge après une synchro parfaite.
+        _etat.value = _etat.value.copy(
+            appaire = coffre.charge() != null,
+            derniereReussiteMs = memoire.derniereReussiteMs(),
+        )
     }
 
     /**
@@ -60,6 +67,7 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                 // serveur n'a fait avancer AUCUN horizon (contrat, section 4.4).
                 val reussite = bilan.echecs == 0 && !bilan.revoque &&
                                (bilan.bilanServeur["errors"] ?: 0.0) == 0.0
+                if (reussite) memoire.enregistrerReussite(System.currentTimeMillis())
                 _etat.value = _etat.value.copy(
                     enCours = false,
                     dernierBilan = bilan,
@@ -69,8 +77,9 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                     // accueil orphelin.
                     appaire = !bilan.revoque,
                     accesPartiel = depot.accesPartiel(),
-                    derniereReussiteMs = if (reussite) System.currentTimeMillis()
-                                         else _etat.value.derniereReussiteMs,
+                    // Relue de la mémoire, jamais recalculée ici : c'est elle
+                    // qui fait foi d'un lancement à l'autre.
+                    derniereReussiteMs = memoire.derniereReussiteMs(),
                 )
             } catch (e: ServeurRevoqueException) {
                 // Le serveur a RÉPONDU et nous refuse. Seul un nouveau QR
