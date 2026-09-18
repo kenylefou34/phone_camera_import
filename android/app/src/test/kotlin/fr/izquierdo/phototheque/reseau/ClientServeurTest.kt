@@ -9,6 +9,8 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
@@ -39,6 +41,48 @@ class ClientServeurTest {
         val r = client.horizon()
         assertEquals("2026-09-01", r.depuis)
         assertEquals(1789000000.0, r.dossiers["DCIM/Camera"]!!, 0.001)
+    }
+
+    @Test fun horizon_sur_un_401_leve_une_revocation_DISTINCTE() {
+        // Le piege que ce test verrouille : sans lecture du code, le corps
+        // {"detail":"jeton invalide"} fait echouer la deserialisation, et
+        // l'exception obtenue est la MEME que celle d'un serveur injoignable.
+        // L'appareil revoque afficherait alors « serveur introuvable » pour
+        // toujours, sans jamais proposer de rescanner un QR.
+        serveur.enqueue(MockResponse().setResponseCode(401).setBody(
+            """{"detail":"jeton invalide"}"""))
+        try {
+            client.horizon()
+            fail("un 401 sur /sync/horizon doit lever une revocation")
+        } catch (e: ServeurRevoqueException) {
+            // attendu
+        }
+    }
+
+    @Test fun horizon_sur_un_500_leve_une_erreur_ordinaire_pas_une_revocation() {
+        // Une panne serveur est VISIBLE mais reparable : la confondre avec une
+        // revocation effacerait l'appairage pour rien.
+        serveur.enqueue(MockResponse().setResponseCode(500))
+        try {
+            client.horizon()
+            fail("un 500 sur /sync/horizon doit lever")
+        } catch (e: ServeurRevoqueException) {
+            fail("un 500 n'est pas une revocation")
+        } catch (e: java.io.IOException) {
+            assertTrue("le code doit figurer dans le message",
+                e.message!!.contains("500"))
+        }
+    }
+
+    @Test fun le_plan_sur_un_401_leve_aussi_une_revocation() {
+        serveur.enqueue(MockResponse().setResponseCode(401).setBody(
+            """{"detail":"jeton invalide"}"""))
+        try {
+            client.plan(listOf(FichierPlan("DCIM/a.jpg", 954L, "ab".repeat(32))))
+            fail("un 401 sur /sync/plan doit lever une revocation")
+        } catch (e: ServeurRevoqueException) {
+            // attendu
+        }
     }
 
     @Test fun le_plan_renvoie_session_et_empreintes() {

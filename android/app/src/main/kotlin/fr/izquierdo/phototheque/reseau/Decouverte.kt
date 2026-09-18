@@ -67,13 +67,27 @@ object Fabrique {
      * Cherche le serveur : d'abord les adresses annoncées en mDNS, puis l'url
      * du QR en secours. Renvoie null si rien ne répond — ce qui veut
      * simplement dire « pas à la maison », et n'est PAS une panne.
+     *
+     * Lève [ServeurRevoqueException] si un serveur a RÉPONDU et nous refuse :
+     * c'est le seul cas qui doit remonter, parce que c'est le seul qui ne se
+     * réglera pas tout seul.
      */
     fun serveur(context: Context, charge: ChargeAppairage): Serveur? {
         val http = client(charge)
         for (base in Decouverte.adresses(context) + charge.url) {
             val candidat = ClientServeur(base, charge.token, http)
-            val vivant = runCatching { candidat.horizon() }.isSuccess
-            if (vivant) return Adaptateur(candidat)
+            try {
+                candidat.horizon()
+                return Adaptateur(candidat)
+            } catch (e: ServeurRevoqueException) {
+                // Le serveur nous a RÉPONDU, et il nous refuse. Ce n'est pas
+                // « introuvable » : inutile d'essayer les autres adresses, et
+                // surtout il faut que l'appelant le sache.
+                throw e
+            } catch (e: Exception) {
+                // Injoignable, certificat refusé, serveur en erreur : on essaie
+                // l'adresse suivante. Ce chemin-là reste bien silencieux.
+            }
         }
         return null
     }

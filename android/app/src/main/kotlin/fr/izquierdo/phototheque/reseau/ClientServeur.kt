@@ -28,6 +28,17 @@ enum class ResultatEnvoi {
 }
 
 /**
+ * Ce qui empêche de joindre le serveur, quand ce n'est PAS « on n'est pas à la
+ * maison ».
+ *
+ * Distinguer ces cas est vital : la conception veut que « pas à la maison »
+ * soit SILENCIEUX, et que tout le reste soit VISIBLE. Les confondre rend
+ * l'application muette sur les seules pannes qui exigent une action — ici, un
+ * appareil révoqué, qui ne se débloquera JAMAIS tout seul.
+ */
+class ServeurRevoqueException : Exception("appareil revoque")
+
+/**
  * Les quatre appels de docs/CONTRAT-APP.md. Aucune intelligence ici : ce module
  * traduit du HTTP, il ne décide de rien.
  */
@@ -40,8 +51,22 @@ class ClientServeur(
         .url("$baseUrl$chemin")
         .header("Authorization", "Bearer $jeton")
 
+    /**
+     * Lit le CODE avant le corps, dans les quatre appels.
+     *
+     * Sans cela, un 401 (« {"detail":"jeton invalide"} ») ne ressemble à rien de
+     * connu, la désérialisation échoue, et l'exception obtenue est la MÊME que
+     * celle d'un serveur injoignable : un appareil révoqué afficherait
+     * « serveur introuvable » pour toujours.
+     */
+    private fun verifierCode(r: okhttp3.Response, quoi: String) {
+        if (r.code == 401) throw ServeurRevoqueException()
+        if (!r.isSuccessful) throw java.io.IOException("$quoi : le serveur a répondu ${r.code}")
+    }
+
     fun horizon(): ReponseHorizon =
         http.newCall(requete("/sync/horizon").get().build()).execute().use { r ->
+            verifierCode(r, "horizon refusé")
             Contrat.json.decodeFromString(r.body!!.string())
         }
 
@@ -49,6 +74,7 @@ class ClientServeur(
         val corps = Contrat.json.encodeToString(RequetePlan.serializer(), RequetePlan(fichiers))
             .toRequestBody("application/json".toMediaType())
         return http.newCall(requete("/sync/plan").post(corps).build()).execute().use { r ->
+            verifierCode(r, "plan refusé")
             Contrat.json.decodeFromString(r.body!!.string())
         }
     }
