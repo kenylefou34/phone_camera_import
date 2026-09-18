@@ -1837,6 +1837,31 @@ class AppairageTest {
         assertNull(Appairage.lire("""{"autre":"chose"}"""))
     }
 
+    @Test fun un_qr_aux_types_incorrects_renvoie_null_sans_lever() {
+        // JSON syntaxiquement valide, mais dont les champs n'ont pas le bon
+        // type. Un code-barres quelconque peut produire a peu pres n'importe
+        // quoi : la fonction doit rendre null, jamais lever.
+        assertNull(Appairage.lire("""{"url":"https://x:8787","token":123}"""))
+        assertNull(Appairage.lire("""{"url":{"x":1},"token":"t"}"""))
+        assertNull(Appairage.lire("""{"url":"https://x:8787","token":"t","cert_sha256":123}"""))
+    }
+
+    @Test fun un_json_qui_n_est_pas_un_objet_renvoie_null() {
+        assertNull(Appairage.lire("null"))
+        assertNull(Appairage.lire("[]"))
+        assertNull(Appairage.lire("12345"))
+        assertNull(Appairage.lire("\"une chaine\""))
+    }
+
+    @Test fun un_champ_obligatoire_manquant_a_lui_seul_renvoie_null() {
+        // Le test precedent couvre les DEUX champs absents a la fois. Chacun
+        // isolement doit aussi etre refuse : un appairage a moitie rempli
+        // echouerait plus tard, a la premiere synchro, sous une forme
+        // incomprehensible pour l'utilisateur.
+        assertNull(Appairage.lire("""{"url":"https://x:8787"}"""))
+        assertNull(Appairage.lire("""{"token":"un-jeton"}"""))
+    }
+
     @Test fun un_qr_sans_empreinte_reste_valide() {
         // Serveur lance a la main en HTTP : accepte, mais sans epinglage.
         val charge = Appairage.lire("""{"url":"http://x:8787","token":"t","cert_sha256":null}""")
@@ -1862,12 +1887,25 @@ import fr.izquierdo.phototheque.reseau.ChargeAppairage
 import fr.izquierdo.phototheque.reseau.Contrat
 
 object Appairage {
-    /** Lit le JSON du QR. Renvoie null sur tout ce qui n'est pas un appairage :
-     *  l'utilisateur peut scanner n'importe quel code-barres, et planter serait
-     *  la pire des réponses. */
+    /**
+     * Lit le JSON du QR. Renvoie null sur tout ce qui n'est pas un appairage :
+     * l'utilisateur peut scanner n'importe quel code-barres — etiquette de
+     * colis, ticket de caisse, QR publicitaire — et planter serait la pire des
+     * reponses.
+     *
+     * On attrape Exception et non Throwable, DELIBEREMENT. Attraper une
+     * OutOfMemoryError ou une StackOverflowError puis continuer laisserait
+     * l'application dans un etat indetermine : le remede serait pire que le
+     * mal. Et le risque a ete mesure comme inexistant ici — verifie le
+     * 18/09/2026 avec une pile de 512 Ko et une imbrication de 500 000
+     * niveaux : le saut des cles inconnues de kotlinx 1.6.3 est ITERATIF, pas
+     * recursif, et un QR physiquement scannable plafonne vers 2000 niveaux.
+     * Ne « corrigez » donc pas ce catch dans un sens ou dans l'autre sans
+     * refaire cette mesure.
+     */
     fun lire(texteDuQr: String): ChargeAppairage? = try {
         Contrat.json.decodeFromString<ChargeAppairage>(texteDuQr)
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
 }
