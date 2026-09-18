@@ -42,11 +42,15 @@ class Orchestrateur(
         val candidats = Selection.candidats(source.lister(), dossiersChoisis, etat.dossiers, depuis)
 
         var envoyes = 0; var refuses = 0; var echecs = 0; var revoque = false
+        val envois = mutableListOf<Envoi>()
 
         // Un media devenu illisible est ECARTE du lot plutot que de faire
-        // echouer toute la synchronisation. Il n'est pas propose au serveur,
-        // donc il n'apparait pas dans `envois` : l'horizon ne passera pas
-        // par-dessus lui, et il sera repropose a la prochaine occasion.
+        // echouer toute la synchronisation. Mais il entre quand meme dans
+        // `envois` avec une issue ECHEC : sans cette entree, Horizons.calculer
+        // ne le verrait pas, l'horizon du dossier sauterait PAR-DESSUS lui, et
+        // il serait perdu definitivement et en silence des la synchro suivante.
+        // L'omettre simplement rouvrirait le trou que Horizons.calculer existe
+        // pour combler.
         val empreintes = mutableMapOf<Media, String>()
         val lisibles = mutableListOf<Media>()
         for (media in candidats) {
@@ -55,6 +59,7 @@ class Orchestrateur(
                 lisibles += media
             } catch (e: Exception) {
                 echecs++
+                envois += Envoi(media.dossier, media.instant, Issue.ECHEC)
             }
         }
 
@@ -62,8 +67,6 @@ class Orchestrateur(
             FichierPlan(it.chemin, it.taille, empreintes.getValue(it))
         })
         val reclamees = reponse.needed.toSet()
-
-        val envois = mutableListOf<Envoi>()
 
         for (media in lisibles) {                        // déjà triés par date croissante
             val empreinte = empreintes.getValue(media)

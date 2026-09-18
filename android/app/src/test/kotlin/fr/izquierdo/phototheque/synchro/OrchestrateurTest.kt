@@ -3,6 +3,7 @@ package fr.izquierdo.phototheque.synchro
 import fr.izquierdo.phototheque.medias.Media
 import fr.izquierdo.phototheque.reseau.*
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.InputStream
@@ -112,5 +113,29 @@ class OrchestrateurTest {
         assertEquals(1, bilan.echecs)
         // L'horizon ne doit PAS passer par-dessus le media illisible.
         assertEquals(mapOf("DCIM/Camera" to 100.0), serveur.horizonsEnvoyes)
+    }
+
+    @Test fun un_media_illisible_bloque_l_horizon_de_son_dossier() {
+        // Le media a 100 est illisible des le calcul d'empreinte, celui a 200
+        // part sans probleme, tous deux dans le MEME dossier. Si l'illisible
+        // etait simplement omis de `envois`, l'horizon sauterait a 200 et le
+        // media a 100 ne serait PLUS JAMAIS propose — perte definitive et
+        // silencieuse. Le dossier doit donc rester bloque.
+        val perdu = media(100.0, "disparu.jpg")
+        val bon = media(200.0)
+        val source = object : SourceMedias {
+            override fun lister() = listOf(perdu, bon)
+            override fun ouvrir(media: Media): InputStream =
+                if (media.nom == "disparu.jpg") throw java.io.FileNotFoundException(media.nom)
+                else "contenu".byteInputStream()
+        }
+        val serveur = FauxServeur()
+
+        Orchestrateur(source, serveur).synchroniser(setOf("DCIM/Camera"))
+
+        assertTrue("le commit doit avoir lieu", serveur.commitAppele)
+        assertFalse(
+            "l'horizon a saute par-dessus un media illisible : il est perdu",
+            "DCIM/Camera" in serveur.horizonsEnvoyes!!)
     }
 }
