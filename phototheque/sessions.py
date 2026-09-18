@@ -5,6 +5,12 @@ import shutil
 import uuid
 from pathlib import Path
 
+# Taille des blocs lus puis écrits. Même valeur que mediasort.hashing : c'est
+# le compromis déjà éprouvé du projet entre nombre d'appels système et mémoire
+# retenue. Ce qui compte ici est qu'elle soit BORNÉE — le NUC a 1,7 Gio
+# disponible et reçoit des vidéos de plusieurs gigaoctets (issue #21).
+TAILLE_BLOC = 1024 * 1024      # 1 Mio
+
 # La forme exacte de ce que produit new_session() : 32 caractères
 # hexadécimaux minuscules. Tout ce qui s'en écarte est refusé — voir
 # identifiant_valide().
@@ -43,14 +49,43 @@ def _chemin_sur(base: Path, session: str, rel_path: str) -> Path:
     return cible
 
 
-def save_upload(base: Path, session: str, rel_path: str, content: bytes) -> Path:
-    """Écrit le fichier reçu sous incoming/<session>/<rel_path> (anti-traversée)."""
+def save_upload(base: Path, session: str, rel_path: str, flux) -> Path:
+    """Écrit le fichier reçu sous incoming/<session>/<rel_path> (anti-traversée).
+
+    `flux` est un objet de lecture (`.read(taille)`), pas un bloc d'octets : le
+    fichier est recopié PAR BLOCS et n'est jamais tenu en mémoire dans son
+    entier. Le NUC dispose de 1,7 Gio et reçoit des vidéos de plus de 3 Gio ;
+    la version précédente le faisait tuer par le noyau, redémarrer, puis
+    recommencer sur le même fichier — une boucle dont le symptôme (service qui
+    redémarre) ne désignait jamais la cause (issue #21).
+
+    Les contrôles de chemin restent AVANT la moindre écriture : les faire après
+    aurait déjà créé le dossier, voire le fichier, à l'endroit interdit.
+
+    L'écriture passe par un fichier « .partiel » renommé à la fin. Une coupure
+    en cours d'envoi ne laisse donc rien à l'emplacement final : un fichier
+    tronqué portant une extension de média serait pris pour un média valide par
+    le trieur, rangé dans la bibliothèque, compté comme reçu — et l'original,
+    sur le téléphone, ne serait plus jamais proposé. Le suffixe « .partiel »
+    protège d'ailleurs deux fois : le trieur ignore les extensions qu'il ne
+    connaît pas, donc même un reliquat laissé par un processus tué ne sera
+    jamais rangé.
+    """
     _verifier_session(session)
     if rel_path.startswith("/") or ".." in Path(rel_path).parts:
         raise ValueError(f"chemin non autorisé : {rel_path}")
     cible = _chemin_sur(base, session, rel_path)
     cible.parent.mkdir(parents=True, exist_ok=True)
-    cible.write_bytes(content)
+    partiel = cible.with_name(cible.name + ".partiel")
+    try:
+        with open(partiel, "wb") as sortie:
+            shutil.copyfileobj(flux, sortie, TAILLE_BLOC)
+    except BaseException:
+        # BaseException et non Exception : une coupure de service ou un
+        # KeyboardInterrupt ne doivent pas non plus laisser de reliquat.
+        partiel.unlink(missing_ok=True)
+        raise
+    partiel.replace(cible)      # renommage atomique : le fichier apparaît entier
     return cible
 
 

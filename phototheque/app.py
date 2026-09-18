@@ -134,9 +134,17 @@ def sync_plan(req: PlanRequest, _: str = Depends(require_device)) -> dict:
 
 
 @app.post("/sync/upload")
-async def sync_upload(session: str = Form(...), path: str = Form(...),
-                      file: UploadFile = File(...), _: str = Depends(require_device)) -> dict:
+def sync_upload(session: str = Form(...), path: str = Form(...),
+                file: UploadFile = File(...), _: str = Depends(require_device)) -> dict:
     """Reçoit un média. Refuse les extensions que le trieur ne sait pas ranger.
+
+    Fonction SYNCHRONE (`def` et non `async def`), volontairement : FastAPI
+    exécute alors le corps dans un fil d'exécution séparé, si bien que la
+    recopie du fichier — qui peut durer des minutes sur une vidéo de plusieurs
+    gigaoctets — ne bloque pas la boucle d'événements et n'empêche pas le
+    service de répondre. On y accède au flux brut (`file.file`) plutôt qu'au
+    `await file.read()` d'avant, qui ramenait TOUT le fichier en mémoire
+    (issue #21).
 
     Sans ce refus, le média était perdu en silence : accepté ici (« bien
     reçu »), ignoré par le trieur qui ne connaît pas l'extension, supprimé
@@ -156,9 +164,8 @@ async def sync_upload(session: str = Form(...), path: str = Form(...),
             detail=f"extension non prise en charge : « {extension or path} » —"
                    " le serveur n'accepte que les photos et vidéos qu'il sait ranger",
         )
-    contenu = await file.read()
     try:
-        dest = sessions.save_upload(config.INCOMING_DIR, session, path, contenu)
+        dest = sessions.save_upload(config.INCOMING_DIR, session, path, file.file)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True, "hash": file_hash(dest)}
