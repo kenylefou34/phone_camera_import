@@ -23,6 +23,10 @@
 - L'application ne supprime **jamais** rien sur le téléphone.
 - Horizons envoyés au serveur : **secondes flottantes**.
 - Pas d'émulateur : les essais se font sur le téléphone réel par USB.
+- **Lancer un test ciblé :** `JAVA_HOME=~/outils/jdk17 ./gradlew testDebugUnitTest --tests '*XTest*'`.
+  La tâche agrégée `test` éclate en variantes debug ET release, et le filtre
+  `--tests` la fait alors échouer ; `testDebugUnitTest` est la bonne cible.
+  Sans filtre, `./gradlew test` fonctionne normalement.
 
 ---
 
@@ -284,7 +288,7 @@ class DatesTest {
 
 - [ ] **Step 2 : Vérifier qu'ils échouent**
 
-Run: `cd android && ./gradlew test --tests '*DatesTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*DatesTest*'`
 Expected: FAIL — `Unresolved reference: Dates`
 
 - [ ] **Step 3 : Implémenter**
@@ -316,7 +320,7 @@ object Dates {
 
 - [ ] **Step 4 : Vérifier qu'ils passent**
 
-Run: `cd android && ./gradlew test --tests '*DatesTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*DatesTest*'`
 Expected: PASS, 4 tests.
 
 - [ ] **Step 5 : Commit**
@@ -420,7 +424,7 @@ class HorizonsTest {
 
 - [ ] **Step 2 : Vérifier qu'ils échouent**
 
-Run: `cd android && ./gradlew test --tests '*HorizonsTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*HorizonsTest*'`
 Expected: FAIL — `Unresolved reference: Horizons`
 
 - [ ] **Step 3 : Implémenter**
@@ -476,7 +480,7 @@ object Horizons {
 
 - [ ] **Step 4 : Vérifier qu'ils passent**
 
-Run: `cd android && ./gradlew test --tests '*HorizonsTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*HorizonsTest*'`
 Expected: PASS, 7 tests.
 
 - [ ] **Step 5 : Valider par mutation**
@@ -577,7 +581,7 @@ class ContratTest {
 
 - [ ] **Step 2 : Vérifier qu'ils échouent**
 
-Run: `cd android && ./gradlew test --tests '*ContratTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*ContratTest*'`
 Expected: FAIL — `Unresolved reference: Contrat`
 
 - [ ] **Step 3 : Implémenter**
@@ -640,7 +644,7 @@ data class RequeteCommit(val session: String, val horizons: Map<String, Double> 
 
 - [ ] **Step 4 : Vérifier qu'ils passent**
 
-Run: `cd android && ./gradlew test --tests '*ContratTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*ContratTest*'`
 Expected: PASS, 6 tests.
 
 - [ ] **Step 5 : Commit**
@@ -736,7 +740,7 @@ class EpinglageTest {
 
 - [ ] **Step 3 : Vérifier que les tests échouent**
 
-Run: `cd android && ./gradlew test --tests '*EpinglageTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*EpinglageTest*'`
 Expected: FAIL — `Unresolved reference: Epinglage`
 
 - [ ] **Step 4 : Implémenter**
@@ -793,7 +797,7 @@ class GestionnaireEpingle(empreinteAttendue: String) : X509TrustManager {
 
 - [ ] **Step 5 : Vérifier qu'ils passent**
 
-Run: `cd android && ./gradlew test --tests '*EpinglageTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*EpinglageTest*'`
 Expected: PASS, 4 tests.
 
 - [ ] **Step 6 : Commit**
@@ -905,7 +909,7 @@ class ClientServeurTest {
 
 - [ ] **Step 2 : Vérifier qu'ils échouent**
 
-Run: `cd android && ./gradlew test --tests '*ClientServeurTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*ClientServeurTest*'`
 Expected: FAIL — `Unresolved reference: ClientServeur`
 
 - [ ] **Step 3 : Implémenter**
@@ -1021,7 +1025,7 @@ class ClientServeur(
 
 - [ ] **Step 4 : Vérifier qu'ils passent**
 
-Run: `cd android && ./gradlew test --tests '*ClientServeurTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*ClientServeurTest*'`
 Expected: PASS, 7 tests.
 
 - [ ] **Step 5 : Commit**
@@ -1091,7 +1095,7 @@ class EmpreintesTest {
 
 - [ ] **Step 2 : Vérifier qu'ils échouent**
 
-Run: `cd android && ./gradlew test --tests '*EmpreintesTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*EmpreintesTest*'`
 Expected: FAIL — `Unresolved reference: Empreintes`
 
 - [ ] **Step 3 : Implémenter**
@@ -1130,7 +1134,7 @@ object Empreintes {
 
 - [ ] **Step 4 : Vérifier qu'ils passent**
 
-Run: `cd android && ./gradlew test --tests '*EmpreintesTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*EmpreintesTest*'`
 Expected: PASS, 2 tests.
 
 - [ ] **Step 5 : Commit**
@@ -1218,7 +1222,7 @@ class SelectionTest {
 
 - [ ] **Step 2 : Vérifier qu'ils échouent**
 
-Run: `cd android && ./gradlew test --tests '*SelectionTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*SelectionTest*'`
 Expected: FAIL — `Unresolved reference: Selection`
 
 - [ ] **Step 3 : Implémenter**
@@ -1286,7 +1290,7 @@ object Selection {
 
 - [ ] **Step 4 : Vérifier qu'ils passent**
 
-Run: `cd android && ./gradlew test --tests '*SelectionTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*SelectionTest*'`
 Expected: PASS, 6 tests.
 
 - [ ] **Step 5 : Valider par mutation**
@@ -1418,7 +1422,7 @@ class OrchestrateurTest {
 
 - [ ] **Step 2 : Vérifier qu'ils échouent**
 
-Run: `cd android && ./gradlew test --tests '*OrchestrateurTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*OrchestrateurTest*'`
 Expected: FAIL — `Unresolved reference: Orchestrateur`
 
 - [ ] **Step 3 : Implémenter**
@@ -1517,7 +1521,7 @@ class Orchestrateur(
 
 - [ ] **Step 4 : Vérifier qu'ils passent**
 
-Run: `cd android && ./gradlew test --tests '*OrchestrateurTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*OrchestrateurTest*'`
 Expected: PASS, 6 tests.
 
 - [ ] **Step 5 : Commit**
@@ -1698,7 +1702,7 @@ class AppairageTest {
 
 - [ ] **Step 2 : Vérifier qu'ils échouent**
 
-Run: `cd android && ./gradlew test --tests '*AppairageTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*AppairageTest*'`
 Expected: FAIL — `Unresolved reference: Appairage`
 
 - [ ] **Step 3 : Implémenter**
@@ -1757,7 +1761,7 @@ class Coffre(context: Context) {
 
 - [ ] **Step 4 : Vérifier qu'ils passent**
 
-Run: `cd android && ./gradlew test --tests '*AppairageTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*AppairageTest*'`
 Expected: PASS, 3 tests.
 
 - [ ] **Step 5 : Commit**
@@ -1944,7 +1948,7 @@ class EtatSynchroTest {
 
 - [ ] **Step 2 : Vérifier qu'il échoue**
 
-Run: `cd android && ./gradlew test --tests '*EtatSynchroTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*EtatSynchroTest*'`
 Expected: FAIL — `Unresolved reference: EtatSynchro`
 
 - [ ] **Step 3 : Implémenter l'état**
@@ -1975,7 +1979,7 @@ data class EtatSynchro(
 
 - [ ] **Step 4 : Vérifier qu'il passe**
 
-Run: `cd android && ./gradlew test --tests '*EtatSynchroTest*'`
+Run: `cd android && ./gradlew testDebugUnitTest --tests '*EtatSynchroTest*'`
 Expected: PASS, 3 tests.
 
 - [ ] **Step 5 : Écrire le modèle de vue**
