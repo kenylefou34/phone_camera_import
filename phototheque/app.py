@@ -3,18 +3,21 @@
 import base64
 import datetime
 import json
+import logging
 import math
 import time
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import (Depends, FastAPI, File, Form, Header, HTTPException,
+                     Request, UploadFile)
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from mediasort import classify
 from mediasort.catalog import Catalog
 from mediasort.hashing import file_hash
-from . import adminauth, config, ingest, pairing, sessions, stats, tls, web
+from . import (adminauth, config, essais, ingest, pairing, sessions, stats,
+               tls, web)
 from .devices import DeviceStore
 
 # docs_url/redoc_url/openapi_url à None = les routes n'existent pas du tout,
@@ -54,7 +57,17 @@ def require_device(authorization: str = Header(default="")) -> str:
     return dev_id
 
 
-def require_admin(authorization: str = Header(default="")) -> None:
+# Journal des échecs d'authentification : visible dans « journalctl -u
+# phototheque ». Personne ne surveille ce service en permanence, mais une trace
+# permet au moins de comprendre APRÈS COUP qu'on s'y est acharné.
+_journal = logging.getLogger("phototheque.admin")
+
+# Décompte des essais ratés, par machine d'origine (issue #19). Un seul pour
+# tout le processus : c'est l'état partagé qui permet de refuser sans calculer.
+_limiteur = essais.Limiteur()
+
+
+def require_admin(request: Request, authorization: str = Header(default="")) -> None:
     """Dépendance d'auth admin : « Authorization: Basic <utilisateur:secret> ».
 
     Le navigateur affiche sa propre fenêtre de connexion dès qu'on répond 401
@@ -73,6 +86,20 @@ def require_admin(authorization: str = Header(default="")) -> None:
         status_code=401, detail="authentification requise",
         headers={"WWW-Authenticate": 'Basic realm="phototheque"'},
     )
+    source = request.client.host if request.client else "inconnue"
+
+    # AVANT toute lecture de fichier et tout calcul : c'est tout l'objet de la
+    # limitation. Vérifier puis refuser laisserait intact le levier de
+    # saturation — chaque essai coûte ~100 ms des deux cœurs du NUC, dans le
+    # processus qui fait aussi le tri des médias.
+    attente = _limiteur.doit_attendre(source, time.monotonic())
+    if attente > 0:
+        raise HTTPException(
+            status_code=429,
+            detail=f"trop d'essais — réessayez dans {math.ceil(attente)} secondes",
+            headers={"Retry-After": str(math.ceil(attente))},
+        )
+
     try:
         enregistre = config.ADMIN_FILE.read_text().strip()
     except (OSError, ValueError):
@@ -82,6 +109,11 @@ def require_admin(authorization: str = Header(default="")) -> None:
         raise refus
     prefixe = "Basic "
     if not authorization.startswith(prefixe):
+        # PAS un échec : le navigateur envoie TOUJOURS une première requête
+        # sans identifiants, et n'affiche sa fenêtre de connexion qu'après
+        # avoir reçu ce 401. Compter ce passage obligé épuiserait le quota du
+        # mainteneur en navigation parfaitement normale — quelques pages
+        # ouvertes suffiraient à le bloquer.
         raise refus
     try:
         identifiants = base64.b64decode(authorization[len(prefixe):]).decode()
@@ -90,7 +122,15 @@ def require_admin(authorization: str = Header(default="")) -> None:
         raise refus
     attendu = adminauth.utilisateur(config.ADMIN_USER_FILE)
     if utilisateur != attendu or not adminauth.verifier(secret, enregistre):
+        nb = _limiteur.echec(source, time.monotonic())
+        if nb >= essais.SEUIL:
+            _journal.warning(
+                "authentification d'administration : %d échecs consécutifs "
+                "depuis %s", nb, source)
         raise refus
+    # Réussite : on efface l'ardoise, le mainteneur ne traîne pas ses fautes
+    # de frappe de la veille.
+    _limiteur.succes(source)
 
 
 def _media_counts() -> dict:

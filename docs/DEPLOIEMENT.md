@@ -363,8 +363,9 @@ Il ne demande pas `sudo` et **ne redémarre rien** : le service relit le fichier
 à chaque requête, le nouveau mot de passe est donc actif immédiatement.
 
 En dessous de 12 caractères, il **avertit sans refuser** — c'est ton réseau et
-ton arbitrage. Sache seulement que rien ne limite encore le nombre d'essais côté
-serveur (issue #19) : la longueur du mot de passe est donc la seule barrière.
+ton arbitrage. Le serveur ralentit désormais les essais répétés (voir
+ci-dessous), mais un mot de passe très court se devine avant même que cette
+limitation n'entre en jeu.
 
 > **Pour vérifier, ouvre une fenêtre de navigation privée.** Tant qu'un
 > navigateur reste ouvert, il continue d'envoyer les anciens identifiants sans
@@ -382,6 +383,26 @@ protection. Ce qui protège reste le mot de passe.
 Un `:` y est refusé : l'authentification transmet `utilisateur:mot de passe` et
 le serveur découpe sur le premier deux-points, donc un tel nom ne pourrait
 jamais être reconnu.
+
+**Le serveur ralentit les essais répétés.** Après 5 mots de passe erronés
+depuis une même machine, il refuse pendant un délai qui **double** à chaque
+nouvel essai (2 s, 4 s, 8 s…), plafonné à une minute. Le refus est alors
+immédiat : le serveur ne calcule même plus l'empreinte. C'est le point
+important — cette vérification coûte environ 100 ms des deux cœurs du NUC, dans
+le processus qui range aussi tes photos ; sans cette limite, s'acharner sur le
+mot de passe ralentissait l'import.
+
+Trois choses à savoir :
+
+- Le décompte est **par machine**. Quelqu'un qui s'acharne depuis un autre
+  appareil ne te bloque pas.
+- Une connexion réussie **efface l'ardoise**.
+- Naviguer normalement ne compte pas : seul un mot de passe réellement erroné
+  est décompté.
+
+Si tu es toi-même bloqué, il suffit d'**attendre une minute**. En cas d'urgence,
+`sudo systemctl restart phototheque` remet le décompte à zéro (il vit en
+mémoire, il ne survit pas au redémarrage).
 
 **Identifiant oublié :**
 
@@ -443,6 +464,7 @@ journalctl -u phototheque -b         # depuis le dernier démarrage du NUC
 | Le navigateur affiche un avertissement de sécurité en `https://` | Certificat auto-signé — normal, personne d'extérieur ne le garantit | Cliquer « Paramètres avancés » puis « Continuer » ; une fois par appareil |
 | Identifiant ou mot de passe d'administration à changer | — | `./deploy/identifiants.sh` : il te les fait choisir, sans sudo ni redémarrage |
 | Identifiant d'administration oublié | — | `rm ~/.config/phototheque/utilisateur` : le fichier absent vaut `admin` |
+| `429` / « trop d'essais » sur l'administration | 5 mots de passe erronés depuis cette machine (issue #19) | Attendre une minute ; en urgence `sudo systemctl restart phototheque` remet le décompte à zéro |
 | Mot de passe d'administration perdu | — | `rm ~/.config/phototheque/admin && ./deploy/install.sh` : un nouveau est tiré et affiché |
 | Le mot de passe changé n'est pas pris en compte | Le navigateur renvoie l'ancien tant qu'il n'est pas fermé (HTTP Basic) | Réessayer dans une fenêtre de navigation privée |
 | Téléphones soudain non reconnus | Base d'appairage perdue | Vérifier `~/phototheque_devices.db` ; l'ancienne était `~/mediaserve_devices.db` (étape 6) |

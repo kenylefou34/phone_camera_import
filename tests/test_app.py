@@ -995,3 +995,112 @@ def test_l_identifiant_est_insensible_aux_espaces_autour(tmp_path, monkeypatch):
     entetes = _avec_identifiants(tmp_path, monkeypatch, utilisateur="ken\n")
     _, client = _client(tmp_path, monkeypatch)
     assert client.get("/", headers=entetes("ken")).status_code == 200
+
+
+# --- limitation des essais sur l'administration (issue #19) ------------------
+
+
+def _client_depuis(tmp_path, monkeypatch, ip="192.168.1.50"):
+    """Comme _client, mais en se faisant passer pour une machine donnée."""
+    monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
+    monkeypatch.setenv("CATALOG_DB", str(tmp_path / "cat.db"))
+    monkeypatch.setenv("INCOMING_DIR", str(tmp_path / "incoming"))
+    monkeypatch.setenv("DEVICES_DB", str(tmp_path / "dev.db"))
+    import phototheque.config as c; importlib.reload(c)
+    import phototheque.app as a; importlib.reload(a)
+    return a, TestClient(a.app, client=(ip, 12345))
+
+
+def _entetes(utilisateur, mot_de_passe):
+    import base64
+    jeton = base64.b64encode(f"{utilisateur}:{mot_de_passe}".encode()).decode()
+    return {"Authorization": f"Basic {jeton}"}
+
+
+def _pose_mot_de_passe(tmp_path, monkeypatch, mot_de_passe="le-bon-mot-de-passe"):
+    from phototheque import adminauth
+    fichier = tmp_path / "admin"
+    fichier.write_text(adminauth.empreinte(mot_de_passe, iterations=1000))
+    monkeypatch.setenv("ADMIN_FILE", str(fichier))
+    monkeypatch.setenv("ADMIN_USER_FILE", str(tmp_path / "jamais-cree"))
+
+
+def test_apres_trop_d_essais_le_refus_ne_calcule_plus_d_empreinte(tmp_path, monkeypatch):
+    """LE point de l'issue #19 : ne plus payer 100 ms de calcul par essai.
+
+    Le coût de l'empreinte est supporté par le SERVEUR, sur les deux cœurs du
+    NUC, dans le processus qui fait aussi le tri des médias. Refuser en
+    calculant quand même laisserait intact le levier de saturation ; c'est
+    l'absence de calcul qui protège, pas le refus.
+    """
+    _pose_mot_de_passe(tmp_path, monkeypatch)
+    a, client = _client_depuis(tmp_path, monkeypatch)
+
+    for _ in range(a.essais.SEUIL):
+        client.get("/", headers=_entetes("admin", "mauvais"))
+
+    appels = []
+    vrai_verifier = a.adminauth.verifier
+    monkeypatch.setattr(a.adminauth, "verifier",
+                        lambda *args, **kw: appels.append(1) or vrai_verifier(*args, **kw))
+
+    r = client.get("/", headers=_entetes("admin", "mauvais"))
+    assert r.status_code == 429, r.status_code
+    assert appels == [], "une empreinte a été calculée malgré le refus"
+    assert r.headers.get("Retry-After"), "pas d'indication du délai à attendre"
+
+
+def test_le_bon_mot_de_passe_passe_avant_le_seuil(tmp_path, monkeypatch):
+    """Quelques fautes de frappe ne doivent pas gêner le mainteneur."""
+    _pose_mot_de_passe(tmp_path, monkeypatch)
+    a, client = _client_depuis(tmp_path, monkeypatch)
+    for _ in range(a.essais.SEUIL - 1):
+        client.get("/", headers=_entetes("admin", "mauvais"))
+    assert client.get("/", headers=_entetes("admin", "le-bon-mot-de-passe")).status_code == 200
+
+
+def test_une_connexion_reussie_efface_les_echecs(tmp_path, monkeypatch):
+    """Sinon les erreurs de la veille finiraient par fermer la porte."""
+    _pose_mot_de_passe(tmp_path, monkeypatch)
+    a, client = _client_depuis(tmp_path, monkeypatch)
+    for _ in range(a.essais.SEUIL - 1):
+        client.get("/", headers=_entetes("admin", "mauvais"))
+    assert client.get("/", headers=_entetes("admin", "le-bon-mot-de-passe")).status_code == 200
+    for _ in range(a.essais.SEUIL - 1):
+        client.get("/", headers=_entetes("admin", "mauvais"))
+    assert client.get("/", headers=_entetes("admin", "le-bon-mot-de-passe")).status_code == 200
+
+
+def test_l_acharnement_d_une_machine_ne_ferme_pas_la_porte_aux_autres(tmp_path, monkeypatch):
+    """Sans séparation par source, on offrirait le déni de service à l'attaquant.
+
+    N'importe qui sur le réseau enfermerait le mainteneur dehors avec quelques
+    essais ratés — exactement ce que la limitation est censée empêcher.
+    """
+    _pose_mot_de_passe(tmp_path, monkeypatch)
+    a, intrus = _client_depuis(tmp_path, monkeypatch, ip="192.168.1.99")
+    for _ in range(a.essais.SEUIL + 2):
+        intrus.get("/", headers=_entetes("admin", "mauvais"))
+    assert intrus.get("/", headers=_entetes("admin", "mauvais")).status_code == 429
+
+    mainteneur = TestClient(a.app, client=("192.168.1.50", 999))
+    assert mainteneur.get("/", headers=_entetes("admin", "le-bon-mot-de-passe")).status_code == 200
+
+
+def test_naviguer_sans_identifiants_ne_declenche_jamais_la_limitation(tmp_path, monkeypatch):
+    """Le passage obligé du navigateur ne doit pas être compté comme un échec.
+
+    Un navigateur envoie TOUJOURS une première requête sans identifiants et
+    n'affiche sa fenêtre de connexion qu'après avoir reçu le 401. Compter ces
+    requêtes épuiserait le quota du mainteneur en navigation parfaitement
+    normale : ouvrir quelques pages, recharger, et l'administration se
+    fermerait toute seule — sans qu'aucun mot de passe n'ait été tenté.
+    """
+    _pose_mot_de_passe(tmp_path, monkeypatch)
+    a, client = _client_depuis(tmp_path, monkeypatch)
+
+    for _ in range(a.essais.SEUIL * 4):
+        assert client.get("/").status_code == 401
+
+    # Le bon mot de passe doit toujours passer : rien n'a été décompté.
+    assert client.get("/", headers=_entetes("admin", "le-bon-mot-de-passe")).status_code == 200

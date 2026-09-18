@@ -96,12 +96,13 @@ esac
     connexion suivante."
 
 # Averti, pas interdit : c'est un réseau local et c'est l'arbitrage du
-# mainteneur. Mais tant que rien ne limite les essais côté serveur (issue #19),
-# la longueur du mot de passe est la seule barrière réelle — autant le dire.
+# mainteneur. Le serveur limite désormais les essais (issue #19), ce qui rend
+# l'acharnement très coûteux — mais un mot de passe vraiment court reste
+# devinable en quelques essais, avant même que la limitation n'entre en jeu.
 if [ "${#premier}" -lt 12 ]; then
     printf '\033[1;33m    ATTENTION : mot de passe court (%d caractères).\033[0m\n' "${#premier}"
-    info "Rien ne limite encore le nombre d'essais côté serveur : un mot de"
-    info "passe court se devine. 12 caractères ou plus sont conseillés."
+    info "Le serveur ralentit les essais répétés, mais un mot de passe très"
+    info "court se devine avant que cela ne serve. 12 caractères ou plus."
     printf '\n'
 fi
 
