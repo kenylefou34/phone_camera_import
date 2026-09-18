@@ -11,7 +11,7 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
 + revue visuelle (doublons, floues/rafales, re-datation) ; **Phase 3** visages ;
 **Phase 4** génération (livre photo…).
 
-## État actuel (2026-09-17)
+## État actuel (2026-09-18)
 - ✅ **Trieur `mediasort/`** (Python, stdlib + exiftool/ffmpeg) : range par vraie
   date (métadonnées > nom > système > `_A_TRIER/`), anti-doublon par catalogue
   SQLite d'empreintes. Testé.
@@ -52,6 +52,9 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   **sans calcul d'empreinte** (~38 ms → ~2 ms). Compteur en mémoire : un
   `systemctl restart phototheque` le remet à zéro si on se bloque soi-même.
   **233 tests**.
+- ✅ **Contrat serveur de l'app écrit** (issue #15) : `docs/CONTRAT-APP.md`,
+  exemples **capturés sur un échange réel**. À lire avant d'écrire l'app (#12) ;
+  la section 6 de la spec y renvoie.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
@@ -72,9 +75,10 @@ ne reste aucune redirection. L'UPnP de la box reste activé — un programme peu
 donc encore s'ouvrir un accès sans prévenir ; à couper un jour, en sachant que
 ça peut gêner console de jeu et visio.
 
-**Prochaine étape** : sous-projet 3, l'application Android (issue #12), en
-commençant par **#15** (écrire le contrat serveur exact, qui n'existe que dans
-le code). Voir aussi le commentaire du 18/09 sur #12 : prévoir un lien de
+**Prochaine étape** : sous-projet 3, l'application Android (issue #12). Le
+contrat qu'elle doit implémenter est écrit : **`docs/CONTRAT-APP.md`** (#15,
+fait le 18/09). Lire aussi #22 : l'app devra hacher chaque fichier avant de
+savoir s'il est utile, ce qui coûte cher sur un téléphone. Voir aussi le commentaire du 18/09 sur #12 : prévoir un lien de
 téléchargement de l'APK sur la page du serveur.
 
 **Fait le 17/09** : rattrapage des signatures sur le NUC (44 669 médias en
@@ -84,11 +88,11 @@ refonte des pages web ; README et `DEPLOIEMENT.md` réécrits pas à pas.
 ## Feuille de route (issues GitHub)
 Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
 dossiers, client d'upload) — commencer par #15, qui fige le contrat qu'elle
-codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #21
+codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #22
 (`gh issue list`). Notamment : #4 doublons existants, #5 floues/rafales,
 #6 re-datation, #7 sauvegarde Famille.
 
-Le travail de #2, #3, #10, #14, #19 et #21 est **fait** (#8, #9 et #11 sont fermées), mais
+Le travail de #2, #3, #10, #14, #15, #19 et #21 est **fait** (#8, #9 et #11 sont fermées), mais
 ces quatre-là **apparaissent encore ouvertes sur GitHub** : leurs commits portent
 bien `closes #N`, or GitHub ne ferme une issue qu'à la fusion dans la branche par
 défaut. Elles se fermeront toutes seules quand **PR #13 (`dev` → `main`)** sera
@@ -106,6 +110,52 @@ fusionnée — ce qui reste à faire, de préférence après le déploiement ci-
   toucher aux dossiers d'événements curatés (ex. `2022/02 - CANARIAS`).
 - WhatsApp enregistré sur le tél : `Pictures/WhatsApp/` (images) + `Movies/WhatsApp/`
   (vidéos) — pas le dump interne de WhatsApp (~99 % "Sent").
+
+## ⚠️ Cas particuliers (ce qui a déjà fait perdre du temps)
+
+**Environnement**
+- `hostname -I` sur le NUC renvoie **4 adresses** (1 IPv4 + 3 IPv6), pas une.
+  `install.sh` prend la première via `awk '{print $1}'` et tombe aujourd'hui sur
+  la bonne — par chance d'ordonnancement, pas par construction.
+- Le NUC héberge aussi **Plex** (snap, port 32400) et l'**UPnP de la box est
+  activé** : un programme peut s'ouvrir un accès Internet sans prévenir. Voir la
+  mémoire `projet-nuc-exposition-reseau`.
+- Pas de `curl` sur le NUC ; `sudo` exige un vrai terminal (le canal `!` n'a pas
+  de TTY) ; PEP 668 impose le venv.
+
+**Pièges du serveur**
+- **FastAPI publie `/docs`, `/redoc` et `/openapi.json` sans authentification.**
+  Ils étaient ouverts sur le NUC jusqu'au 18/09. Fermés (404) ;
+  `DOCS_PUBLIQUES=1` les rouvre en développement. **Y repenser à chaque ajout de
+  route** : ces chemins n'apparaissent nulle part dans le code.
+- L'**authentification HTTP Basic** fait que le navigateur renvoie les anciens
+  identifiants tant qu'il n'est pas entièrement fermé. Toujours tester un
+  changement d'identifiants en **navigation privée**, sinon on conclut à tort
+  que le changement n'a pas pris.
+- Une requête **sans identifiants n'est pas un échec** : le navigateur en envoie
+  toujours une avant d'afficher sa fenêtre. La compter dans la limitation
+  d'essais (#19) bloquerait le mainteneur en navigation normale.
+- `charge_appairage()` lit la variable de module `_appairage_en_cours` : elle
+  lève si on l'appelle sans passer par `/pair`. Pour un script, utiliser
+  directement `pairing.pairing_payload(...)`.
+- L'**horizon est décidé par l'application**, pas par le serveur. Un horizon
+  avancé au-delà d'un fichier jamais envoyé le perd définitivement et en
+  silence. Détaillé dans `docs/CONTRAT-APP.md`, section 5.
+
+**Tests**
+- Simuler une machine d'origine : `TestClient(app, client=("192.168.1.50", 1))`.
+- Les tests d'app rechargent `config` **puis** `app` (`importlib.reload`) après
+  avoir posé les variables d'environnement — sinon les chemins restent ceux de
+  l'import initial.
+- Un test qui passe du premier coup ne prouve rien. Systématiquement le valider
+  **par mutation** : casser volontairement le code et vérifier que c'est bien ce
+  test-là qui tombe. Plusieurs faux verts ont été attrapés ainsi le 18/09
+  (script absent → code 127, propriétés déjà vraies avant correctif).
+
+**Conventions**
+- Les messages de commit du dépôt sont **sans accents** (sujet et corps).
+- `deploy/lib.sh` : ne **jamais** décider à partir d'un pipeline (`| grep -q`
+  renvoie 141 sous `pipefail`, ce qui a déjà inversé une décision en production).
 
 ## Commandes utiles
 ```bash

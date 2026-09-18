@@ -358,6 +358,11 @@ Procédure de migration à écrire dans `docs/DEPLOIEMENT.md`.
 
 ## 6. Le contrat vu par l'application Android
 
+> **Le contrat détaillé, avec les formats exacts de chaque appel et des exemples
+> capturés sur un échange réel, est dans [`docs/CONTRAT-APP.md`](../../CONTRAT-APP.md)**
+> (écrit le 18/09/2026, issue #15). La présente section n'en donne que la
+> séquence ; c'est l'autre document qu'il faut lire pour coder l'application.
+
 Ce que #12 devra implémenter, et qui ne bougera plus après ce lot :
 
 | Étape | Appel | Auth |
