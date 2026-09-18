@@ -20,7 +20,8 @@ object Empreintes {
         flux.use {
             while (true) {
                 val lus = it.read(tampon, 0, TAILLE_BLOC)
-                if (lus <= 0) break
+                if (lus < 0) break              // -1 = fin de flux, la seule vraie fin
+                if (lus == 0) continue          // 0 transitoire : on redemande, on ne tronque pas
                 digest.update(tampon, 0, lus)
             }
         }

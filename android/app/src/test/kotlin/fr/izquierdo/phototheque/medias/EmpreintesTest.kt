@@ -2,6 +2,7 @@ package fr.izquierdo.phototheque.medias
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import java.io.InputStream
 
@@ -37,5 +38,27 @@ class EmpreintesTest {
         }
         Empreintes.sha256(flux)
         assertTrue(plusGrandeDemande in 1..Empreintes.TAILLE_BLOC)
+    }
+
+    @Test fun l_implementation_n_accumule_jamais_le_fichier_en_memoire() {
+        // Le test precedent ne suffit PAS a l'interdire : readBytes() de la
+        // bibliotheque standard lit par blocs de 8192 octets — sous le seuil
+        // d'un Mio — tout en accumulant la totalite du fichier en memoire. Il
+        // passerait donc les deux autres tests tout en provoquant exactement la
+        // panne que ce module existe pour eviter (verifie en desassemblant le
+        // bytecode de kotlin-stdlib).
+        //
+        // Un test unitaire ne peut pas observer la memoire accumulee par une
+        // autre fonction. Il peut en revanche verrouiller l'API interdite.
+        val source = java.io.File(
+            "src/main/kotlin/fr/izquierdo/phototheque/medias/Empreintes.kt").readText()
+        // Supprimer les commentaires (simples et blocs)
+        var codeSeul = source.replace(Regex("""/\*[\s\S]*?\*/"""), "")  // /* ... */
+        codeSeul = codeSeul.split("\n")
+            .filterNot { it.trimStart().startsWith("//") }
+            .joinToString("\n")
+        assertFalse(
+            "Empreintes.kt ne doit jamais accumuler le fichier en memoire",
+            codeSeul.contains("readBytes(") || codeSeul.contains(".bytes()"))
     }
 }
