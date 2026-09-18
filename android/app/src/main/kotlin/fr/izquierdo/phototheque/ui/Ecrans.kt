@@ -19,6 +19,10 @@ fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
            horizontalAlignment = Alignment.CenterHorizontally,
            verticalArrangement = Arrangement.Center) {
 
+        if (etat.permissionRefusee) Bandeau(
+            "L'application n'a plus accès à vos photos. " +
+            "Autorisez-la dans les réglages Android : sans cela, elle ne " +
+            "sauvegarde plus rien.")
         if (etat.accesPartiel) Bandeau(
             "L'application ne voit qu'une partie de vos photos. " +
             "Autorisez l'accès à toutes les photos dans les réglages Android.")
@@ -45,6 +49,13 @@ fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
             Spacer(Modifier.height(8.dp))
             // Formulation volontairement neutre : ce n'est pas une panne.
             Text("Serveur introuvable — vous n'êtes probablement pas chez vous.")
+        }
+        etat.erreur?.let {
+            Spacer(Modifier.height(8.dp))
+            // Une vraie panne, elle : dite en toutes lettres et en rouge, pour
+            // ne surtout pas ressembler au message rassurant du dessus.
+            Text("La sauvegarde a échoué : $it",
+                 color = MaterialTheme.colorScheme.error)
         }
 
         Spacer(Modifier.height(24.dp))

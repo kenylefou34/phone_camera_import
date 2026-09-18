@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import fr.izquierdo.phototheque.appairage.Coffre
 import fr.izquierdo.phototheque.medias.Depot
 import fr.izquierdo.phototheque.reseau.Fabrique
+import fr.izquierdo.phototheque.reseau.ServeurRevoqueException
 import fr.izquierdo.phototheque.synchro.Orchestrateur
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,31 +32,61 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
         _etat.value = _etat.value.copy(appaire = coffre.charge() != null)
     }
 
+    /**
+     * Lance une synchronisation. Rien de ce qui se passe à l'intérieur ne doit
+     * pouvoir fermer l'application : une coroutine qui lève tue le processus,
+     * là où la conception promet un bandeau.
+     */
     fun synchroniser() {
         val charge = coffre.charge() ?: return
-        _etat.value = _etat.value.copy(enCours = true, serveurIntrouvable = false)
+        _etat.value = _etat.value.copy(enCours = true, serveurIntrouvable = false,
+                                       erreur = null, permissionRefusee = false)
         viewModelScope.launch(Dispatchers.IO) {
-            val serveur = Fabrique.serveur(getApplication(), charge)
-            if (serveur == null) {
-                // Pas à la maison : ce n'est PAS une panne. Ni notification, ni
-                // remise à zéro du compteur de jours.
-                _etat.value = _etat.value.copy(enCours = false, serveurIntrouvable = true)
-                return@launch
+            try {
+                val serveur = Fabrique.serveur(getApplication(), charge)
+                if (serveur == null) {
+                    // Pas à la maison : ce n'est PAS une panne. Ni notification,
+                    // ni remise à zéro du compteur de jours.
+                    _etat.value = _etat.value.copy(enCours = false, serveurIntrouvable = true)
+                    return@launch
+                }
+                val bilan = Orchestrateur(depot, serveur).synchroniser(dossiers)
+                // Le jeton ne redeviendra jamais valable : garder le coffre plein
+                // ferait revenir sur l'accueil au prochain lancement, avec un
+                // jeton mort et aucune explication.
+                if (bilan.revoque) coffre.oublier()
+                // Réussite = aucun échec local ET le serveur a rangé sans erreur.
+                // Ignorer `errors` ferait afficher « sauvegardé » alors que le
+                // serveur n'a fait avancer AUCUN horizon (contrat, section 4.4).
+                val reussite = bilan.echecs == 0 && !bilan.revoque &&
+                               (bilan.bilanServeur["errors"] ?: 0.0) == 0.0
+                _etat.value = _etat.value.copy(
+                    enCours = false,
+                    dernierBilan = bilan,
+                    revoque = bilan.revoque,
+                    // Le coffre vient d'être vidé (oublier()) : l'écran
+                    // d'appairage doit reprendre la main, pas rester sur un
+                    // accueil orphelin.
+                    appaire = !bilan.revoque,
+                    accesPartiel = depot.accesPartiel(),
+                    derniereReussiteMs = if (reussite) System.currentTimeMillis()
+                                         else _etat.value.derniereReussiteMs,
+                )
+            } catch (e: ServeurRevoqueException) {
+                // Le serveur a RÉPONDU et nous refuse. Seul un nouveau QR
+                // débloque : on efface l'appairage et on le dit.
+                coffre.oublier()
+                _etat.value = _etat.value.copy(
+                    enCours = false, revoque = true, appaire = false)
+            } catch (e: SecurityException) {
+                // Permission retirée dans les Réglages : bandeau permanent,
+                // jamais une fermeture brutale.
+                _etat.value = _etat.value.copy(enCours = false, permissionRefusee = true)
+            } catch (e: Exception) {
+                // Tout le reste est une panne VISIBLE, pas un silence.
+                _etat.value = _etat.value.copy(
+                    enCours = false, erreur = e.message ?: e.javaClass.simpleName)
             }
-            val bilan = Orchestrateur(depot, serveur).synchroniser(dossiers)
-            if (bilan.revoque) coffre.oublier()
-            _etat.value = _etat.value.copy(
-                enCours = false,
-                dernierBilan = bilan,
-                revoque = bilan.revoque,
-                // Le coffre vient d'être vidé (oublier()) : l'écran d'appairage
-                // doit reprendre la main, pas rester sur un accueil orphelin.
-                appaire = !bilan.revoque,
-                accesPartiel = depot.accesPartiel(),
-                // Réussite = aucun échec. Un refus d'extension n'en est pas un.
-                derniereReussiteMs = if (bilan.echecs == 0 && !bilan.revoque)
-                    System.currentTimeMillis() else _etat.value.derniereReussiteMs,
-            )
         }
     }
 

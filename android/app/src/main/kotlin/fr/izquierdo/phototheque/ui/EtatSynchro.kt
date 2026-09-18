@@ -16,6 +16,19 @@ data class EtatSynchro(
     val serveurIntrouvable: Boolean = false,
     val appaire: Boolean = false,
     val qrInvalide: Boolean = false,
+    /**
+     * Message d'une panne VISIBLE : réseau coupé en pleine synchro, serveur en
+     * erreur, réponse illisible. Volontairement distinct de
+     * [serveurIntrouvable], qui n'est PAS une panne : les confondre est
+     * exactement ce qui rendait l'application muette.
+     */
+    val erreur: String? = null,
+    /**
+     * L'accès aux photos a été retiré dans les réglages Android. Sans ce
+     * drapeau, l'application ne verrait plus aucun média et signalerait une
+     * synchro parfaite — la panne muette par excellence.
+     */
+    val permissionRefusee: Boolean = false,
 ) {
     companion object {
         /** Au-delà, l'accueil passe en avertissement. */

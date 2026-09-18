@@ -37,4 +37,21 @@ class EtatSynchroTest {
         assertTrue(refuse.qrInvalide)
         assertFalse(refuse.appaire)
     }
+
+    @Test fun une_panne_et_un_serveur_introuvable_sont_deux_etats_distincts() {
+        // C'est LE point de la vague de correction : « pas a la maison » est
+        // silencieux, une vraie panne est visible. Les confondre faisait
+        // afficher le meme message rassurant sur quatre pannes differentes.
+        val absent = EtatSynchro(serveurIntrouvable = true)
+        val panne = EtatSynchro(erreur = "connexion fermee")
+        assertNull(absent.erreur)
+        assertFalse(panne.serveurIntrouvable)
+        assertEquals("connexion fermee", panne.erreur)
+    }
+
+    @Test fun un_etat_neuf_ne_signale_ni_panne_ni_permission_retiree() {
+        val neuf = EtatSynchro()
+        assertNull(neuf.erreur)
+        assertFalse(neuf.permissionRefusee)
+    }
 }
