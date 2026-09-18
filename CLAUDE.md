@@ -11,7 +11,7 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
 + revue visuelle (doublons, floues/rafales, re-datation) ; **Phase 3** visages ;
 **Phase 4** génération (livre photo…).
 
-## État actuel (2026-09-18)
+## État actuel (2026-09-18, soir)
 - ✅ **Trieur `mediasort/`** (Python, stdlib + exiftool/ffmpeg) : range par vraie
   date (métadonnées > nom > système > `_A_TRIER/`), anti-doublon par catalogue
   SQLite d'empreintes. Testé.
@@ -53,46 +53,59 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   `systemctl restart phototheque` le remet à zéro si on se bloque soi-même.
   **233 tests**.
 - ✅ **Contrat serveur de l'app écrit** (issue #15) : `docs/CONTRAT-APP.md`,
-  exemples **capturés sur un échange réel**. À lire avant d'écrire l'app (#12) ;
-  la section 6 de la spec y renvoie.
+  exemples **capturés sur un échange réel**. La section 6 de la spec y renvoie.
+- ✅ **Sous-projet 3, lot 1 de l'application Android ÉCRIT** (issue #12) :
+  Kotlin natif sous `android/`, **84 tests**, APK de débogage produit. Conception :
+  `docs/superpowers/specs/2026-09-18-application-android-design.md` ; plan :
+  `docs/superpowers/plans/2026-09-18-app-android-lot1.md`.
+  **Jamais essayé sur un vrai téléphone** — c'est la tâche 15 du plan, et elle
+  reste à faire (voir la section REPRISE).
+  Outillage local : JDK 17 et SDK Android sous `~/outils/`, sans sudo.
+  Lancer les tests : `cd android && JAVA_HOME=~/outils/jdk17 ./gradlew testDebugUnitTest`
+  (⚠️ `./gradlew test --tests` échoue : utiliser `testDebugUnitTest --tests`).
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
-## ⚠️ REPRISE — état au 2026-09-18 (fin de session)
+## ⚠️ REPRISE — première chose à faire
 
-**Tout est déployé et vérifié sur le NUC** (`5ad55b5` au moment d'écrire ; le
-service a été relancé et la surface contrôlée : `/`, `/pair`, `/devices` et
-`/status` en 401, `/docs`, `/redoc` et `/openapi.json` en 404).
+**Essayer l'application sur un vrai téléphone** — tâche 15 du plan
+`docs/superpowers/plans/2026-09-18-app-android-lot1.md`. Tout le reste du lot 1
+est écrit, relu et corrigé ; rien n'a jamais tourné sur un appareil.
 
-Le mainteneur a choisi ses identifiants avec `./deploy/identifiants.sh` —
-l'identifiant n'est plus `admin`. Si besoin : `rm ~/.config/phototheque/utilisateur`
-le ramène à `admin`.
+```bash
+cd ~/dev/phone_camera_import/android
+JAVA_HOME=~/outils/jdk17 ./gradlew assembleDebug
+~/outils/android-sdk/platform-tools/adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
-**Sécurité du réseau** (voir la mémoire `projet-nuc-exposition-reseau`) : le
-serveur photo n'est **pas** joignable depuis Internet. Plex avait ouvert tout
-seul un port sur la box via UPnP ; l'accès distant a été coupé le 18/09 et il
-ne reste aucune redirection. L'UPnP de la box reste activé — un programme peut
-donc encore s'ouvrir un accès sans prévenir ; à couper un jour, en sachant que
-ça peut gêner console de jeu et visio.
+(Activer d'abord le débogage USB : Réglages → À propos → 7 appuis sur « Numéro
+de build », puis Options pour développeurs → Débogage USB.)
 
-**Prochaine étape** : sous-projet 3, l'application Android (issue #12). Le
-contrat qu'elle doit implémenter est écrit : **`docs/CONTRAT-APP.md`** (#15,
-fait le 18/09). Lire aussi #22 : l'app devra hacher chaque fichier avant de
-savoir s'il est utile, ce qui coûte cher sur un téléphone. Voir aussi le commentaire du 18/09 sur #12 : prévoir un lien de
-téléchargement de l'APK sur la page du serveur.
+**À vérifier en premier**, car deux fonctions en dépendent (le bandeau
+d'avertissement ET l'avancée du compteur) : une synchro avec la permission
+accordée doit afficher « Sauvegardé aujourd'hui » et **aucun** bandeau. Sinon,
+c'est `Depot.accesRefuse()` qu'il faut regarder.
 
-**Fait le 17/09** : rattrapage des signatures sur le NUC (44 669 médias en
-16 min) ; renommage `mediaserve` → `phototheque` ; retrait du trieur C++ ;
-refonte des pages web ; README et `DEPLOIEMENT.md` réécrits pas à pas.
+**Ce que l'essai ne pourra PAS prouver :** l'étape 5 (régénérer le certificat du
+NUC pour vérifier l'épinglage) affiche le même écran que « couper le Wi-Fi ».
+C'est l'issue **#23**, laissée ouverte sciemment.
+
+**Les cinq pannes doivent produire cinq messages distincts** — c'est le fil
+conducteur de tout le lot : pas à la maison (silencieux), appareil révoqué,
+permission retirée, serveur en erreur de rangement, aucun dossier trouvé.
+
+**Après l'essai** : issue #23 (épinglage), puis lot 2 (choix des dossiers dans
+l'app) — attention, le lot 2 supprime la protection accidentelle qui masque
+aujourd'hui le cas du dossier vide.
 
 ## Feuille de route (issues GitHub)
 Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
 dossiers, client d'upload) — commencer par #15, qui fige le contrat qu'elle
-codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #22
+codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #24
 (`gh issue list`). Notamment : #4 doublons existants, #5 floues/rafales,
 #6 re-datation, #7 sauvegarde Famille.
 
-Le travail de #2, #3, #10, #14, #15, #19 et #21 est **fait** (#8, #9 et #11 sont fermées), mais
+Le travail de #2, #3, #10, #14, #15, #19 et #21 est **fait** ; #12 est écrit mais pas éprouvé (#8, #9 et #11 sont fermées), mais
 ces quatre-là **apparaissent encore ouvertes sur GitHub** : leurs commits portent
 bien `closes #N`, or GitHub ne ferme une issue qu'à la fusion dans la branche par
 défaut. Elles se fermeront toutes seules quand **PR #13 (`dev` → `main`)** sera
