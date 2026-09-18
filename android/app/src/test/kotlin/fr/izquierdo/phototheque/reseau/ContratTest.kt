@@ -3,6 +3,7 @@ package fr.izquierdo.phototheque.reseau
 import kotlinx.serialization.decodeFromString
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Les charges utiles viennent de docs/CONTRAT-APP.md, capturees en vrai. */
@@ -54,8 +55,11 @@ class ContratTest {
         val encode = Contrat.json.encodeToString(
             RequetePlan.serializer(),
             RequetePlan(listOf(FichierPlan("DCIM/a.jpg", 954L, "ab".repeat(32)))))
-        assert(encode.contains("\"path\""))
-        assert(encode.contains("\"size\""))
-        assert(encode.contains("\"hash\""))
+        // assertTrue et non l'assert de Kotlin : ce dernier depend du drapeau
+        // -ea de la JVM et, desactive, passerait sans rien verifier -- un test
+        // qui ne teste rien est pire que pas de test du tout.
+        assertTrue(encode.contains("\"path\""))
+        assertTrue(encode.contains("\"size\""))
+        assertTrue(encode.contains("\"hash\""))
     }
 }
