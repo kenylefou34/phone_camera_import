@@ -1108,6 +1108,7 @@ git commit -m "feat(android): client des quatre appels du contrat serveur"
 package fr.izquierdo.phototheque.medias
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.InputStream
@@ -1145,6 +1146,24 @@ class EmpreintesTest {
         Empreintes.sha256(flux)
         assertTrue(plusGrandeDemande in 1..Empreintes.TAILLE_BLOC)
     }
+
+    @Test fun l_implementation_n_accumule_jamais_le_fichier_en_memoire() {
+        // Le test precedent ne SUFFIT PAS a interdire l'anti-motif qu'il vise.
+        // Verifie en desassemblant le bytecode de kotlin-stdlib : readBytes()
+        // copie par blocs de 8192 octets — tres en dessous du seuil d'un Mio —
+        // tout en accumulant la totalite du fichier en memoire. Une
+        // implementation « digest(flux.readBytes()) » passerait donc les deux
+        // autres tests tout en provoquant exactement l'OOM que ce module existe
+        // pour eviter.
+        //
+        // Un test unitaire ne peut pas observer la memoire accumulee par une
+        // autre fonction. Il peut en revanche verrouiller l'API interdite.
+        val source = java.io.File(
+            "src/main/kotlin/fr/izquierdo/phototheque/medias/Empreintes.kt").readText()
+        assertFalse(
+            "Empreintes.kt ne doit jamais accumuler le fichier en memoire",
+            source.contains("readBytes(") || source.contains(".bytes()"))
+    }
 }
 ```
 
@@ -1178,7 +1197,14 @@ object Empreintes {
         flux.use {
             while (true) {
                 val lus = it.read(tampon, 0, TAILLE_BLOC)
-                if (lus <= 0) break
+                // -1 est la SEULE vraie fin de flux. Traiter 0 comme une fin
+                // tronquerait l'empreinte en silence : le media partirait sous
+                // une mauvaise identite, ou serait repropose indefiniment, sans
+                // exception ni message. Le flux reel est un
+                // ContentResolver.openInputStream, parfois adosse a du stockage
+                // distant, ou un 0 transitoire est concevable.
+                if (lus < 0) break
+                if (lus == 0) continue
                 digest.update(tampon, 0, lus)
             }
         }
@@ -1190,7 +1216,7 @@ object Empreintes {
 - [ ] **Step 4 : Vérifier qu'ils passent**
 
 Run: `cd android && ./gradlew testDebugUnitTest --tests '*EmpreintesTest*'`
-Expected: PASS, 2 tests.
+Expected: PASS, 3 tests.
 
 - [ ] **Step 5 : Commit**
 
@@ -1386,6 +1412,7 @@ package fr.izquierdo.phototheque.synchro
 import fr.izquierdo.phototheque.medias.Media
 import fr.izquierdo.phototheque.reseau.*
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.InputStream
