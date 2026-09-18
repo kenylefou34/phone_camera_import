@@ -97,8 +97,9 @@ object Fabrique {
 private class Adaptateur(private val c: ClientServeur) : Serveur {
     override fun horizon() = c.horizon()
     override fun plan(fichiers: List<FichierPlan>) = c.plan(fichiers)
-    override fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long) =
-        c.envoyer(session, chemin, flux, taille)
+    override fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long,
+                         empreinteAttendue: String) =
+        c.envoyer(session, chemin, flux, taille, empreinteAttendue)
     override fun commit(session: String, horizons: Map<String, Double>) =
         c.commit(session, horizons)
 }

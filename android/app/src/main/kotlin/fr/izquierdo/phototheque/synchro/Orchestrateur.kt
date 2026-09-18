@@ -15,7 +15,11 @@ interface SourceMedias {
 interface Serveur {
     fun horizon(): ReponseHorizon
     fun plan(fichiers: List<FichierPlan>): ReponsePlan
-    fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long): ResultatEnvoi
+    /** @param empreinteAttendue le SHA-256 deja calcule pour le plan : le
+     *  serveur renvoie celui du fichier tel que recu, et les comparer est le
+     *  seul moyen de reperer un transfert abime. */
+    fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long,
+                empreinteAttendue: String): ResultatEnvoi
     fun commit(session: String, horizons: Map<String, Double>): Map<String, Double>
 }
 
@@ -84,7 +88,7 @@ class Orchestrateur(
             // depot temporaire du NUC, sans que rien ne les range.
             val issue = try {
                 when (serveur.envoyer(reponse.session, media.chemin,
-                                      source.ouvrir(media), media.taille)) {
+                                      source.ouvrir(media), media.taille, empreinte)) {
                     ResultatEnvoi.OK -> { envoyes++; Issue.CONFIRME }
                     ResultatEnvoi.EXTENSION_REFUSEE -> { refuses++; Issue.IGNORE }
                     ResultatEnvoi.ECHEC -> { echecs++; Issue.ECHEC }

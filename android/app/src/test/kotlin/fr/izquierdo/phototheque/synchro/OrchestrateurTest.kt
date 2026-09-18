@@ -23,8 +23,14 @@ class OrchestrateurTest {
         var commitAppele = false
         override fun horizon() = ReponseHorizon(null, horizons)
         override fun plan(f: List<FichierPlan>) = ReponsePlan("a".repeat(32), reclame(f))
-        override fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long) =
-            if (resultats.isEmpty()) ResultatEnvoi.OK else resultats.removeAt(0)
+        /** Les empreintes vues par le serveur, dans l'ordre : elles doivent
+         *  etre celles que le plan a annoncees, jamais recalculees. */
+        val empreintesRecues = mutableListOf<String>()
+        override fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long,
+                             empreinteAttendue: String): ResultatEnvoi {
+            empreintesRecues += empreinteAttendue
+            return if (resultats.isEmpty()) ResultatEnvoi.OK else resultats.removeAt(0)
+        }
         override fun commit(session: String, horizons: Map<String, Double>): Map<String, Double> {
             horizonsEnvoyes = horizons; commitAppele = true; return mapOf("sorted" to 1.0)
         }
@@ -41,6 +47,19 @@ class OrchestrateurTest {
             .synchroniser(setOf("DCIM/Camera"))
         assertEquals(2, bilan.envoyes)
         assertEquals(mapOf("DCIM/Camera" to 200.0), serveur.horizonsEnvoyes)
+    }
+
+    @Test fun l_empreinte_passee_a_l_envoi_est_celle_annoncee_au_plan() {
+        // Le serveur renvoie l'empreinte du fichier TEL QUE RECU et le client la
+        // compare : encore faut-il qu'il compare a celle que le plan a annoncee.
+        // La recalculer au moment de l'envoi rendrait la verification circulaire
+        // et laisserait passer un transfert abime.
+        val serveur = FauxServeur()
+        Orchestrateur(FausseSource(listOf(media(100.0))), serveur)
+            .synchroniser(setOf("DCIM/Camera"))
+        val attendue = fr.izquierdo.phototheque.medias.Empreintes
+            .sha256("contenu".byteInputStream())
+        assertEquals(listOf(attendue), serveur.empreintesRecues)
     }
 
     @Test fun un_echec_au_milieu_arrete_l_horizon_avant_lui() {

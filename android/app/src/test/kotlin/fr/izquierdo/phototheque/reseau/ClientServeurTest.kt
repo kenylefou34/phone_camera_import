@@ -7,6 +7,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -27,6 +28,9 @@ class ClientServeurTest {
     }
 
     @After fun arreter() = serveur.shutdown()
+
+    /** Empreinte du contenu envoye, telle que l'application l'a calculee. */
+    private val EMPREINTE = "c7".repeat(32)
 
     @Test fun le_jeton_est_envoye_en_bearer() {
         serveur.enqueue(MockResponse().setBody("""{"depuis":null,"dossiers":{}}"""))
@@ -93,12 +97,62 @@ class ClientServeurTest {
         assertEquals(1, r.needed.size)
     }
 
+    @Test fun un_envoi_confirme_par_la_MEME_empreinte_est_un_succes() {
+        serveur.enqueue(MockResponse().setBody("""{"ok":true,"hash":"$EMPREINTE"}"""))
+        assertEquals(ResultatEnvoi.OK,
+            client.envoyer("s".repeat(32), "DCIM/a.jpg", "x".byteInputStream(), 1L, EMPREINTE))
+    }
+
+    @Test fun une_empreinte_renvoyee_DIFFERENTE_est_un_echec() {
+        // Le contrat renvoie l'empreinte du fichier TEL QUE RECU. Une
+        // difference signale un transfert abime : l'accepter ferait avancer
+        // l'horizon par-dessus l'original sain, et la bibliotheque garderait la
+        // copie corrompue sans que rien ne le signale jamais.
+        serveur.enqueue(MockResponse().setBody(
+            """{"ok":true,"hash":"${"ff".repeat(32)}"}"""))
+        assertEquals(ResultatEnvoi.ECHEC,
+            client.envoyer("s".repeat(32), "DCIM/a.jpg", "x".byteInputStream(), 1L, EMPREINTE))
+    }
+
+    @Test fun une_coupure_reseau_en_plein_envoi_est_un_echec() {
+        // Le seul rempart contre un envoi coupe. Sans lui, l'exception
+        // remonterait jusqu'a l'orchestrateur, le commit n'aurait jamais lieu
+        // et les fichiers deja recus resteraient bloques sur le NUC.
+        serveur.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        assertEquals(ResultatEnvoi.ECHEC,
+            client.envoyer("s".repeat(32), "DCIM/a.jpg", "x".byteInputStream(), 1L, EMPREINTE))
+    }
+
+    @Test fun le_commit_sur_une_reponse_non_200_leve() {
+        // Sur 401/404/500 le corps s'analysait sans lever et donnait une map
+        // vide : l'application croyait avoir reussi alors que AUCUN horizon
+        // n'avait ete enregistre.
+        serveur.enqueue(MockResponse().setResponseCode(500))
+        try {
+            client.commit("s".repeat(32), mapOf("DCIM/Camera" to 1789000000.0))
+            fail("un commit refuse ne doit pas passer pour une reussite")
+        } catch (e: java.io.IOException) {
+            assertTrue(e.message!!.contains("500"))
+        }
+    }
+
+    @Test fun le_commit_sur_un_401_leve_une_revocation() {
+        serveur.enqueue(MockResponse().setResponseCode(401).setBody(
+            """{"detail":"jeton invalide"}"""))
+        try {
+            client.commit("s".repeat(32), emptyMap())
+            fail("un 401 sur /sync/commit doit lever une revocation")
+        } catch (e: ServeurRevoqueException) {
+            // attendu
+        }
+    }
+
     @Test fun un_400_est_une_extension_refusee_pas_un_echec() {
         // Le contrat est formel : l'application doit POURSUIVRE la synchro.
         serveur.enqueue(MockResponse().setResponseCode(400).setBody(
             """{"detail":"extension non prise en charge : .webm"}"""))
         assertEquals(ResultatEnvoi.EXTENSION_REFUSEE,
-            client.envoyer("s".repeat(32), "DCIM/a.webm", "x".byteInputStream(), 1L))
+            client.envoyer("s".repeat(32), "DCIM/a.webm", "x".byteInputStream(), 1L, EMPREINTE))
     }
 
     @Test fun un_400_qui_ne_parle_PAS_d_extension_est_un_echec() {
@@ -110,20 +164,20 @@ class ClientServeurTest {
         serveur.enqueue(MockResponse().setResponseCode(400).setBody(
             """{"detail":"chemin refuse"}"""))
         assertEquals(ResultatEnvoi.ECHEC,
-            client.envoyer("s".repeat(32), "/a.jpg", "x".byteInputStream(), 1L))
+            client.envoyer("s".repeat(32), "/a.jpg", "x".byteInputStream(), 1L, EMPREINTE))
     }
 
     @Test fun un_401_signale_un_appareil_revoque() {
         serveur.enqueue(MockResponse().setResponseCode(401).setBody(
             """{"detail":"jeton invalide"}"""))
         assertEquals(ResultatEnvoi.REVOQUE,
-            client.envoyer("s".repeat(32), "DCIM/a.jpg", "x".byteInputStream(), 1L))
+            client.envoyer("s".repeat(32), "DCIM/a.jpg", "x".byteInputStream(), 1L, EMPREINTE))
     }
 
     @Test fun un_500_est_un_echec_ordinaire() {
         serveur.enqueue(MockResponse().setResponseCode(500))
         assertEquals(ResultatEnvoi.ECHEC,
-            client.envoyer("s".repeat(32), "DCIM/a.jpg", "x".byteInputStream(), 1L))
+            client.envoyer("s".repeat(32), "DCIM/a.jpg", "x".byteInputStream(), 1L, EMPREINTE))
     }
 
     @Test fun le_commit_transmet_les_horizons() {

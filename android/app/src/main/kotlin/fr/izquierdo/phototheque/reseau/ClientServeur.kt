@@ -83,11 +83,21 @@ class ClientServeur(
      * Envoie un média. Le flux est recopié PAR BLOCS par OkHttp : le fichier
      * n'est jamais tenu en mémoire, ce qui compte pour une vidéo de 3 Go sur un
      * téléphone autant que sur le NUC (issue #21).
+     *
+     * @param empreinteAttendue le SHA-256 déjà calculé pour /sync/plan. Le
+     *        serveur renvoie l'empreinte du fichier TEL QUE REÇU : les comparer
+     *        est le seul moyen de repérer un transfert abîmé.
      */
-    fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long): ResultatEnvoi {
+    fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long,
+                empreinteAttendue: String): ResultatEnvoi {
         val fichier = object : RequestBody() {
             override fun contentType() = "application/octet-stream".toMediaType()
             override fun contentLength() = taille
+            // Le flux n'est pas rembobinable : OkHttp ne doit JAMAIS rejouer ce
+            // corps, sinon il enverrait du vide sous la taille annoncée — et le
+            // serveur rangerait un fichier tronqué. isOneShot vaut false par
+            // défaut, ce qui l'y autorise.
+            override fun isOneShot() = true
             override fun writeTo(sink: BufferedSink) {
                 flux.source().use { sink.writeAll(it) }
             }
@@ -100,7 +110,18 @@ class ClientServeur(
         return try {
             http.newCall(requete("/sync/upload").post(corps).build()).execute().use { r ->
                 when (r.code) {
-                    200 -> ResultatEnvoi.OK
+                    200 -> {
+                        // Le contrat renvoie l'empreinte du fichier TEL QUE
+                        // REÇU. Une différence signale un transfert abîmé :
+                        // l'accepter ferait avancer l'horizon par-dessus
+                        // l'original sain, et la bibliothèque garderait la copie
+                        // corrompue sans que rien ne le signale.
+                        val recu = Contrat.json
+                            .decodeFromString<ReponseUpload>(r.body!!.string()).hash
+                        if (recu.equals(empreinteAttendue, ignoreCase = true))
+                            ResultatEnvoi.OK
+                        else ResultatEnvoi.ECHEC
+                    }
                     // EXTENSION_REFUSEE est la SEULE issue qui fait avancer
                     // l'horizon sur un média non transféré : elle doit donc
                     // être la plus étroite possible. Or le serveur renvoie
@@ -132,7 +153,13 @@ class ClientServeur(
             .encodeToString(RequeteCommit.serializer(), RequeteCommit(session, horizons))
             .toRequestBody("application/json".toMediaType())
         return http.newCall(requete("/sync/commit").post(corps).build()).execute().use { r ->
-            val objet = Json.parseToJsonElement(r.body!!.string()) as JsonObject
+            // Sur 401/404/500, le corps s'analysait sans lever et donnait une
+            // map vide : l'application croyait avoir réussi alors que AUCUN
+            // horizon n'avait été enregistré, et le compteur de jours repartait
+            // à zéro en mentant. C'est le dernier maillon du silence.
+            verifierCode(r, "commit refusé")
+            val objet = Json.parseToJsonElement(r.body!!.string()) as? JsonObject
+                ?: throw java.io.IOException("bilan du commit illisible")
             objet.mapNotNull { (cle, valeur) ->
                 valeur.toString().toDoubleOrNull()?.let { cle to it }
             }.toMap()
