@@ -67,15 +67,24 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
      */
     fun synchroniser() {
         val charge = coffre.charge() ?: return
+        // La permission est RELUE, jamais simplement éteinte : la mettre à
+        // `false` en partant laisserait l'accueil sans bandeau si plus aucune
+        // branche ne la rallumait — et la branche la plus dangereuse est
+        // justement celle qui réussit, sur un téléphone qui ne voit plus rien.
         _etat.value = _etat.value.copy(enCours = true, serveurIntrouvable = false,
-                                       erreur = null, permissionRefusee = false)
+                                       erreur = null,
+                                       permissionRefusee = depot.accesRefuse())
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val serveur = Fabrique.serveur(getApplication(), charge)
                 if (serveur == null) {
                     // Pas à la maison : ce n'est PAS une panne. Ni notification,
-                    // ni remise à zéro du compteur de jours.
-                    _etat.value = _etat.value.copy(enCours = false, serveurIntrouvable = true)
+                    // ni remise à zéro du compteur de jours. Mais la permission
+                    // est relue : une absence de serveur ne doit pas effacer un
+                    // avertissement qui, lui, reste vrai.
+                    _etat.value = _etat.value.copy(
+                        enCours = false, serveurIntrouvable = true,
+                        permissionRefusee = depot.accesRefuse())
                     return@launch
                 }
                 // Ce que le téléphone contient VRAIMENT, relevé avant de
@@ -87,21 +96,17 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                 // ferait revenir sur l'accueil au prochain lancement, avec un
                 // jeton mort et aucune explication.
                 if (bilan.revoque) coffre.oublier()
-                // Réussite = aucun échec local ET le serveur a rangé sans erreur.
-                // Ignorer `errors` ferait afficher « sauvegardé » alors que le
-                // serveur n'a fait avancer AUCUN horizon (contrat, section 4.4).
-                val reussite = bilan.echecs == 0 && !bilan.revoque &&
-                               (bilan.bilanServeur["errors"] ?: 0.0) == 0.0
-                if (reussite) memoire.enregistrerReussite(System.currentTimeMillis())
-                _etat.value = _etat.value.copy(
-                    enCours = false,
-                    dernierBilan = bilan,
-                    revoque = bilan.revoque,
-                    // Le coffre vient d'être vidé (oublier()) : l'écran
-                    // d'appairage doit reprendre la main, pas rester sur un
-                    // accueil orphelin.
-                    appaire = !bilan.revoque,
+                // Les permissions sont relues APRÈS la synchro, et l'état s'en
+                // sert pour deux choses : rallumer le bandeau, et décider si
+                // cette synchro mérite d'avancer le compteur de jours.
+                val accesRefuse = depot.accesRefuse()
+                if (EtatSynchro.estUneReussite(bilan, accesRefuse)) {
+                    memoire.enregistrerReussite(System.currentTimeMillis())
+                }
+                _etat.value = _etat.value.apresSynchro(
+                    bilan,
                     accesPartiel = depot.accesPartiel(),
+                    accesRefuse = accesRefuse,
                     // Relue de la mémoire, jamais recalculée ici : c'est elle
                     // qui fait foi d'un lancement à l'autre.
                     derniereReussiteMs = memoire.derniereReussiteMs(),

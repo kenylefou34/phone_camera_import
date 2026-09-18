@@ -5,6 +5,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import fr.izquierdo.phototheque.synchro.Bilan
 
 /**
  * Le compteur part de la derniere synchro REUSSIE, jamais de la derniere
@@ -53,7 +54,7 @@ class EtatSynchroTest {
         val neuf = EtatSynchro()
         assertNull(neuf.erreur)
         assertFalse(neuf.permissionRefusee)
-        assertEquals(emptyMap<String, Int>(), neuf.dossiersVus)
+        assertNull("null = on n'a pas encore regarde", neuf.dossiersVus)
     }
 
     @Test fun un_dossier_sauvegarde_absent_du_telephone_est_reperable() {
@@ -63,6 +64,51 @@ class EtatSynchroTest {
         val sauvegardes = setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp")
         val vus = mapOf("DCIM/Camera" to 1200, "Pictures/Screenshots" to 40)
         assertEquals(setOf("Pictures/WhatsApp", "Movies/WhatsApp"),
-                     sauvegardes - EtatSynchro(dossiersVus = vus).dossiersVus.keys)
+                     sauvegardes - EtatSynchro(dossiersVus = vus).dossiersVus!!.keys)
+    }
+
+    // ---- Ce qui se passe une fois la synchronisation terminee -------------
+
+    private fun bilan(echecs: Int = 0, revoque: Boolean = false, erreursServeur: Double = 0.0) =
+        Bilan(envoyes = 1, refuses = 0, echecs = echecs, revoque = revoque,
+              bilanServeur = mapOf("sorted" to 1.0, "errors" to erreursServeur))
+
+    @Test fun une_synchro_aboutie_RALLUME_le_bandeau_de_permission() {
+        // L'enchainement que ce test interdit : synchroniser() eteint le
+        // bandeau en partant, MediaStore rend vide sans lever, la synchro
+        // "reussit" a zero media -- et l'accueil repartait au vert, sans aucun
+        // bandeau, sur un telephone qui ne sauvegarde plus rien.
+        val eteint = EtatSynchro(permissionRefusee = false)
+        val apres = eteint.apresSynchro(bilan(), accesPartiel = false,
+                                        accesRefuse = true, derniereReussiteMs = null)
+        assertTrue("le bandeau doit etre rallume par l'etat d'arrivee",
+                   apres.permissionRefusee)
+    }
+
+    @Test fun une_synchro_aboutie_eteint_le_bandeau_quand_l_acces_est_revenu() {
+        val allume = EtatSynchro(permissionRefusee = true)
+        val apres = allume.apresSynchro(bilan(), accesPartiel = false,
+                                        accesRefuse = false, derniereReussiteMs = 1L)
+        assertFalse(apres.permissionRefusee)
+    }
+
+    @Test fun sans_acces_aux_medias_une_synchro_a_vide_n_est_PAS_une_reussite() {
+        // Sinon la date serait gravee dans Memoire, donc sur le disque, et plus
+        // rien ne l'effacerait : un mensonge durable.
+        assertFalse(EtatSynchro.estUneReussite(bilan(), accesRefuse = true))
+    }
+
+    @Test fun un_rangement_en_erreur_cote_serveur_n_est_pas_une_reussite() {
+        // errors > 0 : le serveur n'a fait avancer AUCUN horizon.
+        assertFalse(EtatSynchro.estUneReussite(bilan(erreursServeur = 2.0), accesRefuse = false))
+    }
+
+    @Test fun une_synchro_propre_est_une_reussite() {
+        assertTrue(EtatSynchro.estUneReussite(bilan(), accesRefuse = false))
+    }
+
+    @Test fun un_echec_local_ou_une_revocation_ne_sont_pas_des_reussites() {
+        assertFalse(EtatSynchro.estUneReussite(bilan(echecs = 1), accesRefuse = false))
+        assertFalse(EtatSynchro.estUneReussite(bilan(revoque = true), accesRefuse = false))
     }
 }

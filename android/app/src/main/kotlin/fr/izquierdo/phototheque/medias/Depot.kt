@@ -87,12 +87,6 @@ class Depot(private val context: Context) : SourceMedias {
         lister().groupingBy { it.dossier }.eachCount()
 
     /**
-     * Vrai si l'utilisateur n'a accordé l'accès qu'à UNE SÉLECTION de photos
-     * (Android 14+). L'application fonctionnerait alors normalement en ne
-     * sauvegardant que celles-là : c'est le mode de panne silencieux que la
-     * conception veut rendre impossible. À afficher en permanence.
-     */
-    /**
      * Vrai si l'application n'a AUCUN accès aux médias.
      *
      * À vérifier au lancement, et pas seulement en rattrapant une
@@ -118,6 +112,12 @@ class Depot(private val context: Context) : SourceMedias {
             !accorde(android.Manifest.permission.READ_EXTERNAL_STORAGE)
     }
 
+    /**
+     * Vrai si l'utilisateur n'a accordé l'accès qu'à UNE SÉLECTION de photos
+     * (Android 14+). L'application fonctionnerait alors normalement en ne
+     * sauvegardant que celles-là : c'est le mode de panne silencieux que la
+     * conception veut rendre impossible. À afficher en permanence.
+     */
     fun accesPartiel(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return false
         val complet = context.checkSelfPermission(

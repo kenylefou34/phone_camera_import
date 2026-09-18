@@ -45,6 +45,19 @@ fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
             Spacer(Modifier.height(8.dp))
             Text("${it.envoyes} envoyés · ${it.refuses} refusés · ${it.echecs} en échec")
         }
+        // Quatrième panne, la seule qui n'avait pas encore de message : le
+        // serveur a bien reçu les médias mais n'a pas su les ranger. Le compteur
+        // de jours ne bouge pas — mais si la dernière réussite date du même
+        // jour, l'accueil dirait « Sauvegardé aujourd'hui » pendant que le
+        // rangement a échoué.
+        val enErreur = (etat.dernierBilan?.bilanServeur?.get("errors") ?: 0.0).toInt()
+        if (enErreur > 0) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Le serveur n'a pas réussi à ranger $enErreur média(s). " +
+                "Ils seront représentés à la prochaine sauvegarde.",
+                color = MaterialTheme.colorScheme.error)
+        }
         if (etat.serveurIntrouvable) {
             Spacer(Modifier.height(8.dp))
             // Formulation volontairement neutre : ce n'est pas une panne.
@@ -118,16 +131,25 @@ fun EcranDetail(etat: EtatSynchro, dossiersSauvegardes: Set<String>) {
         // Android/media/com.whatsapp/… — la synchro réussit avec ZÉRO média et
         // rien ne le signale. Confronter la liste codée en dur à ce que
         // MediaStore contient vraiment est la seule façon de le voir.
-        if (etat.dossiersVus.isNotEmpty()) {
+        //
+        // La section s'affiche dès qu'on a REGARDÉ (dossiersVus non null), même
+        // si MediaStore n'a rien rendu : ce cas-là est le plus grave de tous, et
+        // le masquer sous un test « la liste n'est pas vide » ferait disparaître
+        // l'écran exactement quand il a quelque chose à dire.
+        etat.dossiersVus?.let { vus ->
             Spacer(Modifier.height(24.dp))
             Text("Dossiers trouvés sur le téléphone",
                  style = MaterialTheme.typography.titleMedium)
-            etat.dossiersVus.entries.sortedByDescending { it.value }.forEach { (nom, combien) ->
+            if (vus.isEmpty()) {
+                Text("Aucun dossier trouvé — l'application ne voit aucun média.",
+                     color = MaterialTheme.colorScheme.error)
+            }
+            vus.entries.sortedByDescending { it.value }.forEach { (nom, combien) ->
                 val suivi = nom in dossiersSauvegardes
                 Text("$nom : $combien" +
                      if (suivi) " — sauvegardé" else " — non sauvegardé")
             }
-            val absents = dossiersSauvegardes - etat.dossiersVus.keys
+            val absents = dossiersSauvegardes - vus.keys
             if (absents.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text("Dossiers sauvegardés introuvables ici : ${absents.joinToString(", ")}",
