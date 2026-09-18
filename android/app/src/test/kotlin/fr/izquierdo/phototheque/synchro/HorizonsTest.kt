@@ -71,4 +71,18 @@ class HorizonsTest {
     @Test fun aucun_envoi_aucun_horizon() {
         assertEquals(emptyMap<String, Double>(), Horizons.calculer(emptyList()))
     }
+
+    @Test fun une_extension_refusee_en_DERNIER_fait_quand_meme_avancer_l_horizon() {
+        // Le cas que le test precedent ne couvre pas : sans CONFIRME apres lui,
+        // IGNORE est le seul evenement capable de faire avancer l'horizon. S'il
+        // etait simplement saute, l'horizon resterait a 100.0, le fichier refuse
+        // serait repropose a chaque synchro puis re-refuse, et tous les medias
+        // suivants du dossier seraient sacrifies — le blocage permanent que le
+        // contrat interdit (docs/CONTRAT-APP.md, section 6).
+        val envois = listOf(
+            Envoi("DCIM/Camera", 100.0, Issue.CONFIRME),
+            Envoi("DCIM/Camera", 200.0, Issue.IGNORE),
+        )
+        assertEquals(mapOf("DCIM/Camera" to 200.0), Horizons.calculer(envois))
+    }
 }
