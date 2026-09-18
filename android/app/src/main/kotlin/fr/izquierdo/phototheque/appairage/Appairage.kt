@@ -1,6 +1,7 @@
 package fr.izquierdo.phototheque.appairage
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import fr.izquierdo.phototheque.reseau.ChargeAppairage
@@ -36,27 +37,69 @@ object Appairage {
  */
 class Coffre(context: Context) {
 
-    private val prefs = EncryptedSharedPreferences.create(
-        context,
-        "appairage",
-        MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
-    )
+    /**
+     * `null` si le coffre n'a pas pu être ouvert du tout. Voir [ouvrir].
+     *
+     * L'application se comporte alors comme une installation neuve : elle
+     * demande un nouvel appairage à chaque lancement. C'est visiblement gênant,
+     * donc réparable par l'utilisateur — là où lever fermait l'application au
+     * démarrage, sans autre issue que la désinstallation.
+     */
+    private val prefs: SharedPreferences? = ouvrir(context)
 
-    fun enregistrer(charge: ChargeAppairage) = prefs.edit()
-        .putString("url", charge.url)
-        .putString("token", charge.token)
-        .putString("cert", charge.certSha256)
-        .apply()
+    fun enregistrer(charge: ChargeAppairage) {
+        prefs?.edit()
+            ?.putString("url", charge.url)
+            ?.putString("token", charge.token)
+            ?.putString("cert", charge.certSha256)
+            ?.apply()
+    }
 
     fun charge(): ChargeAppairage? {
-        val url = prefs.getString("url", null) ?: return null
-        val token = prefs.getString("token", null) ?: return null
-        return ChargeAppairage(url, token, prefs.getString("cert", null))
+        val p = prefs ?: return null
+        val url = p.getString("url", null) ?: return null
+        val token = p.getString("token", null) ?: return null
+        return ChargeAppairage(url, token, p.getString("cert", null))
     }
 
     /** Appelé sur un 401 : l'appareil a été révoqué, le jeton ne redeviendra
      *  jamais valable. Garder un jeton mort ferait réessayer en boucle. */
-    fun oublier() = prefs.edit().clear().apply()
+    fun oublier() {
+        prefs?.edit()?.clear()?.apply()
+    }
+
+    private companion object {
+        const val FICHIER = "appairage"
+
+        /**
+         * Ouvre les préférences chiffrées, et survit à une clé perdue.
+         *
+         * `EncryptedSharedPreferences.create` LÈVE quand le fichier chiffré
+         * existe mais que la clé du Keystore, elle, a disparu — restauration
+         * d'une sauvegarde sur un autre téléphone, Keystore réinitialisé après
+         * un changement de code de déverrouillage, mise à jour système ratée.
+         * Depuis un initialiseur de champ de ViewModel, cela fermait
+         * l'application à CHAQUE lancement, définitivement.
+         *
+         * Un fichier qu'on ne sait plus déchiffrer ne vaut rien : on l'efface
+         * et on repart d'un appairage vierge. Si même cela échoue, on rend
+         * `null` plutôt que de lever.
+         */
+        fun ouvrir(context: Context): SharedPreferences? = try {
+            creer(context)
+        } catch (e: Exception) {
+            runCatching { context.deleteSharedPreferences(FICHIER) }
+            runCatching { creer(context) }.getOrNull()
+        }
+
+        fun creer(context: Context): SharedPreferences =
+            EncryptedSharedPreferences.create(
+                context,
+                FICHIER,
+                MasterKey.Builder(context)
+                    .setKeyScheme(MasterKey.KeyScheme.AES256_GCM).build(),
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
+            )
+    }
 }

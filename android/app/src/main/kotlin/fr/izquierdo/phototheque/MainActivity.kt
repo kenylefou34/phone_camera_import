@@ -27,7 +27,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private val permissions = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()) { }
+        // Le resultat est EXPLOITE : jete, un refus d'acces aux photos ne
+        // produisait aucun message, et l'application se contentait de ne rien
+        // sauvegarder en silence.
+        ActivityResultContracts.RequestMultiplePermissions()) { modele.rafraichirPermissions() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,12 +57,23 @@ class MainActivity : ComponentActivity() {
                             scanner.launch(ScanOptions().setPrompt(
                                 "Scannez le QR affiché sur la page du serveur"))
                         })
-                    detail -> EcranDetail(etat)
+                    detail -> EcranDetail(etat, modele.dossiersSauvegardes)
                     else -> EcranAccueil(etat, System.currentTimeMillis(),
                         surSynchroniser = modele::synchroniser,
                         surVoirDetail = { detail = true })
                 }
             }
         }
+    }
+
+    /**
+     * L'utilisateur peut avoir modifié l'autorisation dans les réglages Android
+     * pendant que l'application était en arrière-plan, ou n'avoir rouvert
+     * l'accès qu'à une sélection de photos. Sans cette relecture, le bandeau
+     * resterait affiché — ou, pire, absent — jusqu'à la synchro suivante.
+     */
+    override fun onResume() {
+        super.onResume()
+        modele.rafraichirPermissions()
     }
 }

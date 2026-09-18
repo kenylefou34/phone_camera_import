@@ -53,5 +53,16 @@ class EtatSynchroTest {
         val neuf = EtatSynchro()
         assertNull(neuf.erreur)
         assertFalse(neuf.permissionRefusee)
+        assertEquals(emptyMap<String, Int>(), neuf.dossiersVus)
+    }
+
+    @Test fun un_dossier_sauvegarde_absent_du_telephone_est_reperable() {
+        // Les trois dossiers sauvegardes sont codes en dur. Si l'un n'existe
+        // pas ici, la synchro reussit avec ZERO media et rien ne le dit : c'est
+        // la difference entre les deux ensembles qui le revele.
+        val sauvegardes = setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp")
+        val vus = mapOf("DCIM/Camera" to 1200, "Pictures/Screenshots" to 40)
+        assertEquals(setOf("Pictures/WhatsApp", "Movies/WhatsApp"),
+                     sauvegardes - EtatSynchro(dossiersVus = vus).dossiersVus.keys)
     }
 }

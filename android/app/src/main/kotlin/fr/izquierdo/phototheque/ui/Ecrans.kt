@@ -97,17 +97,42 @@ private fun Bandeau(texte: String) {
 }
 
 @Composable
-fun EcranDetail(etat: EtatSynchro) {
+fun EcranDetail(etat: EtatSynchro, dossiersSauvegardes: Set<String>) {
     Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState())) {
         Text("Dernière synchronisation", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(16.dp))
         val bilan = etat.dernierBilan
-        if (bilan == null) { Text("Aucune synchronisation depuis le lancement.") ; return@Column }
-        Text("Envoyés : ${bilan.envoyes}")
-        Text("Refusés (extension non gérée) : ${bilan.refuses}")
-        Text("En échec : ${bilan.echecs}")
-        Spacer(Modifier.height(16.dp))
-        Text("Bilan du serveur", style = MaterialTheme.typography.titleMedium)
-        bilan.bilanServeur.forEach { (cle, valeur) -> Text("$cle : ${valeur.toInt()}") }
+        if (bilan == null) {
+            Text("Aucune synchronisation depuis le lancement.")
+        } else {
+            Text("Envoyés : ${bilan.envoyes}")
+            Text("Refusés (extension non gérée) : ${bilan.refuses}")
+            Text("En échec : ${bilan.echecs}")
+            Spacer(Modifier.height(16.dp))
+            Text("Bilan du serveur", style = MaterialTheme.typography.titleMedium)
+            bilan.bilanServeur.forEach { (cle, valeur) -> Text("$cle : ${valeur.toInt()}") }
+        }
+
+        // Les trois dossiers sauvegardés sont codés en dur. Si l'un d'eux
+        // n'existe pas sur ce téléphone — WhatsApp récent range sous
+        // Android/media/com.whatsapp/… — la synchro réussit avec ZÉRO média et
+        // rien ne le signale. Confronter la liste codée en dur à ce que
+        // MediaStore contient vraiment est la seule façon de le voir.
+        if (etat.dossiersVus.isNotEmpty()) {
+            Spacer(Modifier.height(24.dp))
+            Text("Dossiers trouvés sur le téléphone",
+                 style = MaterialTheme.typography.titleMedium)
+            etat.dossiersVus.entries.sortedByDescending { it.value }.forEach { (nom, combien) ->
+                val suivi = nom in dossiersSauvegardes
+                Text("$nom : $combien" +
+                     if (suivi) " — sauvegardé" else " — non sauvegardé")
+            }
+            val absents = dossiersSauvegardes - etat.dossiersVus.keys
+            if (absents.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text("Dossiers sauvegardés introuvables ici : ${absents.joinToString(", ")}",
+                     color = MaterialTheme.colorScheme.error)
+            }
+        }
     }
 }

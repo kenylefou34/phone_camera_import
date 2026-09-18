@@ -92,6 +92,32 @@ class Depot(private val context: Context) : SourceMedias {
      * sauvegardant que celles-là : c'est le mode de panne silencieux que la
      * conception veut rendre impossible. À afficher en permanence.
      */
+    /**
+     * Vrai si l'application n'a AUCUN accès aux médias.
+     *
+     * À vérifier au lancement, et pas seulement en rattrapant une
+     * SecurityException : une requête MediaStore sans permission ne lève pas
+     * toujours, elle peut simplement ne rien rendre. L'application signalerait
+     * alors une synchro parfaite à zéro média — la panne muette exacte que la
+     * conception veut rendre impossible.
+     */
+    fun accesRefuse(): Boolean {
+        val accorde = { permission: String ->
+            context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
+        }
+        // READ_MEDIA_* n'existent qu'à partir d'Android 13 ; en dessous, c'est
+        // READ_EXTERNAL_STORAGE qui fait foi. Interroger la mauvaise donnerait
+        // « refusé » sur un téléphone parfaitement autorisé.
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            !accorde(android.Manifest.permission.READ_MEDIA_IMAGES) &&
+            !accorde(android.Manifest.permission.READ_MEDIA_VIDEO) &&
+            // Un accès partiel est un accès : il ne doit pas compter comme un
+            // refus, c'est accesPartiel() qui le signale, avec son propre texte.
+            !accorde("android.permission.READ_MEDIA_VISUAL_USER_SELECTED")
+        else
+            !accorde(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+
     fun accesPartiel(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return false
         val complet = context.checkSelfPermission(

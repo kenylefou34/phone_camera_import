@@ -29,6 +29,14 @@ data class EtatSynchro(
      * synchro parfaite — la panne muette par excellence.
      */
     val permissionRefusee: Boolean = false,
+    /**
+     * Dossiers réellement présents sur le téléphone, et nombre de médias de
+     * chacun. Les trois dossiers sauvegardés sont codés en dur : si l'un
+     * n'existe pas (WhatsApp récent range sous `Android/media/com.whatsapp/…`),
+     * la synchro réussit avec ZÉRO média et rien ne le dit. Cette liste est ce
+     * qui le révèle.
+     */
+    val dossiersVus: Map<String, Int> = emptyMap(),
 ) {
     companion object {
         /** Au-delà, l'accueil passe en avertissement. */

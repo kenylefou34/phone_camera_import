@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+    Trafic en clair autorisé UNIQUEMENT dans la version de débogage.
+
+    Le QR du serveur peut annoncer `cert_sha256: null` : le serveur tourne
+    alors sans TLS, ce qui est le cas du lancement manuel décrit dans
+    CLAUDE.md (uvicorn lancé à la main, sans certificat) et de la variante
+    Docker. Fabrique.client gère explicitement ce cas — mais avec targetSdk 34
+    et aucune configuration réseau, Android bloque tout `http://` avant même
+    que le code ne s'exécute : ce chemin était purement mort, et l'échec
+    ressemblait à « serveur introuvable ».
+
+    Ce fichier ne concerne QUE la variante debug : l'application installée sur
+    le téléphone de la maison est construite en release et refusera toujours
+    le trafic en clair. Ne pas déplacer cette ligne dans le manifeste
+    principal.
+    -->
+    <application android:usesCleartextTraffic="true" />
+</manifest>

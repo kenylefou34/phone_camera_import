@@ -26,8 +26,11 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
     private val _etat = MutableStateFlow(EtatSynchro())
     val etat = _etat.asStateFlow()
 
-    /** Lot 1 : dossiers en dur. L'écran de choix arrive au lot 2. */
-    private val dossiers = setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp")
+    /** Lot 1 : dossiers en dur. L'écran de choix arrive au lot 2. Publics
+     *  parce que l'écran de détail les confronte à ce qui existe vraiment sur
+     *  le téléphone : un dossier codé en dur mais absent est une sauvegarde
+     *  qui réussit à vide. */
+    val dossiersSauvegardes = setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp")
 
     init {
         // Le compteur de jours est relu du disque : Android tue l'application
@@ -36,6 +39,24 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
         _etat.value = _etat.value.copy(
             appaire = coffre.charge() != null,
             derniereReussiteMs = memoire.derniereReussiteMs(),
+        )
+        // Dès le lancement, pas seulement en fin de synchro : la conception
+        // veut ces deux avertissements affichés EN PERMANENCE. Ne les calculer
+        // qu'après une synchronisation les rendait invisibles à qui ouvre
+        // l'application et la referme.
+        rafraichirPermissions()
+    }
+
+    /**
+     * Relit ce que l'application a le droit de lire. À appeler au lancement, au
+     * retour des réglages Android, et après chaque réponse à une demande de
+     * permission — dont le résultat était jusqu'ici purement et simplement
+     * jeté.
+     */
+    fun rafraichirPermissions() {
+        _etat.value = _etat.value.copy(
+            accesPartiel = depot.accesPartiel(),
+            permissionRefusee = depot.accesRefuse(),
         )
     }
 
@@ -57,7 +78,11 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                     _etat.value = _etat.value.copy(enCours = false, serveurIntrouvable = true)
                     return@launch
                 }
-                val bilan = Orchestrateur(depot, serveur).synchroniser(dossiers)
+                // Ce que le téléphone contient VRAIMENT, relevé avant de
+                // conclure : si un des dossiers codés en dur n'existe pas, la
+                // synchro réussit avec zéro média et seule cette liste le dit.
+                _etat.value = _etat.value.copy(dossiersVus = depot.dossiers())
+                val bilan = Orchestrateur(depot, serveur).synchroniser(dossiersSauvegardes)
                 // Le jeton ne redeviendra jamais valable : garder le coffre plein
                 // ferait revenir sur l'accueil au prochain lancement, avec un
                 // jeton mort et aucune explication.

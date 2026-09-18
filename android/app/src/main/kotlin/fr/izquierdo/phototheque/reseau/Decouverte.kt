@@ -24,8 +24,14 @@ object Decouverte {
             override fun onServiceFound(info: NsdServiceInfo) {
                 nsd.resolveService(info, object : NsdManager.ResolveListener {
                     override fun onServiceResolved(resolu: NsdServiceInfo) {
+                        val hote = resolu.host?.hostAddress ?: return
+                        // Une adresse IPv6 doit être entre crochets dans une
+                        // URL, sinon la chaîne produite est invalide et le
+                        // candidat est écarté EN SILENCE — l'application dirait
+                        // « pas à la maison » alors que le serveur répond.
+                        val adresse = if (hote.contains(':')) "[$hote]" else hote
                         synchronized(trouvees) {
-                            trouvees += "https://${resolu.host.hostAddress}:${resolu.port}"
+                            trouvees += "https://$adresse:${resolu.port}"
                         }
                     }
                     override fun onResolveFailed(i: NsdServiceInfo, code: Int) = Unit

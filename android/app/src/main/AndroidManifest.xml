@@ -21,7 +21,14 @@
          introuvable » ne declenche aucune alerte). Permission normale, sans
          invite a l'execution. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
-    <application android:label="Photothèque" android:supportsRtl="true">
+    <!-- allowBackup="false" : la sauvegarde Android copierait le fichier des
+         préférences chiffrées, mais PAS la clé, qui vit dans le Keystore et ne
+         quitte jamais l'appareil. Après restauration sur un nouveau téléphone,
+         EncryptedSharedPreferences ne saurait plus déchiffrer. Le jeton
+         d'appairage n'a de toute façon aucun sens sur un autre appareil : il
+         faut rescanner un QR. -->
+    <application android:label="Photothèque" android:allowBackup="false"
+                 android:supportsRtl="true">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
