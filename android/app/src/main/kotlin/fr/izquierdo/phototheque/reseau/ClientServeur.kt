@@ -1,6 +1,5 @@
 package fr.izquierdo.phototheque.reseau
 
-import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -13,7 +12,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okio.BufferedSink
 import okio.source
 import java.io.InputStream
-import java.math.BigDecimal
 
 /** Ce que devient un envoi, du point de vue de la règle de l'horizon. */
 enum class ResultatEnvoi {
@@ -95,7 +93,8 @@ class ClientServeur(
      * d'usage dans le lot 1 et les lire demanderait un modèle de plus.
      */
     fun commit(session: String, horizons: Map<String, Double>): Map<String, Double> {
-        val corps = construireCorpsCommit(session, horizons)
+        val corps = Contrat.json
+            .encodeToString(RequeteCommit.serializer(), RequeteCommit(session, horizons))
             .toRequestBody("application/json".toMediaType())
         return http.newCall(requete("/sync/commit").post(corps).build()).execute().use { r ->
             val objet = Json.parseToJsonElement(r.body!!.string()) as JsonObject
@@ -103,40 +102,5 @@ class ClientServeur(
                 valeur.toString().toDoubleOrNull()?.let { cle to it }
             }.toMap()
         }
-    }
-
-    /**
-     * Construit à la main le corps JSON de /sync/commit, plutôt que de passer
-     * par la sérialisation automatique de `RequeteCommit` : `Double.toString()`
-     * en Kotlin/Java bascule en notation scientifique dès ~1e7 (ex. « 1.789E9 »
-     * pour 1789000000.0), ce qui touche TOUS les timestamps Unix réalistes
-     * (~1,7-2×10⁹). `kotlinx.serialization` suit le même `toString()` en
-     * interne, donc passer par `JsonPrimitive`/`RequeteCommit.serializer()` ne
-     * change rien. Le contrat (docs/CONTRAT-APP.md) montre des horizons en
-     * notation décimale ordinaire ; on la reproduit pour ne pas surprendre un
-     * lecteur humain des journaux, même si le JSON en notation scientifique
-     * serait, lui, valide et lu correctement par le serveur.
-     */
-    private fun construireCorpsCommit(session: String, horizons: Map<String, Double>): String {
-        val sessionJson = Contrat.json.encodeToString(String.serializer(), session)
-        val horizonsJson = horizons.entries.joinToString(",", prefix = "{", postfix = "}") { (dossier, valeur) ->
-            "${Contrat.json.encodeToString(String.serializer(), dossier)}:${formaterHorizon(valeur)}"
-        }
-        return """{"session":$sessionJson,"horizons":$horizonsJson}"""
-    }
-
-    /**
-     * Notation décimale ordinaire, jamais scientifique (voir construireCorpsCommit).
-     *
-     * `BigDecimal.valueOf(Double)` — et non le constructeur `BigDecimal(Double)` —
-     * car ce dernier expose la valeur EXACTE du binaire flottant (ex. `0.1`
-     * devient `0.1000000000000000055511151231257827021181583404541015625`) ;
-     * `valueOf` part de la représentation décimale la plus courte qui fait
-     * l'aller-retour (celle de `Double.toString`), ce qui reste lisible.
-     */
-    private fun formaterHorizon(valeur: Double): String = when {
-        !valeur.isFinite() -> valeur.toString()   // NaN/Infinity : cas aberrant, le serveur les filtre (CONTRAT-APP.md §8)
-        valeur == valeur.toLong().toDouble() -> "${valeur.toLong()}.0"
-        else -> BigDecimal.valueOf(valeur).toPlainString()
     }
 }

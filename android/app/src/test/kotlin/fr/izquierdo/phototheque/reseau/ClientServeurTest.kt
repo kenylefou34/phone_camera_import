@@ -1,11 +1,14 @@
 package fr.izquierdo.phototheque.reseau
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -70,8 +73,17 @@ class ClientServeurTest {
     @Test fun le_commit_transmet_les_horizons() {
         serveur.enqueue(MockResponse().setBody("""{"sorted":1,"errors":0}"""))
         client.commit("s".repeat(32), mapOf("DCIM/Camera" to 1789000000.0))
-        val corps = serveur.takeRequest().body.readUtf8()
-        assertTrue(corps, corps.contains("DCIM/Camera"))
-        assertTrue(corps, corps.contains("1789000000"))
+
+        // On analyse le JSON et on compare la VALEUR, pas sa representation.
+        // Kotlin serialise 1789000000.0 en « 1.789E9 » : c'est du JSON valide,
+        // et le vrai serveur le relit bien comme 1789000000.0 (verifie). Chercher
+        // la chaine « 1789000000 » dans le corps testerait un detail de
+        // formatage au lieu du contrat, et c'est ce que faisait le test d'avant.
+        val corps = Json.parseToJsonElement(serveur.takeRequest().body.readUtf8()).jsonObject
+        assertEquals("s".repeat(32), corps["session"]!!.jsonPrimitive.content)
+        assertEquals(
+            1789000000.0,
+            corps["horizons"]!!.jsonObject["DCIM/Camera"]!!.jsonPrimitive.double,
+            0.001)
     }
 }
