@@ -281,11 +281,16 @@ def test_un_echec_ne_laisse_pas_de_fichier_admin_vide(tmp_path):
     en place serait pris pour un mot de passe valide et jamais régénéré,
     fermant l'accès d'administration sans message ni recours évident.
     """
-    # Le script doit écrire dans un fichier temporaire puis le déplacer,
-    # jamais directement sur sa destination finale.
-    script = "\n".join(_lignes_de_code(LIB.parent / "install.sh"))
-    assert '> "$ADMIN"' not in script, "écriture directe sur la destination finale"
-    assert 'mv "$ADMIN.nouveau" "$ADMIN"' in script
+    # L'écriture doit passer par un fichier temporaire puis un déplacement,
+    # jamais directement sur la destination finale. Depuis l'extraction de
+    # ecrire_empreinte_admin (partagée avec motdepasse.sh), la propriété se
+    # vérifie dans lib.sh — et install.sh ne doit plus écrire lui-même.
+    fonction = "\n".join(_lignes_de_code(LIB))
+    assert '> "$destination"' not in fonction, "écriture directe sur la destination finale"
+    assert 'mv "$destination.nouveau" "$destination"' in fonction
+
+    install = "\n".join(_lignes_de_code(LIB.parent / "install.sh"))
+    assert '> "$ADMIN"' not in install, "install.sh écrit encore le fichier lui-même"
 
 
 def _bloc_mot_de_passe():
@@ -322,8 +327,10 @@ def test_echec_pendant_la_generation_ne_laisse_pas_de_fichier_admin(tmp_path):
     config_dir.mkdir()
     admin = config_dir / "admin"
 
+    # Le bloc appelle maintenant ecrire_empreinte_admin : il faut lib.sh.
     script = f'''
 set -euo pipefail
+source "{LIB}"
 etape() {{ :; }}
 info() {{ printf '%s\\n' "$*"; }}
 CONFIG_DIR="{config_dir}"
@@ -339,6 +346,202 @@ racine="{DEPOT}"
         "la garde du prochain lancement le prendrait pour un mot de passe "
         "valide et ne le régénérerait jamais"
     )
+
+
+# --- écriture du mot de passe d'administration (deploy/lib.sh) ----------------
+#
+# Le mot de passe est écrit à deux endroits : par install.sh à la première
+# installation (tirage au hasard) et par motdepasse.sh quand le mainteneur en
+# choisit un. Les précautions d'écriture — umask, fichier temporaire, 0600 —
+# sont donc dans UNE fonction partagée, sous peine de voir les deux copies
+# diverger au premier correctif appliqué d'un seul côté.
+
+
+def appeler_avec_entree(entree, fonction, *arguments):
+    """Comme appeler(), mais fournit `entree` sur l'entrée standard.
+
+    Le mot de passe ne transite que par là : jamais par un argument, qui
+    serait visible de tout utilisateur de la machine via `ps`.
+    """
+    script = f'set -euo pipefail; source "{LIB}"; {fonction} ' + " ".join(
+        f'"{a}"' for a in arguments
+    )
+    r = subprocess.run(["bash", "-c", script], input=entree,
+                       capture_output=True, text=True)
+    return r.returncode, r.stdout.strip(), r.stderr.strip()
+
+
+def test_ecrire_empreinte_admin_produit_une_empreinte_verifiable(tmp_path):
+    """L'empreinte écrite doit être acceptée par le serveur pour ce mot de passe.
+
+    C'est la seule propriété qui compte vraiment : un fichier bien écrit mais
+    que `adminauth.verifier()` rejette fermerait l'administration en silence.
+    """
+    admin = tmp_path / "admin"
+    code, _, err = appeler_avec_entree(
+        "mon mot de passe", "ecrire_empreinte_admin", admin, "python3", DEPOT)
+    assert code == 0, err
+
+    import sys
+    sys.path.insert(0, str(DEPOT))
+    from phototheque import adminauth
+    assert adminauth.verifier("mon mot de passe", admin.read_text().strip())
+
+
+def test_ecrire_empreinte_admin_pose_le_fichier_en_0600(tmp_path):
+    """Un fichier d'identifiants lisible par les autres comptes n'en est plus un."""
+    admin = tmp_path / "admin"
+    code, _, err = appeler_avec_entree("secret", "ecrire_empreinte_admin",
+                                       admin, "python3", DEPOT)
+    assert code == 0, err
+    assert oct(admin.stat().st_mode & 0o777) == "0o600"
+
+
+def test_ecrire_empreinte_admin_remplace_un_mot_de_passe_existant(tmp_path):
+    """Changer de mot de passe, c'est écraser l'ancien — pas le conserver.
+
+    C'est la différence avec install.sh, qui refuse de régénérer un secret
+    déjà en place. La garde est chez l'appelant, pas dans cette fonction.
+    """
+    admin = tmp_path / "admin"
+    appeler_avec_entree("ancien", "ecrire_empreinte_admin", admin, "python3", DEPOT)
+    appeler_avec_entree("nouveau", "ecrire_empreinte_admin", admin, "python3", DEPOT)
+
+    import sys
+    sys.path.insert(0, str(DEPOT))
+    from phototheque import adminauth
+    enregistre = admin.read_text().strip()
+    assert adminauth.verifier("nouveau", enregistre)
+    assert not adminauth.verifier("ancien", enregistre)
+
+
+def test_un_echec_d_ecriture_laisse_intact_l_ancien_mot_de_passe(tmp_path):
+    """Un échec en cours de route ne doit jamais verrouiller le mainteneur dehors.
+
+    Cas propre à motdepasse.sh : il écrase un fichier existant. Si l'écriture
+    échouait en détruisant l'ancien mot de passe sans écrire le nouveau,
+    l'administration deviendrait inaccessible — sans message, puisque
+    verifier() refuse proprement un fichier illisible.
+    """
+    admin = tmp_path / "admin"
+    appeler_avec_entree("ancien", "ecrire_empreinte_admin", admin, "python3", DEPOT)
+    avant = admin.read_text()
+
+    faux_python = tmp_path / "python-qui-echoue"
+    faux_python.write_text("#!/usr/bin/env bash\necho 'erreur simulee' >&2\nexit 1\n")
+    faux_python.chmod(0o755)
+
+    code, _, _ = appeler_avec_entree("nouveau", "ecrire_empreinte_admin",
+                                     admin, faux_python, DEPOT)
+    assert code != 0, "l'échec de Python doit faire échouer la fonction"
+    assert admin.read_text() == avant, "l'ancien mot de passe a été détruit"
+
+
+def test_ecrire_empreinte_admin_accepte_les_caracteres_qui_piegent_le_shell(tmp_path):
+    """Espaces, apostrophes, guillemets, accents, dollar : tous doivent passer.
+
+    C'est précisément là que le shell trahit. Un mot de passe déformé en
+    chemin serait invisible : l'écriture réussirait, et seule la connexion
+    suivante échouerait, sans que rien n'indique pourquoi.
+    """
+    complique = "un 'mot' \"de\" passe $PATH `date` \\ àéîôü"
+    admin = tmp_path / "admin"
+    code, _, err = appeler_avec_entree(complique, "ecrire_empreinte_admin",
+                                       admin, "python3", DEPOT)
+    assert code == 0, err
+
+    import sys
+    sys.path.insert(0, str(DEPOT))
+    from phototheque import adminauth
+    assert adminauth.verifier(complique, admin.read_text().strip())
+
+
+# --- deploy/motdepasse.sh : choisir son mot de passe --------------------------
+#
+# install.sh en tire un au hasard à la première installation. Ce script-ci est
+# le seul moyen d'en CHOISIR un, et le seul moyen d'en changer sans réinstaller.
+
+MOTDEPASSE = LIB.parent / "motdepasse.sh"
+
+
+def lancer_motdepasse(tmp_path, saisies, python="python3"):
+    """Joue le script avec un dossier de configuration jetable.
+
+    `saisies` est la liste des lignes tapées au clavier (mot de passe, puis
+    confirmation). Le script est conçu pour lire sur l'entrée standard, ce qui
+    le rend testable sans pseudo-terminal.
+    """
+    config = tmp_path / "config"
+    config.mkdir(exist_ok=True)
+    r = subprocess.run(
+        ["bash", str(MOTDEPASSE)],
+        input="".join(ligne + "\n" for ligne in saisies),
+        capture_output=True, text=True,
+        env={**os.environ, "CONFIG_DIR": str(config), "PYTHON": python,
+             "RACINE": str(DEPOT)},
+    )
+    return r, config / "admin"
+
+
+def test_motdepasse_refuse_un_mot_de_passe_vide(tmp_path):
+    """Un mot de passe vide fermerait l'administration sans le dire."""
+    r, admin = lancer_motdepasse(tmp_path, ["", ""])
+    # Un refus DÉLIBÉRÉ, pas un script absent ou planté : 127 (introuvable) et
+    # 2 (erreur de syntaxe) passeraient un simple « != 0 » sans rien prouver.
+    assert r.returncode == 1, f"code {r.returncode} : {r.stderr!r}"
+    assert "vide" in (r.stdout + r.stderr).lower(), "le refus n'est pas expliqué"
+    assert not admin.exists(), "un mot de passe vide a été enregistré"
+
+
+def test_motdepasse_refuse_deux_saisies_differentes(tmp_path):
+    """La confirmation existe pour attraper la faute de frappe.
+
+    Sans elle, une coquille dans un mot de passe qu'on ne voit pas s'affiche
+    verrouille l'administration, et le mainteneur ne l'apprend qu'à la
+    connexion suivante — sans savoir ce qu'il a tapé.
+    """
+    r, admin = lancer_motdepasse(tmp_path, ["premier-essai", "second-essai"])
+    assert r.returncode == 1, f"code {r.returncode} : {r.stderr!r}"
+    sortie = (r.stdout + r.stderr).lower()
+    assert "identique" in sortie or "diffèrent" in sortie or "different" in sortie, (
+        f"le refus n'est pas expliqué : {sortie!r}")
+    assert not admin.exists(), "un mot de passe non confirmé a été enregistré"
+
+
+def test_motdepasse_enregistre_le_mot_de_passe_choisi(tmp_path):
+    """Le cas nominal : ce qui est tapé devient le mot de passe du serveur."""
+    r, admin = lancer_motdepasse(tmp_path, ["archibald-42-lapin", "archibald-42-lapin"])
+    assert r.returncode == 0, r.stderr
+
+    import sys
+    sys.path.insert(0, str(DEPOT))
+    from phototheque import adminauth
+    assert adminauth.verifier("archibald-42-lapin", admin.read_text().strip())
+
+
+def test_motdepasse_avertit_sur_un_mot_de_passe_court_sans_le_refuser(tmp_path):
+    """Court = averti, pas interdit.
+
+    Rien ne limite encore les essais côté serveur (issue #19) : la robustesse
+    du mot de passe est donc la seule barrière, et le mainteneur doit le
+    savoir. Mais c'est son réseau et son arbitrage — refuser son choix serait
+    présomptueux.
+    """
+    r, admin = lancer_motdepasse(tmp_path, ["court", "court"])
+    assert r.returncode == 0, r.stderr
+    assert admin.exists(), "le mot de passe court aurait dû être accepté"
+    sortie = (r.stdout + r.stderr).lower()
+    assert "court" in sortie or "faible" in sortie, (
+        f"aucun avertissement sur la longueur : {r.stdout!r} {r.stderr!r}")
+
+
+def test_motdepasse_refuse_de_tourner_sans_python_utilisable(tmp_path):
+    """Venv absent : le dire franchement plutôt que d'échouer en cours d'écriture."""
+    r, admin = lancer_motdepasse(tmp_path, ["un-mot-de-passe-correct"] * 2,
+                                 python=str(tmp_path / "python-inexistant"))
+    assert r.returncode == 1, f"code {r.returncode} : {r.stderr!r}"
+    assert not admin.exists()
+    assert "python" in (r.stdout + r.stderr).lower()
 
 
 # --- nom convivial annoncé en mDNS -------------------------------------------

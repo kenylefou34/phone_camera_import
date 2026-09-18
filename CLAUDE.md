@@ -131,8 +131,9 @@ cd ~/phone_camera_import && git pull && ./deploy/install.sh
 # puis https://IZQUIERDO-NUC.local:8787/ (admin, identifiant "admin") et /pair (QR)
 #   (nuc.local ne résout PAS : la machine s'annonce en <hostname>.local)
 #   (le navigateur avertit au premier accès : certificat auto-signé, normal)
-#   (mot de passe affiché une seule fois par install.sh ; pour le changer :
-#    rm ~/.config/phototheque/admin puis relancer install.sh)
+#   (mot de passe affiché une seule fois par install.sh)
+# Choisir/changer le mot de passe d'administration (sans sudo ni redémarrage) :
+./deploy/motdepasse.sh
 # Lancement manuel (dev, sans TLS) :
 ~/.venv-server/bin/uvicorn phototheque.app:app --host 0.0.0.0 --port 8787
 

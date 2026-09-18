@@ -68,3 +68,45 @@ certificat_present() {
     # install.sh en fabriquera un.
     [ -f "$1" ] && [ -f "$2" ]
 }
+
+ecrire_empreinte_admin() {
+    # Enregistre l'empreinte du mot de passe lu sur l'ENTRÉE STANDARD.
+    #   $1 fichier de destination, $2 interpréteur Python, $3 racine du dépôt
+    #
+    # Partagée par install.sh (mot de passe tiré au hasard à l'installation) et
+    # motdepasse.sh (mot de passe choisi par le mainteneur). Une seule copie :
+    # les précautions ci-dessous ont chacune coûté une revue, les dupliquer
+    # garantirait qu'un correctif futur n'en corrige qu'une moitié.
+    local destination=$1 python=$2 racine=$3
+
+    # Le mot de passe ne doit apparaître ni dans une ligne de commande (visible
+    # de tout utilisateur via `ps`, le temps du processus) ni dans la source du
+    # script Python (visible dans un journal en cas d'erreur). Il traverse donc
+    # cette fonction uniquement par l'entrée standard, jamais interpolé ; seul
+    # $racine (non secret) passe par sys.argv.
+    #
+    # Sous-shell avec umask 077 : sans cela, le fichier naîtrait avec les droits
+    # par défaut le temps très court qui sépare la redirection « > » du `chmod`
+    # ci-dessous. En pratique le dossier de configuration (0700) referme déjà
+    # cette fenêtre, mais pour un fichier d'identifiants on ne veut pas dépendre
+    # d'une protection posée ailleurs : avec cet umask, le fichier n'existe
+    # jamais autrement qu'en 0600.
+    #
+    # Écriture atomique : on écrit d'abord dans "<destination>.nouveau", jamais
+    # directement sur la destination. Deux dangers distincts, selon l'appelant :
+    # pour install.sh, un échec laisserait un fichier vide que la garde du
+    # lancement suivant prendrait pour un mot de passe valide, fermant
+    # l'administration en silence ; pour motdepasse.sh, qui écrase un fichier
+    # existant, un échec détruirait le mot de passe en cours sans le remplacer,
+    # et verrouillerait le mainteneur dehors. Le `mv` final ne s'exécute que si
+    # Python a réussi.
+    (umask 077; "$python" -c '
+import sys
+sys.path.insert(0, sys.argv[1])
+from phototheque import adminauth
+mot_de_passe = sys.stdin.read()
+print(adminauth.empreinte(mot_de_passe))
+' "$racine" > "$destination.nouveau")
+    mv "$destination.nouveau" "$destination"
+    chmod 600 "$destination"
+}

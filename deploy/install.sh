@@ -129,43 +129,16 @@ etape "4/9  Mot de passe d'administration"
 ADMIN="$CONFIG_DIR/admin"
 if [ -f "$ADMIN" ]; then
     info "mot de passe déjà défini, conservé"
-    info "(pour en changer : rm $ADMIN puis relancer ce script)"
+    info "(pour en changer : ./deploy/motdepasse.sh)"
 else
     MOT_DE_PASSE=$("$PYTHON" -c "import secrets; print(secrets.token_urlsafe(12))")
-    # Le mot de passe ne doit apparaître nulle part dans une ligne de commande
-    # (visible de tout utilisateur via `ps`, le temps du processus) ni dans la
-    # source du script Python (visible dans un journal en cas d'erreur). Il
-    # transite donc uniquement par l'entrée standard, jamais interpolé ; seul
-    # $racine (non secret) passe par sys.argv, comme pour le certificat.
-    #
-    # Sous-shell avec umask 077 : sans cela, le fichier naîtrait avec les
-    # droits par défaut le temps très court qui sépare la redirection « > »
-    # du `chmod` ci-dessous. En pratique $CONFIG_DIR (0700) referme déjà
-    # cette fenêtre, mais pour un fichier d'identifiants on ne veut pas
-    # dépendre d'une protection posée ailleurs : avec cet umask, le fichier
-    # n'existe jamais autrement qu'en 0600. Le `chmod` explicite est conservé
-    # ensuite : il rend l'intention lisible et rattrape le cas d'un fichier
-    # préexistant avec des droits trop larges.
-    #
-    # Écriture atomique : on écrit d'abord dans "$ADMIN.nouveau", jamais
-    # directement sur "$ADMIN". Si Python échoue après que la redirection a
-    # créé le fichier, `set -e` arrête le script AVANT le `mv` ci-dessous :
-    # seul le fichier temporaire traîne, "$ADMIN" reste absent, et le
-    # prochain lancement régénère normalement. Sans cela, un échec en cours
-    # de calcul laisserait "$ADMIN" vide mais présent : la garde
-    # `[ -f "$ADMIN" ]` du lancement suivant le prendrait pour un mot de
-    # passe valide et ne le régénérerait jamais — fermant l'administration
-    # en silence (verifier() refuse proprement, sans planter le serveur, donc
-    # rien n'indiquerait la cause).
-    (umask 077; printf '%s' "$MOT_DE_PASSE" | "$PYTHON" -c '
-import sys
-sys.path.insert(0, sys.argv[1])
-from phototheque import adminauth
-mot_de_passe = sys.stdin.read()
-print(adminauth.empreinte(mot_de_passe))
-' "$racine" > "$ADMIN.nouveau")
-    mv "$ADMIN.nouveau" "$ADMIN"
-    chmod 600 "$ADMIN"
+    # Toutes les précautions d'écriture (mot de passe uniquement par l'entrée
+    # standard, umask 077, fichier temporaire puis mv, 0600) sont dans
+    # ecrire_empreinte_admin — partagée avec deploy/motdepasse.sh, qui permet
+    # au mainteneur de CHOISIR son mot de passe plutôt que de subir celui-ci.
+    # Une seule copie de ces précautions : deux divergeraient au premier
+    # correctif appliqué d'un seul côté.
+    printf '%s' "$MOT_DE_PASSE" | ecrire_empreinte_admin "$ADMIN" "$PYTHON" "$racine"
     printf '\n\033[1m    ┌─────────────────────────────────────────────┐\033[0m\n'
     printf '\033[1m    │  Identifiants d'"'"'administration              │\033[0m\n'
     printf '\033[1m    │  utilisateur : admin                        │\033[0m\n'
