@@ -37,65 +37,58 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
 - ✅ **Transport chiffré + admin protégée + horizon de synchro** (issues #3, #10,
   #2) : HTTPS auto-signé épinglable par l'app, mot de passe admin sur `/`,
   `/pair`, `/devices` et la révocation, horizon par (appareil, dossier).
-  Adresse : `https://IZQUIERDO-NUC.local:8787/`, identifiant `admin`.
-  **194 tests**.
+  Adresse : `https://IZQUIERDO-NUC.local:8787/`.
+- ✅ **Identifiants d'admin choisis par le mainteneur** : `./deploy/identifiants.sh`
+  change identifiant ET mot de passe, sans sudo ni redémarrage (relus à chaque
+  requête). Fichier `~/.config/phototheque/utilisateur` absent = `admin`.
+- ✅ **Durcissement du 18/09** : `/docs`, `/redoc` et `/openapi.json` étaient
+  **ouverts sans mot de passe** sur le NUC — fermés (404), rouvrables par
+  `DOCS_PUBLIQUES=1` en développement.
+- ✅ **Envois par blocs** (issue #21) : `/sync/upload` ne charge plus le fichier
+  entier en mémoire (300 Mio : pic de 311 Mio → 13,5 Mio). Sans ça, la première
+  vidéo de plus de 2 Gio faisait tuer le service par le noyau, en boucle.
+- ✅ **Limitation des essais** (issue #19) : 5 essais libres par machine, puis
+  une attente qui double (2, 4, 8 s…) plafonnée à 60 s, et surtout un refus
+  **sans calcul d'empreinte** (~38 ms → ~2 ms). Compteur en mémoire : un
+  `systemctl restart phototheque` le remet à zéro si on se bloque soi-même.
+  **233 tests**.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
-## ⚠️ REPRISE — première chose à faire (2026-09-18)
+## ⚠️ REPRISE — état au 2026-09-18 (fin de session)
 
-Le lot #3 + #10 + #2 est **écrit, revu et poussé**, mais **toujours pas déployé**.
-Vérifié le 18/09 : le NUC tourne `6111a68`, soit **40 commits de retard** (et non
-`3de5fcd` comme écrit précédemment). Concrètement `/` répond 200 **sans mot de
-passe** et `~/.config/phototheque/` n'existe pas : ni certificat, ni mot de passe.
-Le 401 sur `/status` vient de l'ancien jeton d'appareil, pas de la nouvelle
-authentification — il ne prouve rien.
+**Tout est déployé et vérifié sur le NUC** (`5ad55b5` au moment d'écrire ; le
+service a été relancé et la surface contrôlée : `/`, `/pair`, `/devices` et
+`/status` en 401, `/docs`, `/redoc` et `/openapi.json` en 404).
 
-**1. Déployer** — à lancer par le mainteneur, dans un vrai terminal (mot de passe
-sudo, le canal `!` n'a pas de TTY) :
+Le mainteneur a choisi ses identifiants avec `./deploy/identifiants.sh` —
+l'identifiant n'est plus `admin`. Si besoin : `rm ~/.config/phototheque/utilisateur`
+le ramène à `admin`.
 
-```bash
-cd ~/phone_camera_import && git pull && ./deploy/install.sh
-```
+**Sécurité du réseau** (voir la mémoire `projet-nuc-exposition-reseau`) : le
+serveur photo n'est **pas** joignable depuis Internet. Plex avait ouvert tout
+seul un port sur la box via UPnP ; l'accès distant a été coupé le 18/09 et il
+ne reste aucune redirection. L'UPnP de la box reste activé — un programme peut
+donc encore s'ouvrir un accès sans prévenir ; à couper un jour, en sachant que
+ça peut gêner console de jeu et visio.
 
-Le script **affiche le mot de passe d'administration une seule fois** : le noter.
-Puis vérifier, comme le prévoit la tâche 15 du plan :
-- `https://IZQUIERDO-NUC.local:8787/` répond (avertissement navigateur au premier
-  accès, normal : certificat auto-signé, « Paramètres avancés » puis
-  « Continuer », une fois par appareil) ;
-- l'empreinte affichée par le script correspond à
-  `openssl s_client -connect 127.0.0.1:8787 … | openssl x509 -noout -fingerprint -sha256` ;
-- `avahi-browse -tpr _phototheque._tcp` depuis une autre machine ;
-- le QR de `/pair` reste scannable malgré les 64 caractères d'empreinte ajoutés ;
-- `hostname -I` ne renvoie qu'une adresse (sinon le SAN du certificat pourrait
-  viser la mauvaise — constat mineur différé).
-
-**2. Les deux questions en suspens sont tranchées (18/09)** — plus rien à décider :
-- **5 issues de suivi ouvertes** : #15 contrat serveur de l'app, #16 nettoyage de
-  session qui détruit les fichiers en échec, #17 `_appairage_en_cours` face à
-  plusieurs workers, #18 Docker sans certificat ni mot de passe, #19 limitation
-  d'essais du mot de passe.
-- **Les 2 sauvegardes du NUC sont supprimées.** Vérifié avant : le catalogue
-  vivant a ses 44 669 signatures, la sauvegarde n'avait même pas la colonne ;
-  la base d'appareils sauvegardée contenait 0 appareil.
-
-**3. Ensuite** : sous-projet 3, l'application Android (issue #12). Tout ce lot
-existait pour figer le contrat qu'elle codera en dur — voir la section 6 de
-`docs/superpowers/specs/2026-09-17-transport-auth-horizon-design.md`.
+**Prochaine étape** : sous-projet 3, l'application Android (issue #12), en
+commençant par **#15** (écrire le contrat serveur exact, qui n'existe que dans
+le code). Voir aussi le commentaire du 18/09 sur #12 : prévoir un lien de
+téléchargement de l'APK sur la page du serveur.
 
 **Fait le 17/09** : rattrapage des signatures sur le NUC (44 669 médias en
-16 min, pré-filtre désormais actif) ; renommage `mediaserve` → `phototheque` ;
-retrait du trieur C++ et de ses sous-modules ; refonte des pages web ; correction
-du QR invisible ; README et `DEPLOIEMENT.md` réécrits pas à pas.
+16 min) ; renommage `mediaserve` → `phototheque` ; retrait du trieur C++ ;
+refonte des pages web ; README et `DEPLOIEMENT.md` réécrits pas à pas.
 
 ## Feuille de route (issues GitHub)
 Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
 dossiers, client d'upload) — commencer par #15, qui fige le contrat qu'elle
-codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #19
+codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #21
 (`gh issue list`). Notamment : #4 doublons existants, #5 floues/rafales,
 #6 re-datation, #7 sauvegarde Famille.
 
-Le travail de #2, #3, #10 et #14 est **fait** (#8, #9 et #11 sont fermées), mais
+Le travail de #2, #3, #10, #14, #19 et #21 est **fait** (#8, #9 et #11 sont fermées), mais
 ces quatre-là **apparaissent encore ouvertes sur GitHub** : leurs commits portent
 bien `closes #N`, or GitHub ne ferme une issue qu'à la fusion dans la branche par
 défaut. Elles se fermeront toutes seules quand **PR #13 (`dev` → `main`)** sera
