@@ -3,6 +3,14 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- Sans cette déclaration, Android 14+ fait tourner l'appli en « mode de
+         compatibilité » : une sélection partielle de photos y accorde quand
+         même READ_MEDIA_IMAGES/VIDEO pour la durée de la session, et
+         Depot.accesPartiel() ne verrait alors JAMAIS l'accès partiel — le
+         mode de panne silencieux exact que cette fonction existe pour
+         signaler. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+        android:minSdkVersion="34" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.CAMERA" />
