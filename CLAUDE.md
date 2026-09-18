@@ -42,10 +42,14 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
-## ⚠️ REPRISE — première chose à faire (2026-09-17, fin de session)
+## ⚠️ REPRISE — première chose à faire (2026-09-18)
 
-Le lot #3 + #10 + #2 est **écrit, revu et poussé**, mais **pas déployé**. Le NUC
-tourne encore l'avant-dernière version (`3de5fcd`), en HTTP et sans mot de passe.
+Le lot #3 + #10 + #2 est **écrit, revu et poussé**, mais **toujours pas déployé**.
+Vérifié le 18/09 : le NUC tourne `6111a68`, soit **40 commits de retard** (et non
+`3de5fcd` comme écrit précédemment). Concrètement `/` répond 200 **sans mot de
+passe** et `~/.config/phototheque/` n'existe pas : ni certificat, ni mot de passe.
+Le 401 sur `/status` vient de l'ancien jeton d'appareil, pas de la nouvelle
+authentification — il ne prouve rien.
 
 **1. Déployer** — à lancer par le mainteneur, dans un vrai terminal (mot de passe
 sudo, le canal `!` n'a pas de TTY) :
@@ -66,14 +70,14 @@ Puis vérifier, comme le prévoit la tâche 15 du plan :
 - `hostname -I` ne renvoie qu'une adresse (sinon le SAN du certificat pourrait
   viser la mauvaise — constat mineur différé).
 
-**2. Deux questions laissées en suspens :**
-- Ouvrir 5 issues de suivi ? (préciser le contrat de l'app pour #12 ; `cleanup`
-  qui supprime les fichiers non rangés ; `_appairage_en_cours` global face à
-  plusieurs workers ; TLS de la variante Docker ; limitation d'essais du mot de
-  passe.)
-- Supprimer les 2 sauvegardes du NUC ? `~/mediasort_catalog.db.avant-signatures`
-  (12 Mo, d'avant le rattrapage des signatures) et
-  `~/phototheque_devices.db.vide-20260917-134451` (16 Ko).
+**2. Les deux questions en suspens sont tranchées (18/09)** — plus rien à décider :
+- **5 issues de suivi ouvertes** : #15 contrat serveur de l'app, #16 nettoyage de
+  session qui détruit les fichiers en échec, #17 `_appairage_en_cours` face à
+  plusieurs workers, #18 Docker sans certificat ni mot de passe, #19 limitation
+  d'essais du mot de passe.
+- **Les 2 sauvegardes du NUC sont supprimées.** Vérifié avant : le catalogue
+  vivant a ses 44 669 signatures, la sauvegarde n'avait même pas la colonne ;
+  la base d'appareils sauvegardée contenait 0 appareil.
 
 **3. Ensuite** : sous-projet 3, l'application Android (issue #12). Tout ce lot
 existait pour figer le contrat qu'elle codera en dur — voir la section 6 de
@@ -86,11 +90,16 @@ du QR invisible ; README et `DEPLOIEMENT.md` réécrits pas à pas.
 
 ## Feuille de route (issues GitHub)
 Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
-dossiers, client d'upload). Améliorations/Phase 2 tracées en issues #2 à #10
-et #14 (`gh issue list`). Notamment : #4 doublons existants, #5 floues/rafales,
+dossiers, client d'upload) — commencer par #15, qui fige le contrat qu'elle
+codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #19
+(`gh issue list`). Notamment : #4 doublons existants, #5 floues/rafales,
 #6 re-datation, #7 sauvegarde Famille.
-(#2, #3, #8, #9, #10, #11 et #14 sont faites.)
-À faire aussi : **fusionner `dev` → `main`** — PR #13 ouverte.
+
+Le travail de #2, #3, #10 et #14 est **fait** (#8, #9 et #11 sont fermées), mais
+ces quatre-là **apparaissent encore ouvertes sur GitHub** : leurs commits portent
+bien `closes #N`, or GitHub ne ferme une issue qu'à la fusion dans la branche par
+défaut. Elles se fermeront toutes seules quand **PR #13 (`dev` → `main`)** sera
+fusionnée — ce qui reste à faire, de préférence après le déploiement ci-dessus.
 
 ## NUC (machine cible)
 - `ssh izquierdo@192.168.1.21` (clé configurée, hôte `IZQUIERDO-NUC`, Ubuntu 26.04,
