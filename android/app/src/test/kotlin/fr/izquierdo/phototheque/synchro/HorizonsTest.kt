@@ -85,4 +85,15 @@ class HorizonsTest {
         )
         assertEquals(mapOf("DCIM/Camera" to 200.0), Horizons.calculer(envois))
     }
+
+    @Test fun a_date_egale_l_echec_l_emporte_quel_que_soit_l_ordre() {
+        val confirme = Envoi("DCIM/Camera", 200.0, Issue.CONFIRME)
+        val echec = Envoi("DCIM/Camera", 200.0, Issue.ECHEC)
+        // Meme ensemble d'evenements, deux ordres : meme resultat.
+        assertEquals(
+            Horizons.calculer(listOf(confirme, echec)),
+            Horizons.calculer(listOf(echec, confirme)))
+        // Et c'est la branche prudente qui est retenue : l'horizon n'avance pas.
+        assertFalse("DCIM/Camera" in Horizons.calculer(listOf(confirme, echec)))
+    }
 }

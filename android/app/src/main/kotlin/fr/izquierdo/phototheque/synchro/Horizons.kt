@@ -33,8 +33,18 @@ object Horizons {
     fun calculer(envois: List<Envoi>): Map<String, Double> {
         val horizons = mutableMapOf<String, Double>()
         val arretes = mutableSetOf<String>()
-        // Trié par date : c'est ce qui donne un sens à « le dernier confirmé ».
-        for (envoi in envois.sortedBy { it.instant }) {
+        // Tri par date, puis ECHEC d'abord A DATE EGALE. Deux envois du meme
+        // dossier peuvent porter exactement la meme date : DATE_MODIFIED n'a
+        // qu'une precision d'une seconde et une rafale en produit plusieurs.
+        // Sans ce second critere, `sortedBy` etant un tri STABLE, le resultat
+        // dependrait de l'ordre de la liste d'entree — ce que le test
+        // `l_ordre_de_la_liste_n_influence_pas_le_resultat` pretend justement
+        // exclure. A egalite on retient le cas prudent : l'echec arrete le
+        // dossier, quitte a reproposer quelques fichiers que l'anti-doublon
+        // ecartera sans les transferer.
+        for (envoi in envois.sortedWith(
+            compareBy({ it.instant }, { if (it.issue == Issue.ECHEC) 0 else 1 })
+        )) {
             if (envoi.dossier in arretes) continue
             when (envoi.issue) {
                 Issue.ECHEC -> arretes += envoi.dossier
