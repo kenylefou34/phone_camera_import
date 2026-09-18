@@ -25,7 +25,14 @@ object Epinglage {
 
 class GestionnaireEpingle(empreinteAttendue: String) : X509TrustManager {
 
-    private val attendue = empreinteAttendue.lowercase()
+    // .trim() en plus de .lowercase() : le texte du QR n'est jamais nettoye
+    // des espaces avant d'arriver ici (voir Contrat.ChargeAppairage). Un
+    // espace parasite (espace de tete/fin dans le JSON encode, ou introduit
+    // par un outil de generation de QR) ferait echouer TOUTE connexion avec
+    // "certificat inattendu", un message qui ne dit pas que la cause est un
+    // espace invisible. Le cout de cette ligne est nul pour une empreinte
+    // bien formee.
+    private val attendue = empreinteAttendue.trim().lowercase()
 
     override fun checkServerTrusted(chain: Array<X509Certificate>?, authType: String?) {
         val presente = chain?.firstOrNull()

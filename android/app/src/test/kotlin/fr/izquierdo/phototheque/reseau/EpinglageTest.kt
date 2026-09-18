@@ -66,6 +66,14 @@ class EpinglageTest {
         GestionnaireEpingle(attendue).checkServerTrusted(arrayOf(certificat()), "RSA")
     }
 
+    @Test fun les_espaces_autour_de_l_empreinte_attendue_sont_sans_importance() {
+        // Le texte du QR n'est jamais nettoye des espaces avant d'arriver ici
+        // (voir Contrat.ChargeAppairage) : un espace parasite en tete/fin ne
+        // doit pas faire echouer une connexion legitime.
+        val attendue = "  " + Epinglage.empreinte(certificat()) + "\n"
+        GestionnaireEpingle(attendue).checkServerTrusted(arrayOf(certificat()), "RSA")
+    }
+
     @Test fun une_chaine_vide_est_refusee() {
         // Le trou classique de ce genre de code : une chaine sans certificat ne
         // doit jamais etre traitee comme un cas passant. Sans ce test, un
