@@ -58,6 +58,25 @@ fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
 }
 
 @Composable
+fun EcranAppairage(qrInvalide: Boolean, revoque: Boolean, surScanner: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(24.dp),
+           horizontalAlignment = Alignment.CenterHorizontally,
+           verticalArrangement = Arrangement.Center) {
+        Text("Photothèque", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(16.dp))
+        Text("Ouvrez la page d'appairage du serveur sur un ordinateur, " +
+             "puis scannez le QR affiché.")
+        if (revoque) Bandeau(
+            "Cet appareil a été révoqué. Scannez un nouveau QR pour le réautoriser.")
+        if (qrInvalide) Bandeau(
+            "Ce n'est pas un QR de photothèque. Vérifiez que vous scannez bien " +
+            "celui de la page d'appairage du serveur.")
+        Spacer(Modifier.height(24.dp))
+        Button(onClick = surScanner) { Text("Scanner le QR") }
+    }
+}
+
+@Composable
 private fun Bandeau(texte: String) {
     Card(Modifier.fillMaxWidth().padding(bottom = 16.dp),
          colors = CardDefaults.cardColors(

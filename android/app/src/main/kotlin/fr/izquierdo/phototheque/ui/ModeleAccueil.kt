@@ -27,6 +27,10 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
     /** Lot 1 : dossiers en dur. L'écran de choix arrive au lot 2. */
     private val dossiers = setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp")
 
+    init {
+        _etat.value = _etat.value.copy(appaire = coffre.charge() != null)
+    }
+
     fun synchroniser() {
         val charge = coffre.charge() ?: return
         _etat.value = _etat.value.copy(enCours = true, serveurIntrouvable = false)
@@ -44,6 +48,9 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                 enCours = false,
                 dernierBilan = bilan,
                 revoque = bilan.revoque,
+                // Le coffre vient d'être vidé (oublier()) : l'écran d'appairage
+                // doit reprendre la main, pas rester sur un accueil orphelin.
+                appaire = !bilan.revoque,
                 accesPartiel = depot.accesPartiel(),
                 // Réussite = aucun échec. Un refus d'extension n'en est pas un.
                 derniereReussiteMs = if (bilan.echecs == 0 && !bilan.revoque)
@@ -52,13 +59,16 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    /** Vrai si le QR scanne etait bien un appairage. Le resultat doit etre
+     *  EXPLOITE : un faux renvoie l'ecran d'appairage avec un message. */
     fun enregistrerAppairage(texteDuQr: String): Boolean {
         val charge = fr.izquierdo.phototheque.appairage.Appairage.lire(texteDuQr)
-            ?: return false
+        if (charge == null) {
+            _etat.value = _etat.value.copy(qrInvalide = true)
+            return false
+        }
         coffre.enregistrer(charge)
-        _etat.value = _etat.value.copy(revoque = false)
+        _etat.value = _etat.value.copy(appaire = true, qrInvalide = false, revoque = false)
         return true
     }
-
-    fun estAppaire(): Boolean = coffre.charge() != null
 }

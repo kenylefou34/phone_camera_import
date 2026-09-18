@@ -14,6 +14,8 @@ data class EtatSynchro(
     val accesPartiel: Boolean = false,
     val revoque: Boolean = false,
     val serveurIntrouvable: Boolean = false,
+    val appaire: Boolean = false,
+    val qrInvalide: Boolean = false,
 ) {
     companion object {
         /** Au-delà, l'accueil passe en avertissement. */

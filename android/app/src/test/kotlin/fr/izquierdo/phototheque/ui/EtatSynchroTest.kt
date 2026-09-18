@@ -1,7 +1,9 @@
 package fr.izquierdo.phototheque.ui
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -24,5 +26,15 @@ class EtatSynchroTest {
 
     @Test fun le_seuil_d_alerte_est_a_sept_jours() {
         assertEquals(7L, EtatSynchro.SEUIL_ALERTE_JOURS)
+    }
+
+    @Test fun un_appareil_non_appaire_et_un_qr_invalide_sont_deux_etats_distincts() {
+        // Sans cette distinction, l'ecran d'appairage ne saurait pas s'il doit
+        // afficher un message d'erreur ou seulement l'invitation a scanner.
+        val neuf = EtatSynchro()
+        val refuse = EtatSynchro(qrInvalide = true)
+        assertFalse(neuf.qrInvalide)
+        assertTrue(refuse.qrInvalide)
+        assertFalse(refuse.appaire)
     }
 }
