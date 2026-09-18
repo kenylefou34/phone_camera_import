@@ -44,15 +44,21 @@ class Depot(private val context: Context) : SourceMedias {
             val iPrise = c.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_TAKEN)
             while (c.moveToNext()) {
                 val prise = if (c.isNull(iPrise)) null else c.getLong(iPrise)
+                // RELATIVE_PATH finit par « / » : on la retire pour que le
+                // dossier corresponde exactement aux clés d'horizon du serveur.
+                // La colonne est nullable en interne à MediaProvider (qui lui-
+                // même applique un repli) : sans le « ?: "" », une seule ligne
+                // aberrante lèverait une NPE non rattrapée par Orchestrateur et
+                // ferait échouer toute la synchronisation.
+                val dossier = (c.getString(iChemin) ?: "").trimEnd('/')
+                // Un média sans dossier produirait le chemin « /nom.jpg », que
+                // le serveur refuse par un 400. L'écarter ici vaut mieux que de
+                // l'envoyer pour le voir rejeté — et évite surtout que l'horizon
+                // du dossier ne le saute.
+                if (dossier.isEmpty()) continue
                 resultat += Media(
                     id = c.getLong(iId),
-                    // RELATIVE_PATH finit par « / » : on la retire pour que le
-                    // dossier corresponde exactement aux clés d'horizon du serveur.
-                    // La colonne est nullable en interne à MediaProvider (qui lui-
-                    // même applique un repli) : sans le « ?: "" », une seule ligne
-                    // aberrante lèverait une NPE non rattrapée par Orchestrateur et
-                    // ferait échouer toute la synchronisation.
-                    dossier = (c.getString(iChemin) ?: "").trimEnd('/'),
+                    dossier = dossier,
                     nom = c.getString(iNom),
                     taille = c.getLong(iTaille),
                     instant = Dates.instantSecondes(prise, c.getLong(iModif)),

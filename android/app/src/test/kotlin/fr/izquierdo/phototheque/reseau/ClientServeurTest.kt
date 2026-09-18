@@ -101,6 +101,18 @@ class ClientServeurTest {
             client.envoyer("s".repeat(32), "DCIM/a.webm", "x".byteInputStream(), 1L))
     }
 
+    @Test fun un_400_qui_ne_parle_PAS_d_extension_est_un_echec() {
+        // Le serveur renvoie aussi 400 sur un chemin refuse (un chemin
+        // commencant par « / », par exemple). EXTENSION_REFUSEE est la seule
+        // issue qui fait AVANCER l'horizon sur un media non transfere : la
+        // confondre avec ce cas-la ferait sauter l'horizon par-dessus un media
+        // qui n'est jamais arrive, et il serait perdu pour toujours.
+        serveur.enqueue(MockResponse().setResponseCode(400).setBody(
+            """{"detail":"chemin refuse"}"""))
+        assertEquals(ResultatEnvoi.ECHEC,
+            client.envoyer("s".repeat(32), "/a.jpg", "x".byteInputStream(), 1L))
+    }
+
     @Test fun un_401_signale_un_appareil_revoque() {
         serveur.enqueue(MockResponse().setResponseCode(401).setBody(
             """{"detail":"jeton invalide"}"""))

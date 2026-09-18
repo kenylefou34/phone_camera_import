@@ -101,7 +101,16 @@ class ClientServeur(
             http.newCall(requete("/sync/upload").post(corps).build()).execute().use { r ->
                 when (r.code) {
                     200 -> ResultatEnvoi.OK
-                    400 -> ResultatEnvoi.EXTENSION_REFUSEE
+                    // EXTENSION_REFUSEE est la SEULE issue qui fait avancer
+                    // l'horizon sur un média non transféré : elle doit donc
+                    // être la plus étroite possible. Or le serveur renvoie
+                    // aussi 400 sur un chemin refusé (sessions.save_upload lève
+                    // ValueError sur un chemin commençant par « / »), cas où
+                    // l'horizon ne doit surtout PAS avancer — le média serait
+                    // perdu définitivement et en silence.
+                    400 -> if (r.peekBody(4096).string().contains("extension"))
+                               ResultatEnvoi.EXTENSION_REFUSEE
+                           else ResultatEnvoi.ECHEC
                     401 -> ResultatEnvoi.REVOQUE
                     else -> ResultatEnvoi.ECHEC
                 }
