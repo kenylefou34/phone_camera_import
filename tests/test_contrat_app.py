@@ -91,3 +91,60 @@ def test_une_session_vide_se_valide_normalement(tmp_path, monkeypatch):
                     json={"session": session, "horizons": {}})
     assert r.status_code == 200
     assert r.json()["errors"] == 0
+
+
+def test_horizon_melange_bien_une_date_iso_et_des_timestamps(tmp_path, monkeypatch):
+    """Deux unités dans la même réponse, et l'application les code en dur.
+
+    `depuis` est une DATE ISO, les valeurs de `dossiers` sont des timestamps
+    Unix flottants (CONTRAT-APP.md, section 4.1). Changer l'une des deux ferait
+    échouer le décodage côté téléphone — ou pire, passerait et ferait avancer un
+    horizon de trente ans.
+    """
+    from tests.test_app import _client
+    a, client = _client(tmp_path, monkeypatch)
+    ident, secret = a.devices().pair("tel")
+    a.devices().set_horizon_initial(ident, "2026-09-01")
+    a.devices().set_horizon(ident, "DCIM/Camera", 1789000000.0)
+
+    corps = client.get("/sync/horizon",
+                       headers={"Authorization": f"Bearer {secret}"}).json()
+    assert corps["depuis"] == "2026-09-01"          # date ISO, jamais un nombre
+    assert isinstance(corps["dossiers"]["DCIM/Camera"], float)
+
+
+def test_le_bilan_du_commit_garde_tous_ses_champs(tmp_path, monkeypatch):
+    """L'écran de détail de l'application affiche ces compteurs.
+
+    Un champ renommé ne ferait PAS échouer la synchronisation : il
+    disparaîtrait simplement de l'écran, sans message ni erreur. C'est
+    exactement le genre de perte qu'on ne remarque jamais.
+    """
+    from tests.test_app import _client
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("tel")
+    entetes = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=entetes,
+                          json={"files": []}).json()["session"]
+
+    bilan = client.post("/sync/commit", headers=entetes,
+                        json={"session": session, "horizons": {}}).json()
+    attendus = {"sorted", "duplicates", "to_triage", "skipped", "errors",
+                "photos", "videos", "whatsapp", "octets_ranges",
+                "par_source_date", "par_annee_mois"}
+    assert attendus <= set(bilan), f"champs disparus : {attendus - set(bilan)}"
+
+
+def test_une_session_mal_formee_repond_404(tmp_path, monkeypatch):
+    """L'application distingue ce cas d'un échec réseau : c'est son propre bug.
+
+    Répondre autre chose qu'un 404 lui ferait prendre une erreur de
+    programmation pour une panne passagère, et réessayer indéfiniment.
+    """
+    from tests.test_app import _client
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("tel")
+    r = client.post("/sync/commit",
+                    headers={"Authorization": f"Bearer {secret}"},
+                    json={"session": "pas-un-identifiant", "horizons": {}})
+    assert r.status_code == 404
