@@ -7,12 +7,25 @@ import fr.izquierdo.phototheque.reseau.ChargeAppairage
 import fr.izquierdo.phototheque.reseau.Contrat
 
 object Appairage {
-    /** Lit le JSON du QR. Renvoie null sur tout ce qui n'est pas un appairage :
-     *  l'utilisateur peut scanner n'importe quel code-barres, et planter serait
-     *  la pire des réponses. */
+    /**
+     * Lit le JSON du QR. Renvoie null sur tout ce qui n'est pas un appairage :
+     * l'utilisateur peut scanner n'importe quel code-barres — etiquette de
+     * colis, ticket de caisse, QR publicitaire — et planter serait la pire des
+     * reponses.
+     *
+     * On attrape Exception et non Throwable, deliberement. Attraper une
+     * OutOfMemoryError ou une StackOverflowError puis continuer laisserait
+     * l'application dans un etat indetermine : le remede serait pire que le
+     * mal. Et le risque a ete mesure comme inexistant ici — verifie le
+     * 18/09/2026 avec une pile de 512 Ko et une imbrication de 500 000
+     * niveaux : le saut des cles inconnues de kotlinx 1.6.3 est ITERATIF, pas
+     * recursif, et un QR physiquement scannable plafonne vers 2000 niveaux.
+     * Ne « corrigez » donc pas ce catch dans un sens ou dans l'autre sans
+     * refaire cette mesure.
+     */
     fun lire(texteDuQr: String): ChargeAppairage? = try {
         Contrat.json.decodeFromString<ChargeAppairage>(texteDuQr)
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         null
     }
 }
