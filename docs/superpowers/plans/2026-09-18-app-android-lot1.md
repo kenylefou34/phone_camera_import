@@ -203,6 +203,13 @@ dependencies {
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+    <!-- Indispensable, et pas pour demander cette permission : sans elle,
+         Android 14 place l'application en « mode de compatibilite » ou un acces
+         PARTIEL accorde quand meme READ_MEDIA_IMAGES/VIDEO pour la session.
+         Depot.accesPartiel() renverrait alors false dans le cas precis qu'il
+         doit detecter — le garde-fou contre l'echec silencieux serait lui-meme
+         silencieusement inoperant. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
     <uses-permission android:name="android.permission.CAMERA" />
     <application android:label="Photothèque" android:supportsRtl="true" />
 </manifest>
