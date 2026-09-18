@@ -26,6 +26,11 @@
 - **Jamais `assert(...)` de Kotlin dans un test** : il dépend du drapeau `-ea` de
   la JVM et, s'il était désactivé, le test passerait sans rien vérifier.
   Toujours `assertTrue` / `assertEquals` de JUnit, qui vérifient inconditionnellement.
+- **Ne jamais tester une représentation textuelle là où c'est une valeur qui
+  compte.** Vérifier qu'un corps JSON *contient la chaîne* « 1789000000 » teste
+  un détail de formatage : Kotlin sérialise ce nombre en `1.789E9`, notation
+  scientifique parfaitement valide que le serveur relit correctement. Analyser
+  le JSON et comparer la valeur, toujours.
 - **Lancer un test ciblé :** `JAVA_HOME=~/outils/jdk17 ./gradlew testDebugUnitTest --tests '*XTest*'`.
   La tâche agrégée `test` éclate en variantes debug ET release, et le filtre
   `--tests` la fait alors échouer ; `testDebugUnitTest` est la bonne cible.
@@ -862,6 +867,10 @@ git commit -m "feat(android): epinglage du certificat par son empreinte SHA-256"
 ```kotlin
 package fr.izquierdo.phototheque.reseau
 
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.double
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -932,9 +941,22 @@ class ClientServeurTest {
     @Test fun le_commit_transmet_les_horizons() {
         serveur.enqueue(MockResponse().setBody("""{"sorted":1,"errors":0}"""))
         client.commit("s".repeat(32), mapOf("DCIM/Camera" to 1789000000.0))
-        val corps = serveur.takeRequest().body.readUtf8()
-        assertTrue(corps, corps.contains("DCIM/Camera"))
-        assertTrue(corps, corps.contains("1789000000"))
+
+        // On analyse le JSON et on compare la VALEUR, pas sa representation
+        // textuelle. Kotlin serialise 1789000000.0 en « 1.789E9 » : c'est du
+        // JSON valide, et le vrai serveur le relit bien comme 1789000000.0
+        // (verifie en 2026-09-18 par une requete reelle sur /sync/commit puis
+        // relecture via /sync/horizon). Chercher la chaine « 1789000000 » dans
+        // le corps testerait un detail de formatage au lieu du contrat — et
+        // c'est exactement ce que faisait la premiere version de ce test, qui
+        // a conduit a remplacer a tort la bibliotheque de serialisation par de
+        // la construction JSON a la main.
+        val corps = Json.parseToJsonElement(serveur.takeRequest().body.readUtf8()).jsonObject
+        assertEquals("s".repeat(32), corps["session"]!!.jsonPrimitive.content)
+        assertEquals(
+            1789000000.0,
+            corps["horizons"]!!.jsonObject["DCIM/Camera"]!!.jsonPrimitive.double,
+            0.001)
     }
 }
 ```
