@@ -47,7 +47,11 @@ class Depot(private val context: Context) : SourceMedias {
                     id = c.getLong(iId),
                     // RELATIVE_PATH finit par « / » : on la retire pour que le
                     // dossier corresponde exactement aux clés d'horizon du serveur.
-                    dossier = c.getString(iChemin).trimEnd('/'),
+                    // La colonne est nullable en interne à MediaProvider (qui lui-
+                    // même applique un repli) : sans le « ?: "" », une seule ligne
+                    // aberrante lèverait une NPE non rattrapée par Orchestrateur et
+                    // ferait échouer toute la synchronisation.
+                    dossier = (c.getString(iChemin) ?: "").trimEnd('/'),
                     nom = c.getString(iNom),
                     taille = c.getLong(iTaille),
                     instant = Dates.instantSecondes(prise, c.getLong(iModif)),
