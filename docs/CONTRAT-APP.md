@@ -236,6 +236,15 @@ son horizon n'avancera jamais. Les valeurs sont des **timestamps Unix flottants*
 }
 ```
 
+> ⚠️ **Ces onze champs ne sont pas construits par le serveur.** Ils viennent de
+> `Report.to_dict()` dans **`mediasort/sorter.py`**, c'est-à-dire du trieur.
+> Conséquence : une modification du trieur peut faire disparaître une ligne de
+> l'écran de détail de l'application **sans que personne ne touche à
+> `phototheque/app.py`**. La synchronisation continuerait de fonctionner, et
+> rien ne le signalerait. Le test `test_le_bilan_du_commit_garde_tous_ses_champs`
+> (`tests/test_contrat_app.py`) verrouille cet ensemble ; si vous le faites
+> échouer en modifiant le trieur, c'est qu'il faut prévenir l'application.
+
 `errors` mérite l'attention : **si `errors > 0`, le serveur n'a fait avancer
 aucun horizon.** Les médias concernés seront reproposés à la synchro suivante,
 et l'anti-doublon écartera sans les transférer ceux qui étaient déjà rangés.
