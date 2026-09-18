@@ -102,11 +102,21 @@ class ClientServeur(
                 flux.source().use { sink.writeAll(it) }
             }
         }
-        val corps = MultipartBody.Builder().setType(MultipartBody.FORM)
+        val multipart = MultipartBody.Builder().setType(MultipartBody.FORM)
             .addFormDataPart("session", session)
             .addFormDataPart("path", chemin)
             .addFormDataPart("file", chemin.substringAfterLast('/'), fichier)
             .build()
+        // OkHttp n'interroge isOneShot() QUE sur le corps de plus haut niveau.
+        // Le poser sur la partie fichier ne sert donc à rien tant que le
+        // MultipartBody qui l'enveloppe, lui, hérite du défaut `false`. Cette
+        // enveloppe ne fait que déléguer, en corrigeant cette seule réponse.
+        val corps = object : RequestBody() {
+            override fun contentType() = multipart.contentType()
+            override fun contentLength() = multipart.contentLength()
+            override fun isOneShot() = true
+            override fun writeTo(sink: BufferedSink) = multipart.writeTo(sink)
+        }
         return try {
             http.newCall(requete("/sync/upload").post(corps).build()).execute().use { r ->
                 when (r.code) {

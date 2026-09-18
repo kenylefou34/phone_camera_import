@@ -55,7 +55,10 @@ object Fabrique {
 
     /** Client HTTP qui n'accepte QUE le certificat annoncé dans le QR. */
     fun client(charge: ChargeAppairage): OkHttpClient {
-        val empreinte = charge.certSha256 ?: return OkHttpClient()   // serveur sans TLS
+        val empreinte = charge.certSha256
+            ?: return OkHttpClient.Builder()          // serveur sans TLS
+                .retryOnConnectionFailure(false)      // voir plus bas
+                .build()
         val gestionnaire = GestionnaireEpingle(empreinte)
         val contexte = SSLContext.getInstance("TLS").apply {
             init(null, arrayOf(gestionnaire), java.security.SecureRandom())
@@ -66,6 +69,13 @@ object Fabrique {
             // correspondre à l'adresse IP trouvée en mDNS. C'est l'empreinte
             // qui fait foi, pas le nom : voir docs/CONTRAT-APP.md section 3.
             .hostnameVerifier { _, _ -> true }
+            // Le corps d'un envoi est adossé à un flux déjà consommé et fermé :
+            // OkHttp ne doit JAMAIS rejouer une requête, sinon il enverrait du
+            // vide sous la taille annoncée et le serveur rangerait un fichier
+            // tronqué. Poser isOneShot() sur la partie fichier ne suffit pas —
+            // OkHttp n'interroge que le corps de plus haut niveau, ici le
+            // MultipartBody, qui hérite du défaut false.
+            .retryOnConnectionFailure(false)
             .build()
     }
 
