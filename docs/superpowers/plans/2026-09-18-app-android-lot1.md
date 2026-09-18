@@ -209,7 +209,8 @@ dependencies {
          Depot.accesPartiel() renverrait alors false dans le cas precis qu'il
          doit detecter — le garde-fou contre l'echec silencieux serait lui-meme
          silencieusement inoperant. -->
-    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+        android:minSdkVersion="34" />
     <uses-permission android:name="android.permission.CAMERA" />
     <application android:label="Photothèque" android:supportsRtl="true" />
 </manifest>
