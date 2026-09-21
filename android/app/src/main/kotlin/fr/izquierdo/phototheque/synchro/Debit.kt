@@ -26,7 +26,7 @@ class Debit(private val fenetreMs: Long = 30_000L) {
     }
 
     /** Octets par seconde, ou null tant qu'on ne peut rien dire d'honnête. */
-    fun octetsParSeconde(instantMs: Long): Double? {
+    fun octetsParSeconde(): Double? {
         if (mesures.size < 2) return null
         val (t0, o0) = mesures.first()
         val (t1, o1) = mesures.last()
@@ -41,9 +41,9 @@ class Debit(private val fenetreMs: Long = 30_000L) {
      * Un débit nul rendrait `Infinity`, et l'écran afficherait « ~ Infinity
      * min ». Mieux vaut ne rien afficher.
      */
-    fun secondesRestantes(octetsRestants: Long, instantMs: Long): Long? {
+    fun secondesRestantes(octetsRestants: Long): Long? {
         if (octetsRestants <= 0L) return 0L
-        val debit = octetsParSeconde(instantMs) ?: return null
+        val debit = octetsParSeconde() ?: return null
         if (debit <= 0.0) return null
         return (octetsRestants / debit).toLong()
     }
