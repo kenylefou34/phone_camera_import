@@ -58,59 +58,70 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   Kotlin natif sous `android/`, **84 tests**, APK de débogage produit. Conception :
   `docs/superpowers/specs/2026-09-18-application-android-design.md` ; plan :
   `docs/superpowers/plans/2026-09-18-app-android-lot1.md`.
-  **Jamais essayé sur un vrai téléphone** — c'est la tâche 15 du plan, et elle
-  reste à faire (voir la section REPRISE).
+  **Sa recette est caduque** : le lot 1 bis l'a refondue et élargie, c'est
+  celle-là qu'il faut suivre (section REPRISE).
   **Mode d'emploi complet, rejouable depuis zéro : `docs/APPLICATION-ANDROID.md`**
   (outillage sans sudo, compilation, dépôt de l'APK, installation, appairage,
   dépannage). Tests : `cd android && JAVA_HOME=~/outils/jdk17 ./gradlew testDebugUnitTest`
   (⚠️ `./gradlew test --tests` échoue : utiliser `testDebugUnitTest --tests`).
   L'APK se dépose sur le NUC par `./deploy/envoyer-apk.sh` et se télécharge
   depuis la page d'admin, derrière le mot de passe.
+- ✅ **Lot 1 bis de l'app ÉCRIT** (issue #29) : la synchro est devenue observable
+  et pilotable — service de premier plan + `WorkManager` (elle survit à l'écran
+  éteint), découpage en **paquets** d'environ 500 Mo chacun validé par son propre
+  commit, écran d'avancement complet (n/total, Mo/s, fichier en cours et **sa
+  destination**, dossiers suivis), bouton « Interrompre » dans l'app et dans la
+  notification, reprise automatique après coupure subie, délais HTTP explicites.
+  **144 tests** côté app, 264 côté serveur. Icône et icône de notification
+  dédiées. Plan : `docs/superpowers/plans/2026-09-21-app-android-lot1bis.md`.
+  **Jamais essayé sur un téléphone** — voir la section REPRISE.
+- ✅ **APK téléchargeable depuis la page d'admin** : `./deploy/envoyer-apk.sh`
+  le dépose sur le NUC (empreinte recalculée à l'arrivée, mise en place atomique),
+  route `/apk` derrière le mot de passe. Mode d'emploi complet et rejouable depuis
+  zéro : **`docs/APPLICATION-ANDROID.md`**.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
 ## ⚠️ REPRISE — première chose à faire
 
-**Essayer l'application sur un vrai téléphone** — tâche 15 du plan
-`docs/superpowers/plans/2026-09-18-app-android-lot1.md`. Tout le reste du lot 1
-est écrit, relu et corrigé ; rien n'a jamais tourné sur un appareil.
+**La recette du lot 1 bis sur un vrai téléphone** — tâche 10 du plan
+`docs/superpowers/plans/2026-09-21-app-android-lot1bis.md`. Tout le code est
+écrit, relu tâche par tâche par des agents neufs, et corrigé ; **rien n'a
+jamais tourné sur un appareil**.
 
 ```bash
-cd ~/dev/phone_camera_import/android
-JAVA_HOME=~/outils/jdk17 ./gradlew assembleDebug
-~/outils/android-sdk/platform-tools/adb install -r app/build/outputs/apk/debug/app-debug.apk
+cd ~/dev/phone_camera_import && ./deploy/envoyer-apk.sh
+# puis sur le telephone : page d'admin -> « Telecharger l'application »
 ```
 
-(Activer d'abord le débogage USB : Réglages → À propos → 7 appuis sur « Numéro
-de build », puis Options pour développeurs → Débogage USB.)
+**Pourquoi cette recette pèse lourd :** il n'existe dans ce projet **aucun test
+d'instrumentation Android**. `WorkManager`, le service de premier plan, les
+notifications, le `BroadcastReceiver` et tout Compose ne sont couverts par
+**rien** d'automatique. Les 144 tests ne disent rien de ces chemins-là ; les
+relectures les ont jugés par la lecture, pas par l'exécution.
 
-**À vérifier en premier**, car deux fonctions en dépendent (le bandeau
-d'avertissement ET l'avancée du compteur) : une synchro avec la permission
-accordée doit afficher « Sauvegardé aujourd'hui » et **aucun** bandeau. Sinon,
-c'est `Depot.accesRefuse()` qu'il faut regarder.
+La recette fait **18 étapes** et chacune existe pour une raison précise — la
+suivre telle quelle plutôt que d'improviser.
 
-**Ce que l'essai ne pourra PAS prouver :** l'étape 5 (régénérer le certificat du
-NUC pour vérifier l'épinglage) affiche le même écran que « couper le Wi-Fi ».
-C'est l'issue **#23**, laissée ouverte sciemment.
+**Deux limites sont ASSUMÉES et documentées dans la recette** (étapes 9 et 10),
+pour ne pas conclure à un défaut : interrompre pendant l'envoi d'une grosse
+vidéo n'arrête pas le téléversement en cours, et l'écran reste figé pendant ce
+temps. Les deux sont reportées au lot 2.
 
-**Les cinq pannes doivent produire cinq messages distincts** — c'est le fil
-conducteur de tout le lot : pas à la maison (silencieux), appareil révoqué,
-permission retirée, serveur en erreur de rangement, aucun dossier trouvé.
+**Ce qu'aucun test ne peut trancher, par ordre d'importance :** qu'un arrêt
+demandé affiche le compte réel et non trois zéros ; qu'une permission retirée
+donne « Nouvelle tentative programmée » et jamais « En attente d'un réseau » ;
+qu'une révocation suivie d'un réappairage ne laisse pas revenir le bandeau
+« révoqué » ; que le bouton de la notification arrête sans rouvrir l'app.
 
-**Après l'essai** : issue #23 (épinglage), puis lot 2 (choix des dossiers dans
-l'app) — attention, le lot 2 supprime la protection accidentelle qui masque
-aujourd'hui le cas du dossier vide.
-
-**Sauvegardes du 17/09 : plus rien à trancher** (vérifié le 21/09). Les deux
-copies de secours qui dormaient sur le NUC
-(`mediasort_catalog.db.avant-signatures`, `phototheque_devices.db.vide-*`) ont
-disparu entre-temps. Les bases de production, elles, sont bien là :
-`~/mediasort_catalog.db` (19 Mo) et `~/phototheque_devices.db` (24 Ko).
+**Après la recette** : le lot 2 (choix des dossiers dans l'app), puis les
+issues #30 (journal serveur + purge des sessions) et #31 (galerie).
 
 ## Feuille de route (issues GitHub)
-Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
-dossiers, client d'upload) — commencer par #15, qui fige le contrat qu'elle
-codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #27
+Prochaine étape : **la recette du lot 1 bis sur un téléphone** (voir REPRISE),
+puis le lot 2 (choix des dossiers dans l'app). Trois issues ouvertes le 21/09 :
+**#29** lot 1 bis (fait, à éprouver), **#30** journal serveur + purge des
+sessions abandonnées, **#31** galerie de consultation (phase 2). Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #27
 (`gh issue list`). Notamment : #4 doublons existants, #5 floues/rafales,
 #6 re-datation, #7 sauvegarde Famille.
 
@@ -180,6 +191,27 @@ fusionnée — ce qui reste à faire, de préférence après le déploiement ci-
   = 0) : le WiFi est l'unique chemin vers le serveur photo. Un câble le rendrait
   insensible aux aléas radio — action physique, à la main du mainteneur.
 
+**Pièges de l'application Android**
+- **Le manifeste qui compte est le manifeste FUSIONNÉ**, pas la source. Le lot
+  1 bis a failli livrer un plantage garanti sur tout appareil : `WorkManager`
+  déclare son propre service de premier plan **sans** `foregroundServiceType`,
+  alors que le code lui passe `DATA_SYNC` — et depuis Android 10 la plate-forme
+  refuse un type qui n'est pas un sous-ensemble de celui du manifeste, par une
+  exception que `WorkManager` n'attrape pas. Invisible à la compilation et aux
+  tests. Le contrôle :
+  `grep -c foregroundServiceType android/app/build/intermediates/merged_manifests/debug/processDebugManifest/AndroidManifest.xml`
+- **Déclarer une permission ne suffit pas** depuis Android 13 :
+  `POST_NOTIFICATIONS` doit être **demandée à l'exécution**, sinon la
+  notification n'apparaît jamais — et avec elle l'avancement écran éteint et le
+  bouton d'arrêt.
+- **La zone sûre d'une icône adaptative** est le cercle de rayon 33 sur un
+  canevas de 108 : les lanceurs rognent en cercle, en carré arrondi ou en
+  goutte, et tout ce qui dépasse disparaît sur certains téléphones.
+- **`ExistingWorkPolicy.KEEP`** empêche deux synchros en parallèle, mais rend
+  aussi le bouton muet tant qu'un travail est en attente : l'écran doit dériver
+  son état de `WorkManager` (`getWorkInfosForUniqueWorkFlow`) et non d'un
+  drapeau posé à la main, sinon il reste « en cours » pour toujours.
+
 **Pièges du serveur**
 - **FastAPI publie `/docs`, `/redoc` et `/openapi.json` sans authentification.**
   Ils étaient ouverts sur le NUC jusqu'au 18/09. Fermés (404) ;
@@ -220,6 +252,19 @@ fusionnée — ce qui reste à faire, de préférence après le déploiement ci-
   scratchpad ou `~/.quelquechose` échoue avec « Permission denied » ou
   « No such file or directory ». Passer par `~/un-dossier-visible/`, puis
   nettoyer.
+- **`gh issue view` est cassé sur ce dépôt**, pour la même raison que
+  `gh pr edit` : il interroge l'API « Projects classic », supprimée par GitHub.
+  Passer par `gh api "repos/$REPO/issues/N" -q '.title, .body'`. `gh issue
+  create` et `gh issue list`, eux, fonctionnent.
+- **Ne jamais passer un message de commit par `git commit -m "..."`** s'il
+  contient des accents graves : bash les prend pour des substitutions de
+  commande et efface des mots, laissant des phrases à trous. C'est arrivé le
+  21/09 sur `836e447`. Toujours un heredoc à délimiteur quoté :
+  `git commit -F - <<'FIN'`.
+- **`git commit --amend` est sûr… sauf quand un agent travaille dans le dépôt** :
+  il réécrirait SON commit s'il en produit un entre-temps. Attendre.
+- **`gh` ne ferme une issue qu'à la fusion dans la branche par défaut** : les
+  `closes #N` de `dev` ne prendront effet qu'à la fusion de la PR #13.
 - **`gh pr edit` est cassé sur ce dépôt** : il interroge l'API « Projects
   classic », supprimée par GitHub, et échoue sans rien modifier. Pour changer le
   titre ou le corps d'une PR, passer par l'API REST :
