@@ -94,7 +94,12 @@ class Orchestrateur(
         publier(Phase.ANALYSE)
 
         for (lot in lots) {
-            if (interrompu() || revoque) { arrete = true; break }
+            // Revocation et interruption sont deux pannes DIFFERENTES pour
+            // l'ecran (le fil du lot : cinq pannes, cinq messages distincts).
+            // Les fondre en un seul `arrete` annoncerait "arret demande" pour
+            // un appareil revoque — le pire message possible pour ce cas-la.
+            if (revoque) break
+            if (interrompu()) { arrete = true; break }
 
             // --- analyse : empreintes du paquet SEULEMENT ---
             val envois = mutableListOf<Envoi>()
@@ -111,6 +116,11 @@ class Orchestrateur(
                     // sauterait par-dessus lui, et il serait perdu.
                     echecs++
                     envois += Envoi(media.dossier, media.instant, Issue.ECHEC)
+                    // Un echec de LECTURE doit avancer la barre comme un
+                    // echec d'ENVOI (plus bas) : un media supprime entre le
+                    // listing et l'envoi est banal sur un telephone, pas une
+                    // exception. Sans ca la barre resterait bloquee sous 100%.
+                    fichiersFaits++; octetsFaits += media.taille
                 }
             }
 
@@ -160,7 +170,13 @@ class Orchestrateur(
             publier(Phase.RANGEMENT)
             val resultat = Horizons.calculer(envois, arretes)
             arretes = resultat.arretes
-            bilanServeur = serveur.commit(reponse.session, resultat.horizons)
+            val bilanPaquet = serveur.commit(reponse.session, resultat.horizons)
+            // Cumule et non ecrase : avec N commits, ne garder que le dernier
+            // ferait declarer reussie une synchro dont un paquet a echoue au
+            // rangement (EtatSynchro.estUneReussite ne regarderait que celui-la).
+            bilanServeur = (bilanServeur.keys + bilanPaquet.keys).associateWith {
+                (bilanServeur[it] ?: 0.0) + (bilanPaquet[it] ?: 0.0)
+            }
             paquetsValides++
         }
 

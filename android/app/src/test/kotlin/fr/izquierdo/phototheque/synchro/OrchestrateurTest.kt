@@ -22,6 +22,9 @@ class OrchestrateurTest {
          *  soit le contenu de `resultats` : les deux mecanismes ne se genent
          *  pas, les anciens tests ne posant jamais celui-ci. */
         val echouerSur: Set<String> = emptySet(),
+        /** Bilans a renvoyer par commit successif, dans l'ordre des paquets ;
+         *  epuise, retombe sur un commit neutre. */
+        val bilansCommit: MutableList<Map<String, Double>> = mutableListOf(),
     ) : Serveur {
         var horizonsEnvoyes: Map<String, Double>? = null
         var commitAppele = false
@@ -46,7 +49,7 @@ class OrchestrateurTest {
         }
         override fun commit(session: String, horizons: Map<String, Double>): Map<String, Double> {
             horizonsEnvoyes = horizons; commitAppele = true; commits += horizons
-            return mapOf("sorted" to 1.0)
+            return if (bilansCommit.isEmpty()) mapOf("sorted" to 1.0) else bilansCommit.removeAt(0)
         }
         override fun abandonner(session: String) { abandons += session }
     }
@@ -201,10 +204,14 @@ class OrchestrateurTest {
             Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
         }
         val serveur = FauxServeur(echouerSur = setOf("DCIM/Camera/m1.jpg"))
-        Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+        val bilan = Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
             .synchroniser(setOf("DCIM/Camera"))
         assertTrue("aucun commit ne doit porter d'horizon pour ce dossier",
             serveur.commits.none { it.containsKey("DCIM/Camera") })
+        // Un dossier gele n'interrompt PAS le reste : sans cette assertion, un
+        // code qui arreterait toute la synchro au premier echec passerait
+        // aussi ce test alors qu'il viole la spec.
+        assertEquals(2, bilan.envoyes)
     }
 
     @Test fun un_dossier_sain_avance_malgre_l_echec_d_un_autre() {
@@ -234,8 +241,9 @@ class OrchestrateurTest {
         val bilan = Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
             .synchroniser(setOf("DCIM/Camera"), interrompu = { appels++ >= 3 })
         assertTrue(bilan.interrompu)
-        assertTrue("les paquets deja valides restent acquis",
-                   serveur.commits.isNotEmpty())
+        // Exactement 1 : `isNotEmpty` passerait aussi si le paquet abandonne
+        // avait ete commite lui aussi, ce que la spec interdit.
+        assertEquals(1, serveur.commits.size)
     }
 
     @Test fun une_interruption_previent_le_serveur_du_paquet_abandonne() {
@@ -271,5 +279,67 @@ class OrchestrateurTest {
                       surAvancement = { vus += it })
             .synchroniser(setOf("DCIM/Camera"))
         assertEquals(1800L, vus.last().octetsTotal)
+        // `octetsTotal` est fige au debut et ne bouge jamais : sans cette
+        // assertion sur `octetsFaits`, le test passerait meme si la
+        // progression reelle (fichiersFaits++/octetsFaits+=) disparaissait.
+        assertEquals(1800L, vus.last().octetsFaits)
+    }
+
+    // --- Revocation vs interruption, cumul du bilan serveur, progression ---
+
+    @Test fun une_revocation_n_est_pas_annoncee_comme_une_interruption_utilisateur() {
+        // Le serveur repond REVOQUE au paquet 1 ; il y a un paquet 2 ensuite
+        // pour que le test passe par la verification de TETE de la boucle des
+        // paquets (`if (revoque) break`), pas par le court-circuit interne a
+        // la boucle d'envoi. Les deux pannes doivent produire deux messages
+        // distincts a l'ecran : les confondre annoncerait "arret demande"
+        // pour un appareil revoque.
+        val medias = (1L..2L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val serveur = FauxServeur(resultats = mutableListOf(ResultatEnvoi.REVOQUE))
+        val bilan = Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertTrue(bilan.revoque)
+        assertFalse("une revocation n'est pas une interruption utilisateur",
+                    bilan.interrompu)
+    }
+
+    @Test fun le_bilan_serveur_cumule_les_commits_au_lieu_de_les_ecraser() {
+        // Avec N commits, ne garder que le dernier ferait declarer reussie
+        // une synchro dont un paquet a echoue au rangement :
+        // EtatSynchro.estUneReussite ne regarde que la valeur finale de
+        // "errors".
+        val medias = (1L..2L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val serveur = FauxServeur(bilansCommit = mutableListOf(
+            mapOf("sorted" to 1.0, "errors" to 1.0),
+            mapOf("sorted" to 1.0, "errors" to 0.0),
+        ))
+        val bilan = Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertEquals(1.0, bilan.bilanServeur["errors"])
+    }
+
+    @Test fun un_media_illisible_fait_quand_meme_progresser_la_barre() {
+        // Un echec d'ENVOI avance fichiersFaits/octetsFaits ; un echec de
+        // LECTURE (media supprime entre le listing et l'envoi, cas banal sur
+        // un telephone) doit faire pareil, sinon la barre reste bloquee sous
+        // 100% pour toujours — un mensonge sur l'ecran meme que ce lot existe
+        // pour rendre honnete.
+        val bavard = Media(1, "DCIM/Camera", "a.jpg", 600, 100.0)
+        val muet = Media(2, "DCIM/Camera", "disparu.jpg", 600, 200.0)
+        val source = object : SourceMedias {
+            override fun lister() = listOf(bavard, muet)
+            override fun ouvrir(media: Media): InputStream =
+                if (media.nom == "disparu.jpg") throw java.io.FileNotFoundException(media.nom)
+                else "contenu".byteInputStream()
+        }
+        val vus = mutableListOf<Avancement>()
+        Orchestrateur(source, FauxServeur(), taillePaquet = 1000,
+                      surAvancement = { vus += it })
+            .synchroniser(setOf("DCIM/Camera"))
+        assertEquals(1200L, vus.last().octetsFaits)
     }
 }
