@@ -46,6 +46,13 @@ fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
 
         etat.dernierBilan?.let {
             Spacer(Modifier.height(8.dp))
+            if (it.interrompu) {
+                // Neutre : un arret DEMANDE n'est pas une panne. Mais sans
+                // cette ligne, l'ecran affichait « 0 envoyés · 0 refusés ·
+                // 0 en échec », indiscernable d'une synchro qui n'avait
+                // simplement rien a faire.
+                Text("Sauvegarde interrompue.")
+            }
             Text("${it.envoyes} envoyés · ${it.refuses} refusés · ${it.echecs} en échec")
         }
         // Quatrième panne, la seule qui n'avait pas encore de message : le
@@ -146,8 +153,12 @@ fun EcranAvancement(avancement: Avancement, surInterrompre: () -> Unit) {
         Spacer(Modifier.height(8.dp))
         Text("Dossiers : " + TravailSynchro.DOSSIERS_SAUVEGARDES.joinToString(", "),
              style = MaterialTheme.typography.bodySmall)
+        // Pas de garde sur `dossiersVus.isNotEmpty()` ici : l'orchestrateur
+        // calcule la carte avant la toute premiere publication, donc tout
+        // `Avancement` recu a deja regarde MediaStore — y compris quand les
+        // trois dossiers suivis sont absents, le cas le plus grave.
         val absents = TravailSynchro.DOSSIERS_SAUVEGARDES - avancement.dossiersVus.keys
-        if (avancement.dossiersVus.isNotEmpty() && absents.isNotEmpty()) {
+        if (absents.isNotEmpty()) {
             Text("Introuvables sur ce téléphone : ${absents.joinToString(", ")}",
                  color = MaterialTheme.colorScheme.error,
                  style = MaterialTheme.typography.bodySmall)

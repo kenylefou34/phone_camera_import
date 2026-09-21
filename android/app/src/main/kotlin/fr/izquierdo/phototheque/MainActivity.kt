@@ -64,8 +64,11 @@ class MainActivity : ComponentActivity() {
 
                 // Sans ce BackHandler, le bouton retour du systeme FERMAIT
                 // l'application depuis l'ecran de detail, en perdant le
-                // dernier bilan (issue #24).
-                BackHandler(enabled = detail) { detail = false }
+                // dernier bilan (issue #24). `avancement == null` en plus :
+                // sinon, pendant une synchro, un premier retour eteignait
+                // `detail` sans rien changer a l'ecran (EcranAvancement reste
+                // affiche), et le SECOND fermait l'application.
+                BackHandler(enabled = detail && avancement == null) { detail = false }
 
                 when {
                     !etat.appaire -> EcranAppairage(

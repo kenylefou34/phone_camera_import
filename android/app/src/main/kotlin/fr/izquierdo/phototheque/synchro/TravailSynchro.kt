@@ -10,8 +10,10 @@ import fr.izquierdo.phototheque.ui.Memoire
 import fr.izquierdo.phototheque.ui.EtatSynchro
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 
 /**
@@ -25,7 +27,11 @@ data class IssueSynchro(
     val serveurIntrouvable: Boolean = false,
     val erreur: String? = null,
     val revoque: Boolean = false,
-    val dossiersVus: Map<String, Int> = emptyMap(),
+    // null = aucun avancement n'a jamais ete publie (panne avant la premiere
+    // lecture de MediaStore). Une carte VIDE est une vraie reponse — le cas
+    // le plus grave, cf EtatSynchro.dossiersVus — et ne doit jamais etre
+    // confondue avec l'absence de reponse.
+    val dossiersVus: Map<String, Int>? = null,
 )
 
 /**
@@ -81,7 +87,10 @@ class TravailSynchro(
         // Retenu au fil des publications de l'orchestrateur : c'est la seule
         // source de `dossiersVus`, et sans cette variable la valeur serait
         // perdue des que `_avancement` repasse a null en fin de course.
-        var dossiersVus = emptyMap<String, Int>()
+        // Part de `null` (jamais publie), pas d'une carte vide : sinon une
+        // panne survenue AVANT la premiere publication se lirait comme un
+        // « MediaStore n'a rien rendu » qu'elle n'a jamais constate.
+        var dossiersVus: Map<String, Int>? = null
         var dernierePhasePubliee: Phase? = null
         // 0L : garantit la premiere publication de l'orchestrateur, quelle
         // que soit l'heure du telephone.
@@ -206,5 +215,14 @@ class TravailSynchro(
         fun interrompre(context: Context) {
             WorkManager.getInstance(context).cancelUniqueWork(NOM)
         }
+
+        /** Vrai tant qu'une synchronisation est planifiee ou en cours.
+         *  Derive de WorkManager et non d'un drapeau pose a la main : un
+         *  travail differe par la contrainte reseau resterait sinon
+         *  « en cours » pour toujours, et l'utilisateur n'aurait aucun
+         *  retour de son appui. */
+        fun enCours(context: Context): Flow<Boolean> =
+            WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(NOM)
+                .map { infos -> infos.any { !it.state.isFinished } }
     }
 }

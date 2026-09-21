@@ -54,17 +54,45 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                         accesRefuse = depot.accesRefuse(),
                         derniereReussiteMs = memoire.derniereReussiteMs(),
                     )
-                } ?: _etat.value.copy(enCours = false)
+                } ?: _etat.value.copy(
+                    enCours = false,
+                    // Sans ces deux lignes, une permission retiree EN PLEINE
+                    // synchro (donc jamais relue par `apresSynchro`, qui ne
+                    // s'execute que si un bilan existe) resterait invisible
+                    // jusqu'au prochain `onResume` : l'ecran afficherait
+                    // « La sauvegarde a echoue » au lieu du bandeau juste.
+                    permissionRefusee = depot.accesRefuse(),
+                    accesPartiel = depot.accesPartiel(),
+                )
                 _etat.value = base.copy(
                     serveurIntrouvable = issue.serveurIntrouvable,
                     erreur = issue.erreur,
                     revoque = issue.revoque,
-                    appaire = !issue.revoque,
+                    // Deduit du coffre, pas de `issue.revoque` : `derniereIssue`
+                    // est un StateFlow de companion object, donc de la duree de
+                    // vie du PROCESSUS. Une revocation rescannee puis
+                    // l'application relancee (activite recreee, processus
+                    // vivant) rejouerait sinon une vieille revocation sur un
+                    // coffre pourtant plein.
+                    appaire = coffre.charge() != null,
                     // Conserve APRES la synchro : c'est la seule liste qui
                     // revele un dossier suivi mais absent du telephone, et
-                    // l'avancement qui la portait vient d'etre efface.
-                    dossiersVus = issue.dossiersVus.ifEmpty { _etat.value.dossiersVus },
+                    // l'avancement qui la portait vient d'etre efface. `null`
+                    // (jamais publie) et carte vide (regarde, rien trouve) ne
+                    // doivent jamais etre confondus : `?:` et non `ifEmpty`.
+                    dossiersVus = issue.dossiersVus ?: _etat.value.dossiersVus,
                 )
+            }
+        }
+
+        // Reflete l'etat REEL de WorkManager, pas un drapeau pose a la main :
+        // entre l'appui sur « Sauvegarder » et la premiere publication
+        // d'avancement (3 a 13 s, decouverte reseau comprise), et dans le cas
+        // « pas de reseau du tout » qui ne publie jamais rien, c'etait sinon
+        // le seul retour possible a l'utilisateur qui manquait.
+        viewModelScope.launch {
+            TravailSynchro.enCours(application).collect { enCours ->
+                _etat.value = _etat.value.copy(enCours = enCours)
             }
         }
     }
