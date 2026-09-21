@@ -1159,9 +1159,10 @@ fichier existent déjà ; réutiliser leurs noms) :
 
 ```kotlin
     @Test fun chaque_paquet_est_valide_par_son_propre_commit() {
-        // Trois medias de 600 octets, paquets de 1000 : 2 paquets, 2 commits.
+        // Trois medias de 400 octets, paquets de 1000 : 2 paquets, 2 commits.
+        // (a 600 octets on obtiendrait TROIS paquets, 600+600 depassant deja 1000.)
         val medias = (1L..3L).map {
-            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+            Media(it, "DCIM/Camera", "m$it.jpg", 400, it.toDouble() * 1000)
         }
         val serveur = ServeurEspion()
         val bilan = Orchestrateur(SourceFausse(medias), serveur,
@@ -1204,7 +1205,11 @@ fichier existent déjà ; réutiliser leurs noms) :
         val serveur = ServeurEspion()
         var appels = 0
         val bilan = Orchestrateur(SourceFausse(medias), serveur, taillePaquet = 1000)
-            .synchroniser(setOf("DCIM/Camera"), interrompu = { appels++ >= 2 })
+            // Seuil 3 et non 2 : interrompu() est appele une fois en tete de
+            // chaque paquet PUIS une fois par media. A 2, l'arret tomberait en
+            // tete du paquet 2, sans jamais entrer dans la boucle d'envoi —
+            // donc sans abandon a constater par le test suivant.
+            .synchroniser(setOf("DCIM/Camera"), interrompu = { appels++ >= 3 })
         assertTrue(bilan.interrompu)
         assertTrue("les paquets deja valides restent acquis",
                    serveur.commits.isNotEmpty())
@@ -1217,7 +1222,7 @@ fichier existent déjà ; réutiliser leurs noms) :
         val serveur = ServeurEspion()
         var appels = 0
         Orchestrateur(SourceFausse(medias), serveur, taillePaquet = 1000)
-            .synchroniser(setOf("DCIM/Camera"), interrompu = { appels++ >= 2 })
+            .synchroniser(setOf("DCIM/Camera"), interrompu = { appels++ >= 3 })
         assertTrue(serveur.abandons.isNotEmpty())
     }
 
