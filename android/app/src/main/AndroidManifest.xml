@@ -21,6 +21,16 @@
          introuvable » ne declenche aucune alerte). Permission normale, sans
          invite a l'execution. -->
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Sans ce service, la synchro vit dans le viewModelScope de l'activite :
+         ecran eteint, Android la tue, aucun commit n'est emis et les Go deja
+         montes restent dans le depot temporaire du NUC sans etre ranges.
+         Constate le 21/09/2026. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <!-- Android 13+ : sans elle, la notification d'avancement n'apparait pas,
+         et l'utilisateur n'a plus AUCUN moyen de voir ou d'arreter une synchro
+         qui tourne ecran eteint. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- allowBackup="false" : la sauvegarde Android copierait le fichier des
          préférences chiffrées, mais PAS la clé, qui vit dans le Keystore et ne
          quitte jamais l'appareil. Après restauration sur un nouveau téléphone,
