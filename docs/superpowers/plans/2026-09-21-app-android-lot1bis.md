@@ -438,8 +438,8 @@ Un media plus gros que la limite fait son paquet a lui seul : une video de
 - Produces:
   - `class Debit(fenetreMs: Long = 30_000L)`
   - `Debit.ajouter(octets: Long, instantMs: Long)`
-  - `Debit.octetsParSeconde(instantMs: Long): Double?`
-  - `Debit.secondesRestantes(octetsRestants: Long, instantMs: Long): Long?`
+  - `Debit.octetsParSeconde(): Double?`
+  - `Debit.secondesRestantes(octetsRestants: Long): Long?`
 
 - [ ] **Step 1 : Écrire le test qui échoue**
 
@@ -1355,14 +1355,12 @@ class Orchestrateur(
         var paquetsValides = 0
 
         fun publier(phase: Phase, media: Media? = null) {
-            val maintenant = horloge()
             surAvancement(Avancement(
                 phase = phase,
                 fichiersFaits = fichiersFaits, fichiersTotal = candidats.size,
                 octetsFaits = octetsFaits, octetsTotal = octetsTotal,
-                octetsParSeconde = debit.octetsParSeconde(maintenant),
-                secondesRestantes = debit.secondesRestantes(
-                    octetsTotal - octetsFaits, maintenant),
+                octetsParSeconde = debit.octetsParSeconde(),
+                secondesRestantes = debit.secondesRestantes(octetsTotal - octetsFaits),
                 mediaEnCours = media?.chemin,
                 tailleEnCours = media?.taille,
                 destinationPrevue = media?.let {
