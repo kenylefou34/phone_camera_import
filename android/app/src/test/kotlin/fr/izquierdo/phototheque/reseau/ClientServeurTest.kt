@@ -210,12 +210,25 @@ class ClientServeurTest {
         serveur.shutdown()
     }
 
-    @Test fun abandonner_ne_leve_jamais() {
-        // La route n'existe pas encore sur le serveur (lot serveur), et quand
-        // on abandonne c'est souvent PARCE QUE le reseau est tombe. Un echec
-        // ici ne doit surtout pas masquer l'arret que l'utilisateur a demande.
+    @Test fun abandonner_ne_leve_pas_sur_une_reponse_d_erreur() {
+        // La route n'existe pas encore sur le serveur (lot serveur) : il
+        // repondra 404. OkHttp ne leve pas sur un code d'erreur -- ce test ne
+        // couvre donc pas le try/catch, seulement l'absence de verifierCode.
         val serveur = MockWebServer()
         serveur.enqueue(MockResponse().setResponseCode(404))
+        serveur.start()
+        val c = ClientServeur(serveur.url("/").toString().trimEnd('/'), "jeton",
+                              OkHttpClient())
+        c.abandonner("a".repeat(32))      // ne doit pas lever
+        serveur.shutdown()
+    }
+
+    @Test fun abandonner_ne_leve_pas_quand_le_reseau_est_coupe() {
+        // Le scenario qui compte vraiment : on abandonne souvent PARCE QUE le
+        // reseau est tombe. Ici execute() leve une IOException -- c'est le
+        // try/catch d'abandonner qui doit l'avaler, pas verifierCode.
+        val serveur = MockWebServer()
+        serveur.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
         serveur.start()
         val c = ClientServeur(serveur.url("/").toString().trimEnd('/'), "jeton",
                               OkHttpClient())
