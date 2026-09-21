@@ -8,7 +8,6 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
-import fr.izquierdo.phototheque.MainActivity
 
 /**
  * La notification qui accompagne une synchronisation en arrière-plan.
@@ -38,9 +37,14 @@ object ServiceSynchro {
         val vitesse = avancement.octetsParSeconde
             ?.let { " · %.1f Mo/s".format(it / 1_048_576.0) } ?: ""
 
-        val arret = PendingIntent.getActivity(
+        // getBroadcast et non getActivity : la conception veut arreter SANS
+        // rouvrir l'application, et un PendingIntent d'activite ne delivre
+        // meme pas son intent quand la tache existe deja en arriere-plan (le
+        // systeme se contente de la ramener au premier plan). Voir
+        // RecepteurInterruption.
+        val arret = PendingIntent.getBroadcast(
             context, 0,
-            Intent(context, MainActivity::class.java).setAction(ACTION_INTERROMPRE),
+            Intent(context, RecepteurInterruption::class.java).setAction(ACTION_INTERROMPRE),
             PendingIntent.FLAG_IMMUTABLE)
 
         val notification = NotificationCompat.Builder(context, CANAL)
@@ -59,12 +63,19 @@ object ServiceSynchro {
         else ForegroundInfo(ID, notification)
     }
 
+    // Cree au plus une fois : recreer le canal a chaque appel de information()
+    // (donc jusqu'a deux fois par media) rearmait un binder vers le systeme
+    // pour rien.
+    private var canalCree = false
+
     private fun creerCanal(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        if (canalCree) return
         val gestionnaire = context.getSystemService(NotificationManager::class.java)
         // IMPORTANCE_LOW : visible et persistante, mais sans son ni vibration.
         // Une sauvegarde d'une heure qui sonne serait desinstallee le jour meme.
         gestionnaire.createNotificationChannel(NotificationChannel(
             CANAL, "Sauvegarde en cours", NotificationManager.IMPORTANCE_LOW))
+        canalCree = true
     }
 }

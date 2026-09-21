@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
@@ -45,5 +46,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Le bouton « Interrompre » de la notification : un recepteur, pas
+             une activite, pour pouvoir arreter SANS rouvrir l'application. -->
+        <receiver android:name=".synchro.RecepteurInterruption" android:exported="false" />
+
+        <!-- WorkManager declare son propre service de premier plan, mais SANS
+             foregroundServiceType. Or ForegroundInfo lui passe DATA_SYNC, et
+             depuis Android 10 la plate-forme refuse un type qui n'est pas un
+             sous-ensemble de celui du manifeste — IllegalArgumentException
+             non rattrapee, donc plantage a la premiere synchro. On fusionne
+             l'attribut manquant. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
     </application>
 </manifest>
