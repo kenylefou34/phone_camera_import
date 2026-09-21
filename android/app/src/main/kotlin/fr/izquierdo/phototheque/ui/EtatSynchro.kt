@@ -19,6 +19,14 @@ data class EtatSynchro(
      * d'écran d'avancement, pas de notification, pas de bouton pour sortir.
      */
     val enAttenteReseau: Boolean = false,
+    /**
+     * Le travail a DÉJÀ tourné au moins une fois et attend le délai avant de
+     * reprendre. Séparé de [enAttenteReseau], que WorkManager ne distingue pas
+     * de lui-même : le cas le plus fréquent est une permission retirée, dont le
+     * bandeau dit déjà quoi faire. Y ajouter « en attente d'un réseau »
+     * donnerait deux messages contradictoires, dont un faux.
+     */
+    val nouvelleTentative: Boolean = false,
     val derniereReussiteMs: Long? = null,
     val dernierBilan: Bilan? = null,
     val accesPartiel: Boolean = false,

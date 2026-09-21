@@ -109,11 +109,13 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
             TravailSynchro.etatTravail(application).collect { travail ->
                 _etat.value = _etat.value.copy(
                     enCours = travail != EtatTravail.INACTIF,
-                    // Distingue « WorkManager diffère faute de réseau » de
-                    // « la recherche du serveur est en cours » : sans ça,
-                    // l'écran afficherait « en attente d'un réseau » pendant
-                    // les 3 à 13 s qui suivent chaque appui.
+                    // Trois états actifs, trois phrases distinctes : sans
+                    // cette séparation l'écran dirait « en attente d'un
+                    // réseau » pendant les 3 à 13 s de recherche du serveur
+                    // qui suivent chaque appui, et pendant le délai de reprise
+                    // qui suit une permission retirée — deux fois faux.
                     enAttenteReseau = travail == EtatTravail.EN_ATTENTE,
+                    nouvelleTentative = travail == EtatTravail.NOUVELLE_TENTATIVE,
                 )
             }
         }

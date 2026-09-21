@@ -82,7 +82,6 @@ class Depot(private val context: Context) : SourceMedias {
             ?: throw java.io.IOException("media illisible : ${media.chemin}")
     }
 
-
     /**
      * Vrai si l'application n'a AUCUN accès aux médias.
      *

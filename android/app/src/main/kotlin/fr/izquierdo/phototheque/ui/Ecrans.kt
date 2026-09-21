@@ -67,13 +67,15 @@ fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
             Text(
                 // « Ils seront représentés » serait FAUX : le serveur détruit
                 // le fichier qu'il n'a pas su ranger (app.py nettoie la
-                // session avant de regarder `errors`). Ce qui est vrai, c'est
-                // que l'horizon du dossier n'a pas bougé — il sera donc
-                // reproposé en entier, et l'anti-doublon écartera ce qui est
-                // déjà rangé.
+                // session avant de regarder `errors`). La seule chose vraie,
+                // c'est que l'horizon n'a pas bougé — et pas seulement celui
+                // du dossier fautif : l'orchestrateur gèle TOUS les dossiers
+                // du paquet, puisque le serveur ne dit pas lequel a échoué.
+                // « en entier » serait faux aussi : le dossier repart de son
+                // horizon, pas de l'origine.
                 "Le serveur n'a pas réussi à ranger $enErreur média(s). " +
-                "Le dossier concerné sera reproposé en entier à la prochaine " +
-                "sauvegarde.",
+                "Les dossiers concernés seront reproposés à la prochaine " +
+                "sauvegarde : leur horizon n'a pas avancé.",
                 color = MaterialTheme.colorScheme.error)
         }
         if (etat.serveurIntrouvable) {
@@ -90,29 +92,36 @@ fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
         }
 
         Spacer(Modifier.height(24.dp))
+        val enAttente = etat.enAttenteReseau || etat.nouvelleTentative
         Button(onClick = surSynchroniser, enabled = !etat.enCours) {
             Text(when {
-                etat.enAttenteReseau -> "Sauvegarde en attente…"
+                enAttente -> "Sauvegarde en attente…"
                 etat.enCours -> "Sauvegarde en cours…"
                 else -> "Sauvegarder maintenant"
             })
         }
-        // Cet écran n'est visible PENDANT une synchronisation que tant
-        // qu'aucun avancement n'a été publié (sinon MainActivity bascule sur
-        // EcranAvancement). Il n'y a donc alors ni écran d'avancement, ni
-        // notification, ni bouton « Interrompre » : sans ce bloc, un travail
-        // que WorkManager diffère faute de réseau laisse un bouton grisé et
-        // AUCUNE explication ni aucune sortie — indéfiniment.
+        // Cet écran reste le SEUL visible tant qu'aucun avancement n'a été
+        // publié — MainActivity bascule sur EcranAvancement dès la première
+        // publication. Et tant que le travail n'a pas démarré, rien ne tourne :
+        // pas de service de premier plan, donc pas de notification, donc pas
+        // d'autre bouton « Interrompre » que celui-ci. Sans ce bloc, un travail
+        // que WorkManager diffère laisse un bouton grisé, aucune explication et
+        // aucune sortie — indéfiniment.
         if (etat.enCours) {
             Spacer(Modifier.height(16.dp))
             LinearProgressIndicator()
             Spacer(Modifier.height(8.dp))
-            // Les deux cas se distinguent par l'état réel de WorkManager :
-            // dire « en attente d'un réseau » pendant la recherche du serveur
-            // (3 à 13 s à chaque sauvegarde) serait un message faux.
-            Text(if (etat.enAttenteReseau)
-                     "En attente d'un réseau… la sauvegarde démarrera toute seule."
-                 else "Recherche du serveur sur le réseau…")
+            // Trois cas, trois phrases. Les fondre en une seule en mentirait
+            // deux fois : « en attente d'un réseau » est faux pendant la
+            // recherche du serveur (3 à 13 s à chaque sauvegarde), et faux
+            // pendant le délai de reprise qui suit une permission retirée —
+            // où il contredirait en plus le bandeau affiché juste au-dessus.
+            Text(when {
+                etat.nouvelleTentative -> "Nouvelle tentative programmée…"
+                etat.enAttenteReseau ->
+                    "En attente d'un réseau… la sauvegarde démarrera toute seule."
+                else -> "Recherche du serveur sur le réseau…"
+            })
             Spacer(Modifier.height(8.dp))
             OutlinedButton(onClick = surInterrompre) { Text("Interrompre") }
         }

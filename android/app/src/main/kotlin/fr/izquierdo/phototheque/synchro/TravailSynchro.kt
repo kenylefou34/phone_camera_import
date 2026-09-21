@@ -37,11 +37,18 @@ data class IssueSynchro(
 /**
  * Ce que WorkManager sait du travail de synchronisation.
  *
- * EN_ATTENTE et EN_COURS sont séparés parce que l'écran doit en dire deux
- * choses différentes : « en attente d'un réseau » serait faux pendant les 3 à
- * 13 s de recherche du serveur qui suivent chaque appui sur le bouton.
+ * Les trois états actifs sont séparés parce que l'écran doit en dire trois
+ * choses différentes, et qu'une seule phrase pour tous serait fausse deux fois
+ * sur trois :
+ * - EN_ATTENTE : rien ne tourne, la contrainte réseau n'est pas satisfaite ;
+ * - NOUVELLE_TENTATIVE : rien ne tourne non plus, mais une exécution a DÉJÀ eu
+ *   lieu et a demandé à être reprise. Dire « en attente d'un réseau » ici
+ *   serait faux — le cas le plus fréquent est une permission retirée, dont le
+ *   bandeau dit déjà, et correctement, qu'il faut aller dans les réglages ;
+ * - EN_COURS : le travail s'exécute, mais tant qu'il n'a rien publié l'accueil
+ *   reste le seul écran visible.
  */
-enum class EtatTravail { INACTIF, EN_ATTENTE, EN_COURS }
+enum class EtatTravail { INACTIF, EN_ATTENTE, NOUVELLE_TENTATIVE, EN_COURS }
 
 /**
  * La synchronisation, exécutée par Android et non par l'écran.
@@ -183,8 +190,17 @@ class TravailSynchro(
             _derniereIssue.value = IssueSynchro(
                 // `bilanPartiel` et non des zeros : on peut arreter apres
                 // vingt paquets valides et six cents fichiers montes.
+                // `interrompu = true` sur le repli, et ce n'est pas
+                // decoratif : `pourLEcran()` ne sait que RETIRER ce drapeau.
+                // Sans lui, un arret DEMANDE avant que l'orchestrateur ait
+                // rendu quoi que ce soit - pendant les 3 a 13 s de
+                // decouverte, ou pendant setForeground - afficherait
+                // « 0 envoyes · 0 refuses · 0 en echec » sans un mot
+                // d'explication. Ce chemin est facile a atteindre depuis que
+                // l'accueil offre « Interrompre » pendant la decouverte.
                 bilan = (bilanPartiel ?: Bilan(0, 0, 0, revoque = false,
-                                               bilanServeur = emptyMap())).pourLEcran(),
+                                               bilanServeur = emptyMap(),
+                                               interrompu = true)).pourLEcran(),
                 dossiersVus = dossiersVus,
             )
             throw e          // une annulation se relance TOUJOURS
@@ -270,18 +286,24 @@ class TravailSynchro(
         /** Etat du travail, derive de WorkManager et non d'un drapeau pose a
          *  la main : un travail differe par la contrainte reseau resterait
          *  sinon « en cours » pour toujours, et l'utilisateur n'aurait aucun
-         *  retour de son appui.
+         *  retour de son appui. Voir EtatTravail pour la raison des trois
+         *  etats actifs.
          *
-         *  EN_ATTENTE et EN_COURS sont SEPARES parce que l'ecran doit en dire
-         *  deux choses differentes : « en attente d'un reseau » serait faux
-         *  pendant les 3 a 13 s de recherche du serveur, qui suivent chaque
-         *  appui sur le bouton. */
+         *  `runAttemptCount` vaut 0 tant qu'aucune execution n'a eu lieu :
+         *  c'est le seul signal qui separe « jamais demarre, on attend la
+         *  contrainte » de « deja tente, on attend le delai de reprise ». Si
+         *  WorkManager l'incrementait aussi en replanifiant apres une
+         *  contrainte perdue, le pire serait d'annoncer une nouvelle
+         *  tentative, ce qui reste VRAI — aucune des deux phrases ne peut
+         *  devenir fausse. */
         fun etatTravail(context: Context): Flow<EtatTravail> =
             WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(NOM)
                 .map { infos ->
                     when {
                         infos.any { it.state == WorkInfo.State.RUNNING } ->
                             EtatTravail.EN_COURS
+                        infos.any { !it.state.isFinished && it.runAttemptCount > 0 } ->
+                            EtatTravail.NOUVELLE_TENTATIVE
                         infos.any { !it.state.isFinished } -> EtatTravail.EN_ATTENTE
                         else -> EtatTravail.INACTIF
                     }

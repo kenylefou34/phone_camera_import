@@ -249,6 +249,29 @@ son horizon n'avancera jamais. Les valeurs sont des **timestamps Unix flottants*
 aucun horizon.** Les médias concernés seront reproposés à la synchro suivante,
 et l'anti-doublon écartera sans les transférer ceux qui étaient déjà rangés.
 
+> ⚠️ **Et le fichier fautif, lui, a été DÉTRUIT.** Ce n'est pas un détail de
+> mise en œuvre, c'est la moitié de l'invariante, et c'est elle qui dicte ce que
+> l'application doit faire.
+>
+> `phototheque/app.py` appelle `sessions.cleanup()` — un `shutil.rmtree` sans
+> condition — **avant** de tester `errors`, et `mediasort/sorter.py` n'efface pas
+> ce qu'il n'a pas su ranger : le fichier en échec est encore dans la session
+> quand elle est supprimée. Il n'existe donc plus **nulle part** côté serveur.
+>
+> Conséquence pour l'application, et elle est vitale depuis que la
+> synchronisation est découpée en **paquets** (un `commit` par paquet) : dès
+> qu'un `commit` répond `errors > 0`, elle doit **geler l'horizon de tous les
+> dossiers de ce paquet pour le reste de la synchronisation**. Le serveur ne dit
+> pas *quel* fichier a échoué, et elle n'a rien constaté elle-même — tous ses
+> envois ont reçu un 200. Si un paquet suivant du même dossier faisait avancer
+> l'horizon, le média détruit passerait dessous et ne serait **plus jamais
+> proposé**.
+>
+> Avec un seul `commit` par synchronisation, la question ne se posait pas : la
+> synchro était finie. C'est le découpage qui rend ce gel indispensable. Il est
+> mis en œuvre dans `Orchestrateur.kt` (section rangement) et verrouillé par
+> `un_rangement_rate_par_le_serveur_gele_le_dossier_pour_les_suivants`.
+
 ---
 
 ## 5. ⚠️ Le piège le plus dangereux : l'horizon
