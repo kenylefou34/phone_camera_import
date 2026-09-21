@@ -133,6 +133,11 @@ fusionnée — ce qui reste à faire, de préférence après le déploiement ci-
 - Le NUC héberge aussi **Plex** (snap, port 32400) et l'**UPnP de la box est
   activé** : un programme peut s'ouvrir un accès Internet sans prévenir. Voir la
   mémoire `projet-nuc-exposition-reseau`.
+- **Audit réseau LAN (fait au démarrage du projet, 2026-09-14)** : le **NAS
+  `192.168.1.20` expose du FTP en clair** (ProFTPD) + SMB — identifiants et
+  fichiers non chiffrés sur le LAN. Hors périmètre de l'appli photo (appareil
+  tiers, non reconfigurable par nous). Détail + inventaire des hôtes : mémoire
+  `projet-audit-reseau-lan`.
 - Pas de `curl` sur le NUC ; `sudo` exige un vrai terminal (le canal `!` n'a pas
   de TTY) ; PEP 668 impose le venv.
 
