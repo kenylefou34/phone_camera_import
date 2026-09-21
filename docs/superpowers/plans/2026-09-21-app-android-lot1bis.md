@@ -2343,38 +2343,61 @@ chaque rotation."
 
 ### Task 10 : Recette sur un vrai téléphone
 
-**Files:** aucun — c'est la validation du lot.
+**Files:** aucun — c'est la validation du lot, et elle demande le mainteneur,
+son téléphone et son réseau. Aucun agent ne peut la faire.
 
-- [ ] **Step 1 : Construire et installer**
+**Pourquoi elle pèse lourd :** il n'existe dans ce projet **aucun test
+d'instrumentation Android**. `WorkManager`, le service de premier plan, les
+notifications, le `BroadcastReceiver` et tout Compose ne sont couverts par
+**rien** d'automatique. Les 144 tests ne disent rien de ce qui suit ; les
+relectures ont jugé ces chemins par la lecture, pas par l'exécution.
+
+- [ ] **Step 1 : Construire, envoyer, installer**
 
 ```bash
 cd ~/dev/phone_camera_import
 ./deploy/envoyer-apk.sh
 ```
 
-Puis, sur le téléphone, page d'administration → « Télécharger l'application ».
-Voir `docs/APPLICATION-ANDROID.md` §6 si l'installation coince.
+Puis, sur le téléphone, ouvrir la page d'administration et
+« Télécharger l'application ». Voir `docs/APPLICATION-ANDROID.md` §6 si
+l'installation coince.
+
+**Au premier lancement, Android demande la permission de notifier.**
+Refusez-la exprès une première fois, et vérifiez que la synchronisation
+fonctionne quand même — seul l'affichage écran éteint doit être perdu.
+Réinstallez ou réautorisez ensuite dans les réglages.
 
 - [ ] **Step 2 : L'écran dit enfin quelque chose**
 
-Appuyer sur « Sauvegarder maintenant ». Attendu, **dès les premières
-secondes** : « Analyse en cours », un compteur qui bouge, puis « Sauvegarde en
-cours » avec une vitesse et une destination.
+Appuyer sur « Sauvegarder maintenant ».
 
-**Ce qu'il ne doit PAS y avoir** : une barre qui tourne sans chiffre.
+Attendu, **immédiatement** : « Sauvegarde en cours… », le bouton grisé, et
+« Recherche du serveur sur le réseau… » avec un bouton « Interrompre ». Cette
+phase dure de 3 à 30 s selon le nombre d'adresses candidates.
 
-- [ ] **Step 3 : Poser le téléphone**
+Puis : « Analyse en cours », un compteur, et enfin l'écran d'avancement avec
+vitesse, fichier en cours et **sa destination**.
+
+**Ce qu'il ne doit PAS y avoir** : une barre qui tourne sans chiffre, ni un
+écran strictement immobile après l'appui.
+
+- [ ] **Step 3 : Le dossier absent**
+
+Sur l'écran d'avancement, vérifier la ligne « Dossiers ». `Movies/WhatsApp`
+doit apparaître **en rouge** s'il n'existe pas sur ce téléphone — c'est le
+constat du 21/09 et la première chose à confirmer.
+
+- [ ] **Step 4 : Poser le téléphone**
 
 Éteindre l'écran, attendre cinq minutes, le rallumer. Attendu : la
 synchronisation a **continué**, et la notification affiche l'avancement.
-
-Vérifier côté NUC que ça monte toujours :
 
 ```bash
 ssh izquierdo@192.168.1.21 'find /media/izquierdo/Famille/incoming -type f | wc -l'
 ```
 
-- [ ] **Step 4 : L'horizon avance en cours de route**
+- [ ] **Step 5 : L'horizon avance en cours de route**
 
 Pendant la synchro, après quelques paquets :
 
@@ -2387,49 +2410,117 @@ for _, d, t in c.execute(\"select * from horizons\"):
 "'
 ```
 
-Attendu : des horizons **déjà écrits**, alors que la synchro tourne encore.
-C'est la preuve que le découpage en paquets fonctionne — avant ce lot, rien
-n'apparaissait avant la toute fin.
+Attendu : des horizons **déjà écrits** alors que la synchro tourne encore.
+Avant ce lot, rien n'apparaissait avant la toute fin.
 
-- [ ] **Step 5 : Interrompre**
+- [ ] **Step 6 : Le bouton de la notification**
 
-Appuyer sur « Interrompre » dans la notification. Attendu : arrêt **immédiat**,
-et les paquets déjà validés restent rangés. Rien ne se relance tout seul.
+Écran éteint, dérouler la notification et appuyer sur « Interrompre ».
+Attendu : la synchronisation s'arrête **sans que l'application se rouvre**.
+Ce chemin passe par un `BroadcastReceiver` qui n'a jamais tourné.
 
-Vérifier qu'aucune session n'est restée en plan :
+- [ ] **Step 7 : Interrompre après quelques centaines de fichiers**
+
+Relancer, laisser monter, puis « Interrompre » depuis l'application.
+Attendu : **« Sauvegarde interrompue. »** suivi du **compte réel** des
+fichiers envoyés.
+
+**Ce qu'il ne doit PAS y avoir** : « 0 envoyés · 0 refusés · 0 en échec ».
+C'est le seul moyen de valider que le bilan partiel est bien capturé avant que
+l'annulation soit relayée — la lecture ne peut pas en décider.
+
+- [ ] **Step 8 : Interrompre pendant la découverte**
+
+Relancer et appuyer sur « Interrompre » **dans les toutes premières secondes**,
+avant que l'écran d'avancement apparaisse. Attendu : « Sauvegarde
+interrompue. » là aussi, et pas trois zéros muets.
+
+- [ ] **Step 9 : Interrompre pendant une grosse vidéo — limite connue**
+
+Pendant l'envoi d'un fichier de plusieurs Go, appuyer sur « Interrompre ».
+
+**Attendu, et c'est une limite assumée, pas un défaut à signaler :** l'écran
+revient à l'accueil tout de suite, mais le téléphone **continue de téléverser
+en silence** jusqu'à la fin du fichier en cours. L'appel réseau est bloquant
+et n'est pas annulable en l'état.
+
+```bash
+ssh izquierdo@192.168.1.21 'find /media/izquierdo/Famille/incoming -type f | wc -l'
+```
+
+Le compte peut donc encore monter après l'arrêt. **Reporté au lot 2**,
+volontairement.
+
+- [ ] **Step 10 : Pendant une grosse vidéo, l'écran est figé — limite connue**
+
+Sur un fichier de 3 Go, ni le compteur, ni la barre, ni le débit ne bougent
+pendant 4 à 5 minutes : la progression n'est publiée qu'**entre** deux
+fichiers. **Reporté au lot 2.** Le noter pour ne pas conclure à un plantage.
+
+- [ ] **Step 11 : Couper le Wi-Fi en pleine synchro**
+
+Attendu : pas d'alerte rouge, le **compte réel** des fichiers déjà envoyés, et
+l'accueil qui passe en « En attente d'un réseau… » avec un bouton
+« Interrompre ». Puis, au retour du Wi-Fi, la synchro **repart toute seule**
+(laisser quelques minutes, `WorkManager` applique un délai croissant).
+
+**Ce qu'il ne doit PAS y avoir** : « Sauvegarde interrompue. » — personne n'a
+rien demandé.
+
+- [ ] **Step 12 : Permission retirée en pleine synchro**
+
+Retirer l'accès aux photos dans les réglages Android pendant une synchro.
+
+Attendu : le bandeau « L'application n'a plus accès à vos photos… » et, s'il y
+a une attente, **« Nouvelle tentative programmée… »**.
+
+**Ce qu'il ne doit PAS y avoir** : « En attente d'un réseau… » sous ce bandeau
+— deux messages qui se contredisent, dont un faux.
+
+- [ ] **Step 13 : Révocation, puis réappairage**
+
+Révoquer l'appareil depuis `/devices` **pendant** une synchro. Attendu :
+l'écran d'appairage reprend la main avec son bandeau.
+
+Rescanner un QR, **quitter l'application, la rouvrir**. Attendu : l'accueil
+normal, **sans** bandeau « révoqué ». C'est le correctif du commit `c39d242`,
+jamais exécuté.
+
+- [ ] **Step 14 : Le cinquième message**
+
+Il ne s'affiche que sur l'**écran de détail**, après une synchro **terminée**
+allée au moins jusqu'à l'orchestrateur, et si MediaStore n'a rendu **aucun**
+média. Il n'apparaît **jamais** dans le cas « pas à la maison ».
+
+À connaître pour ne pas conclure à tort que le message est cassé.
+
+- [ ] **Step 15 : Retour et rotation**
+
+Depuis « Voir le détail », appuyer sur retour : on revient à l'accueil,
+**l'application ne se ferme pas**. Tourner l'écran pendant une synchro : on
+reste sur le bon écran.
+
+- [ ] **Step 16 : Le commit long ne ment plus**
+
+Laisser une grosse synchro aller jusqu'au bout. Attendu : **aucun message
+d'échec**, et « Sauvegardé aujourd'hui ». C'est le défaut n° 5, celui qui a
+motivé tout ce lot.
+
+- [ ] **Step 17 : Ramasser derrière**
 
 ```bash
 ssh izquierdo@192.168.1.21 'ls /media/izquierdo/Famille/incoming/'
 ```
 
-Attendu : vide. Tant que le lot serveur (issue #30) n'est pas fait,
-`POST /sync/abandon` répond 404 et le dossier **reste** — c'est normal, le
-noter et le supprimer à la main.
+Chaque interruption laisse une session orpheline : `POST /sync/abandon`
+n'existe pas encore côté serveur (issue #30) et **aucune purge ne tourne**.
+Supprimer à la main ce qui reste.
 
-- [ ] **Step 6 : Le commit long ne ment plus**
-
-Relancer une grosse synchro et la laisser finir. Attendu : **aucun message
-d'échec**, et l'accueil affiche « Sauvegardé aujourd'hui ». C'est le défaut
-n° 5, celui qui a motivé tout ce lot.
-
-- [ ] **Step 7 : Couper le Wi-Fi en pleine synchro**
-
-Attendu : la synchronisation s'arrête sans alerte rouge, et **repart toute
-seule** quand le Wi-Fi revient (laisser quelques minutes : `WorkManager`
-applique un délai croissant).
-
-- [ ] **Step 8 : Le bouton retour**
-
-Depuis « Voir le détail », appuyer sur retour. Attendu : on revient à
-l'accueil. **L'application ne se ferme pas.**
-
-- [ ] **Step 9 : Commit de clôture**
+- [ ] **Step 18 : Commit de clôture**
 
 ```bash
 git commit --allow-empty -m "chore(android): lot 1 bis valide de bout en bout sur telephone reel"
 ```
-
----
 
 ## Ce que ce plan ne fait pas
 
