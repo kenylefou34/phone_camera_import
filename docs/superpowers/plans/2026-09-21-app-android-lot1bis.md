@@ -1865,9 +1865,14 @@ object ServiceSynchro {
         val vitesse = avancement.octetsParSeconde
             ?.let { " · %.1f Mo/s".format(it / 1_048_576.0) } ?: ""
 
-        val arret = PendingIntent.getActivity(
+        // getBroadcast et NON getActivity : la conception veut qu'on puisse
+        // arreter sans rouvrir l'application, et un PendingIntent d'activite
+        // ne delivre meme pas son intent quand la tache existe deja en
+        // arriere-plan — le systeme se contente de la ramener au premier plan.
+        val arret = PendingIntent.getBroadcast(
             context, 0,
-            Intent(context, MainActivity::class.java).setAction(ACTION_INTERROMPRE),
+            Intent(context, RecepteurInterruption::class.java)
+                .setAction(ACTION_INTERROMPRE),
             PendingIntent.FLAG_IMMUTABLE)
 
         val notification = NotificationCompat.Builder(context, CANAL)
@@ -2259,13 +2264,12 @@ Ajouter les imports `androidx.activity.compose.BackHandler`,
 `androidx.compose.runtime.saveable.rememberSaveable`,
 `fr.izquierdo.phototheque.synchro.TravailSynchro`.
 
-Gérer aussi l'action de la notification, en fin de `onCreate` :
-
-```kotlin
-        // Le bouton « Interrompre » de la notification ouvre l'application
-        // avec cette action : sans ce traitement, il ne ferait que la lancer.
-        if (intent?.action == ServiceSynchro.ACTION_INTERROMPRE) modele.interrompre()
-```
+**Ne rien ajouter pour le bouton « Interrompre » de la notification.** Une
+version antérieure de ce plan faisait traiter son action dans `onCreate` ; la
+tâche 8 l'a remplacée par un `BroadcastReceiver`, précisément parce qu'un
+`PendingIntent` d'activité ne délivre pas son intent quand la tâche de
+l'application existe déjà en arrière-plan — le traitement n'aurait jamais
+tourné. L'interruption ne passe plus par l'activité.
 
 - [ ] **Step 9 : Vérifier que tout compile et que les tests passent**
 
