@@ -121,7 +121,15 @@ issues #30 (journal serveur + purge des sessions) et #31 (galerie).
 Prochaine étape : **la recette du lot 1 bis sur un téléphone** (voir REPRISE),
 puis le lot 2 (choix des dossiers dans l'app). Trois issues ouvertes le 21/09 :
 **#29** lot 1 bis (fait, à éprouver), **#30** journal serveur + purge des
-sessions abandonnées, **#31** galerie de consultation (phase 2). Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #27
+sessions abandonnées, **#31** galerie de consultation (phase 2).
+
+**#32 est la plus importante des trois ouvertes ensuite** : le serveur
+**détruit** les médias qu'il n'a pas su ranger, parce que `sessions.cleanup()`
+s'exécute *avant* le test sur `errors`. L'application contourne en gelant
+l'horizon de tout le paquet, mais c'est une ceinture — le fichier, lui, est
+perdu. **#33** porte les deux limites reportées au lot 2 (interruption non
+immédiate et écran figé pendant l'envoi d'un gros fichier), **#34** les
+constats mineurs différés du lot 1 bis. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #27
 (`gh issue list`). Notamment : #4 doublons existants, #5 floues/rafales,
 #6 re-datation, #7 sauvegarde Famille.
 
