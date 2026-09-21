@@ -175,4 +175,24 @@ class ClientServeur(
             }.toMap()
         }
     }
+
+    /**
+     * Demande au serveur d'oublier une session abandonnée.
+     *
+     * **N'échoue jamais.** Deux raisons : la route n'existe pas encore côté
+     * serveur (lot serveur, issue #30), et quand on abandonne c'est souvent
+     * PARCE QUE le réseau est tombé. Un échec ici masquerait l'arrêt que
+     * l'utilisateur vient de demander. Le filet, c'est la purge des sessions
+     * de plus de 24 h côté serveur.
+     */
+    fun abandonner(session: String) {
+        try {
+            val corps = Contrat.json
+                .encodeToString(RequeteAbandon.serializer(), RequeteAbandon(session))
+                .toRequestBody("application/json".toMediaType())
+            http.newCall(requete("/sync/abandon").post(corps).build()).execute().close()
+        } catch (e: Exception) {
+            // Volontairement muet : voir la documentation ci-dessus.
+        }
+    }
 }

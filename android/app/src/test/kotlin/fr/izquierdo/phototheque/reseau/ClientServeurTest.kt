@@ -196,4 +196,30 @@ class ClientServeurTest {
             corps["horizons"]!!.jsonObject["DCIM/Camera"]!!.jsonPrimitive.double,
             0.001)
     }
+
+    @Test fun abandonner_previent_le_serveur() {
+        val serveur = MockWebServer()
+        serveur.enqueue(MockResponse().setBody("""{"supprimes":3,"octets":42}"""))
+        serveur.start()
+        val c = ClientServeur(serveur.url("/").toString().trimEnd('/'), "jeton",
+                              OkHttpClient())
+        c.abandonner("a".repeat(32))
+        val requete = serveur.takeRequest()
+        assertEquals("/sync/abandon", requete.path)
+        assertEquals("POST", requete.method)
+        serveur.shutdown()
+    }
+
+    @Test fun abandonner_ne_leve_jamais() {
+        // La route n'existe pas encore sur le serveur (lot serveur), et quand
+        // on abandonne c'est souvent PARCE QUE le reseau est tombe. Un echec
+        // ici ne doit surtout pas masquer l'arret que l'utilisateur a demande.
+        val serveur = MockWebServer()
+        serveur.enqueue(MockResponse().setResponseCode(404))
+        serveur.start()
+        val c = ClientServeur(serveur.url("/").toString().trimEnd('/'), "jeton",
+                              OkHttpClient())
+        c.abandonner("a".repeat(32))      // ne doit pas lever
+        serveur.shutdown()
+    }
 }

@@ -51,3 +51,7 @@ data class ReponseUpload(val ok: Boolean, val hash: String)
 
 @Serializable
 data class RequeteCommit(val session: String, val horizons: Map<String, Double> = emptyMap())
+
+/** Corps de POST /sync/abandon (lot serveur, issue #30). */
+@Serializable
+data class RequeteAbandon(val session: String)

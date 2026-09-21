@@ -53,11 +53,32 @@ object Decouverte {
 
 object Fabrique {
 
+    /**
+     * Délais communs aux deux clients.
+     *
+     * OkHttp applique 10 s par défaut, y compris en lecture. Le 21/09/2026, le
+     * `commit` d'une session de 971 fichiers et 14 Go a demandé 1 h 02 : le
+     * téléphone a raccroché au bout de dix secondes, affiché « la sauvegarde a
+     * échoué » et laissé le compteur sur « Jamais sauvegardé » — pendant que
+     * le serveur rangeait tout parfaitement. Une réussite annoncée comme une
+     * panne, le contraire exact de ce que la conception garantit.
+     *
+     * 30 min en lecture ne suffiraient PAS pour un commit monolithique : c'est
+     * le découpage en paquets (`synchro.Paquets`) qui borne le travail d'un
+     * commit, le délai ne fait que le protéger.
+     */
+    private fun OkHttpClient.Builder.avecDelais(): OkHttpClient.Builder = this
+        .connectTimeout(10, TimeUnit.SECONDS)
+        // Une video de 3 Go a 12 Mo/s prend plusieurs minutes a ecrire.
+        .writeTimeout(5, TimeUnit.MINUTES)
+        .readTimeout(30, TimeUnit.MINUTES)
+
     /** Client HTTP qui n'accepte QUE le certificat annoncé dans le QR. */
     fun client(charge: ChargeAppairage): OkHttpClient {
         val empreinte = charge.certSha256
             ?: return OkHttpClient.Builder()          // serveur sans TLS
                 .retryOnConnectionFailure(false)      // voir plus bas
+                .avecDelais()
                 .build()
         val gestionnaire = GestionnaireEpingle(empreinte)
         val contexte = SSLContext.getInstance("TLS").apply {
@@ -76,6 +97,7 @@ object Fabrique {
             // OkHttp n'interroge que le corps de plus haut niveau, ici le
             // MultipartBody, qui hérite du défaut false.
             .retryOnConnectionFailure(false)
+            .avecDelais()
             .build()
     }
 
