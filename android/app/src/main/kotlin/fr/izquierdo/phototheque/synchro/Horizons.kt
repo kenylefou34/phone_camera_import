@@ -16,6 +16,15 @@ enum class Issue {
 /** Un envoi tenté, avec la date du média concerné (secondes). */
 data class Envoi(val dossier: String, val instant: Double, val issue: Issue)
 
+/**
+ * Ce que rend [Horizons.calculer] : les horizons à transmettre, et la liste
+ * des dossiers dont l'horizon est GELÉ pour le reste de la synchronisation.
+ */
+data class ResultatHorizons(
+    val horizons: Map<String, Double>,
+    val arretes: Set<String>,
+)
+
 object Horizons {
 
     /**
@@ -27,21 +36,28 @@ object Horizons {
      * l'horizon par-dessus le n° 5, qui ne serait PLUS JAMAIS proposé par le
      * serveur — perte définitive et silencieuse.
      *
-     * Un dossier dont le premier fichier échoue est absent du résultat : son
-     * horizon ne doit pas bouger du tout.
+     * @param dejaArretes les dossiers gelés par les PAQUETS PRÉCÉDENTS de la
+     *   même synchronisation. Sans ce paramètre, le découpage en paquets
+     *   rouvrirait exactement le trou que cette fonction existe pour combler :
+     *   un dossier en échec au paquet 12 verrait son horizon avancer au
+     *   paquet 13, et le fichier fautif serait perdu. L'appelant repasse
+     *   [ResultatHorizons.arretes] d'un paquet au suivant.
+     *
+     * La fonction reste pure : aucun état retenu entre deux appels.
      */
-    fun calculer(envois: List<Envoi>): Map<String, Double> {
+    fun calculer(
+        envois: List<Envoi>,
+        dejaArretes: Set<String> = emptySet(),
+    ): ResultatHorizons {
         val horizons = mutableMapOf<String, Double>()
-        val arretes = mutableSetOf<String>()
+        val arretes = dejaArretes.toMutableSet()
         // Tri par date, puis ECHEC d'abord A DATE EGALE. Deux envois du meme
         // dossier peuvent porter exactement la meme date : DATE_MODIFIED n'a
         // qu'une precision d'une seconde et une rafale en produit plusieurs.
         // Sans ce second critere, `sortedBy` etant un tri STABLE, le resultat
-        // dependrait de l'ordre de la liste d'entree — ce que le test
-        // `l_ordre_de_la_liste_n_influence_pas_le_resultat` pretend justement
-        // exclure. A egalite on retient le cas prudent : l'echec arrete le
-        // dossier, quitte a reproposer quelques fichiers que l'anti-doublon
-        // ecartera sans les transferer.
+        // dependrait de l'ordre de la liste d'entree. A egalite on retient le
+        // cas prudent : l'echec arrete le dossier, quitte a reproposer
+        // quelques fichiers que l'anti-doublon ecartera sans les transferer.
         for (envoi in envois.sortedWith(
             compareBy({ it.instant }, { if (it.issue == Issue.ECHEC) 0 else 1 })
         )) {
@@ -51,6 +67,6 @@ object Horizons {
                 Issue.CONFIRME, Issue.IGNORE -> horizons[envoi.dossier] = envoi.instant
             }
         }
-        return horizons
+        return ResultatHorizons(horizons, arretes)
     }
 }

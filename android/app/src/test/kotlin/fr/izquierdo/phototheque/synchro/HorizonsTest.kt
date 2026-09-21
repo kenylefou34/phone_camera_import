@@ -2,6 +2,7 @@ package fr.izquierdo.phototheque.synchro
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -17,7 +18,7 @@ class HorizonsTest {
             Envoi("DCIM/Camera", 100.0, Issue.CONFIRME),
             Envoi("DCIM/Camera", 200.0, Issue.CONFIRME),
         )
-        assertEquals(mapOf("DCIM/Camera" to 200.0), Horizons.calculer(envois))
+        assertEquals(mapOf("DCIM/Camera" to 200.0), Horizons.calculer(envois).horizons)
     }
 
     @Test fun un_echec_au_milieu_arrete_l_horizon_avant_lui() {
@@ -28,7 +29,7 @@ class HorizonsTest {
             Envoi("DCIM/Camera", 200.0, Issue.ECHEC),
             Envoi("DCIM/Camera", 300.0, Issue.CONFIRME),
         )
-        assertEquals(mapOf("DCIM/Camera" to 100.0), Horizons.calculer(envois))
+        assertEquals(mapOf("DCIM/Camera" to 100.0), Horizons.calculer(envois).horizons)
     }
 
     @Test fun une_extension_refusee_ne_bloque_pas_l_horizon() {
@@ -39,7 +40,7 @@ class HorizonsTest {
             Envoi("DCIM/Camera", 200.0, Issue.IGNORE),
             Envoi("DCIM/Camera", 300.0, Issue.CONFIRME),
         )
-        assertEquals(mapOf("DCIM/Camera" to 300.0), Horizons.calculer(envois))
+        assertEquals(mapOf("DCIM/Camera" to 300.0), Horizons.calculer(envois).horizons)
     }
 
     @Test fun le_premier_fichier_echoue_le_dossier_est_absent_du_resultat() {
@@ -47,7 +48,7 @@ class HorizonsTest {
             Envoi("DCIM/Camera", 100.0, Issue.ECHEC),
             Envoi("DCIM/Camera", 200.0, Issue.CONFIRME),
         )
-        assertFalse("DCIM/Camera" in Horizons.calculer(envois))
+        assertFalse("DCIM/Camera" in Horizons.calculer(envois).horizons)
     }
 
     @Test fun un_dossier_en_echec_n_affecte_pas_les_autres() {
@@ -55,7 +56,7 @@ class HorizonsTest {
             Envoi("DCIM/Camera", 100.0, Issue.ECHEC),
             Envoi("Pictures/WhatsApp", 150.0, Issue.CONFIRME),
         )
-        assertEquals(mapOf("Pictures/WhatsApp" to 150.0), Horizons.calculer(envois))
+        assertEquals(mapOf("Pictures/WhatsApp" to 150.0), Horizons.calculer(envois).horizons)
     }
 
     @Test fun l_ordre_de_la_liste_n_influence_pas_le_resultat() {
@@ -65,11 +66,11 @@ class HorizonsTest {
             Envoi("DCIM/Camera", 100.0, Issue.CONFIRME),
             Envoi("DCIM/Camera", 200.0, Issue.ECHEC),
         )
-        assertEquals(mapOf("DCIM/Camera" to 100.0), Horizons.calculer(envois))
+        assertEquals(mapOf("DCIM/Camera" to 100.0), Horizons.calculer(envois).horizons)
     }
 
     @Test fun aucun_envoi_aucun_horizon() {
-        assertEquals(emptyMap<String, Double>(), Horizons.calculer(emptyList()))
+        assertEquals(emptyMap<String, Double>(), Horizons.calculer(emptyList()).horizons)
     }
 
     @Test fun une_extension_refusee_en_DERNIER_fait_quand_meme_avancer_l_horizon() {
@@ -83,7 +84,7 @@ class HorizonsTest {
             Envoi("DCIM/Camera", 100.0, Issue.CONFIRME),
             Envoi("DCIM/Camera", 200.0, Issue.IGNORE),
         )
-        assertEquals(mapOf("DCIM/Camera" to 200.0), Horizons.calculer(envois))
+        assertEquals(mapOf("DCIM/Camera" to 200.0), Horizons.calculer(envois).horizons)
     }
 
     @Test fun a_date_egale_l_echec_l_emporte_quel_que_soit_l_ordre() {
@@ -94,6 +95,64 @@ class HorizonsTest {
             Horizons.calculer(listOf(confirme, echec)),
             Horizons.calculer(listOf(echec, confirme)))
         // Et c'est la branche prudente qui est retenue : l'horizon n'avance pas.
-        assertFalse("DCIM/Camera" in Horizons.calculer(listOf(confirme, echec)))
+        assertFalse("DCIM/Camera" in Horizons.calculer(listOf(confirme, echec)).horizons)
+    }
+
+    @Test fun un_dossier_deja_arrete_ne_bouge_plus_meme_si_le_paquet_reussit() {
+        // Paquet 12 : DCIM/Camera a echoue. Paquet 13 : il reussit.
+        // Sans memoire entre paquets, l'horizon sauterait PAR-DESSUS le
+        // fichier en echec, qui ne serait PLUS JAMAIS propose par le serveur.
+        val resultat = Horizons.calculer(
+            listOf(Envoi("DCIM/Camera", 3000.0, Issue.CONFIRME)),
+            dejaArretes = setOf("DCIM/Camera"),
+        )
+        assertFalse(resultat.horizons.containsKey("DCIM/Camera"))
+    }
+
+    @Test fun un_dossier_arrete_n_arrete_pas_les_autres() {
+        val resultat = Horizons.calculer(
+            listOf(
+                Envoi("DCIM/Camera", 3000.0, Issue.CONFIRME),
+                Envoi("Pictures/WhatsApp", 3000.0, Issue.CONFIRME),
+            ),
+            dejaArretes = setOf("DCIM/Camera"),
+        )
+        assertFalse(resultat.horizons.containsKey("DCIM/Camera"))
+        assertEquals(3000.0, resultat.horizons["Pictures/WhatsApp"]!!, 0.0)
+    }
+
+    @Test fun les_dossiers_arretes_sont_rendus_pour_le_paquet_suivant() {
+        val resultat = Horizons.calculer(
+            listOf(
+                Envoi("DCIM/Camera", 1000.0, Issue.CONFIRME),
+                Envoi("DCIM/Camera", 2000.0, Issue.ECHEC),
+            ),
+        )
+        assertEquals(setOf("DCIM/Camera"), resultat.arretes)
+        assertEquals(1000.0, resultat.horizons["DCIM/Camera"]!!, 0.0)
+    }
+
+    @Test fun les_arretes_recus_sont_conserves_dans_le_resultat() {
+        // Sans cela, l'appelant qui repasse `resultat.arretes` au paquet
+        // suivant perdrait la memoire des paquets precedents des qu'un paquet
+        // ne contient aucun media du dossier fautif.
+        val resultat = Horizons.calculer(
+            listOf(Envoi("Movies/WhatsApp", 5000.0, Issue.CONFIRME)),
+            dejaArretes = setOf("DCIM/Camera"),
+        )
+        assertTrue(resultat.arretes.contains("DCIM/Camera"))
+    }
+
+    @Test fun un_refus_d_extension_n_arrete_toujours_pas_le_dossier() {
+        // IGNORE n'est pas un echec : bloquer l'horizon dessus fermerait le
+        // dossier a jamais, puisque le serveur refusera toujours ce fichier.
+        val resultat = Horizons.calculer(
+            listOf(
+                Envoi("DCIM/Camera", 1000.0, Issue.IGNORE),
+                Envoi("DCIM/Camera", 2000.0, Issue.CONFIRME),
+            ),
+        )
+        assertEquals(2000.0, resultat.horizons["DCIM/Camera"]!!, 0.0)
+        assertTrue(resultat.arretes.isEmpty())
     }
 }

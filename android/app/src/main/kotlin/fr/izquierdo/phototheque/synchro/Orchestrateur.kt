@@ -105,7 +105,7 @@ class Orchestrateur(
         // TOUJOURS valider, même après un échec ou une révocation : sinon les
         // fichiers déjà reçus resteraient indéfiniment dans le dépôt temporaire
         // du NUC, sans que rien ne les range.
-        val bilanServeur = serveur.commit(reponse.session, Horizons.calculer(envois))
+        val bilanServeur = serveur.commit(reponse.session, Horizons.calculer(envois).horizons)
         return Bilan(envoyes, refuses, echecs, revoque, bilanServeur)
     }
 
