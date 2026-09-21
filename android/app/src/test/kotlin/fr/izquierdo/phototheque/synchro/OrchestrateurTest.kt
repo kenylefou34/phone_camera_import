@@ -18,22 +18,37 @@ class OrchestrateurTest {
         val horizons: Map<String, Double> = emptyMap(),
         val reclame: (List<FichierPlan>) -> List<String> = { f -> f.map { it.hash } },
         val resultats: MutableList<ResultatEnvoi> = mutableListOf(),
+        /** Chemins pour lesquels `envoyer` echoue systematiquement, quel que
+         *  soit le contenu de `resultats` : les deux mecanismes ne se genent
+         *  pas, les anciens tests ne posant jamais celui-ci. */
+        val echouerSur: Set<String> = emptySet(),
     ) : Serveur {
         var horizonsEnvoyes: Map<String, Double>? = null
         var commitAppele = false
+        /** Un element par appel a `commit` : l'orchestrateur en fait un par
+         *  paquet, la ou l'ancien code n'en faisait qu'un pour toute la
+         *  synchronisation. */
+        val commits = mutableListOf<Map<String, Double>>()
+        /** Les sessions que l'orchestrateur a demande d'oublier, suite a une
+         *  interruption en cours de paquet. */
+        val abandons = mutableListOf<String>()
+        private var n = 0
         override fun horizon() = ReponseHorizon(null, horizons)
-        override fun plan(f: List<FichierPlan>) = ReponsePlan("a".repeat(32), reclame(f))
+        override fun plan(f: List<FichierPlan>) = ReponsePlan("%032x".format(++n), reclame(f))
         /** Les empreintes vues par le serveur, dans l'ordre : elles doivent
          *  etre celles que le plan a annoncees, jamais recalculees. */
         val empreintesRecues = mutableListOf<String>()
         override fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long,
                              empreinteAttendue: String): ResultatEnvoi {
             empreintesRecues += empreinteAttendue
+            if (chemin in echouerSur) return ResultatEnvoi.ECHEC
             return if (resultats.isEmpty()) ResultatEnvoi.OK else resultats.removeAt(0)
         }
         override fun commit(session: String, horizons: Map<String, Double>): Map<String, Double> {
-            horizonsEnvoyes = horizons; commitAppele = true; return mapOf("sorted" to 1.0)
+            horizonsEnvoyes = horizons; commitAppele = true; commits += horizons
+            return mapOf("sorted" to 1.0)
         }
+        override fun abandonner(session: String) { abandons += session }
     }
 
     private class FausseSource(val medias: List<Media>) : SourceMedias {
@@ -156,5 +171,105 @@ class OrchestrateurTest {
         assertFalse(
             "l'horizon a saute par-dessus un media illisible : il est perdu",
             "DCIM/Camera" in serveur.horizonsEnvoyes!!)
+    }
+
+    // --- Decoupage en paquets, horizon gele entre paquets, interruption ---
+
+    @Test fun chaque_paquet_est_valide_par_son_propre_commit() {
+        // Trois medias de 400 octets, paquets de 1000 : deux tiennent
+        // ensemble (800), le troisieme fait son propre paquet -> 2 paquets,
+        // 2 commits. (600 octets ne conviendrait pas ici : deux medias de 600
+        // depassent deja 1000 a eux seuls, ce qui forcerait un paquet par
+        // media et romprait l'intention du test.)
+        val medias = (1L..3L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 400, it.toDouble() * 1000)
+        }
+        val serveur = FauxServeur()
+        val bilan = Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertEquals(2, serveur.commits.size)
+        assertEquals(3, bilan.envoyes)
+    }
+
+    @Test fun un_echec_au_premier_paquet_gele_le_dossier_pour_les_suivants() {
+        // LE test qui protege les photos. Le media 1 echoue a l'envoi ; les
+        // medias 2 et 3, chacun dans un paquet suivant (600 octets chacun,
+        // paquets de 1000 : un seul media par paquet), reussissent.
+        // L'horizon de DCIM/Camera ne doit JAMAIS etre transmis, sinon le
+        // media 1 ne sera plus jamais propose par le serveur.
+        val medias = (1L..3L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val serveur = FauxServeur(echouerSur = setOf("DCIM/Camera/m1.jpg"))
+        Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertTrue("aucun commit ne doit porter d'horizon pour ce dossier",
+            serveur.commits.none { it.containsKey("DCIM/Camera") })
+    }
+
+    @Test fun un_dossier_sain_avance_malgre_l_echec_d_un_autre() {
+        val medias = listOf(
+            Media(1, "DCIM/Camera", "m1.jpg", 600, 1000.0),
+            Media(2, "Pictures/WhatsApp", "w2.jpg", 600, 2000.0),
+        )
+        val serveur = FauxServeur(echouerSur = setOf("DCIM/Camera/m1.jpg"))
+        Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+            .synchroniser(setOf("DCIM/Camera", "Pictures/WhatsApp"))
+        assertTrue(serveur.commits.any { it.containsKey("Pictures/WhatsApp") })
+    }
+
+    @Test fun une_interruption_arrete_net_et_garde_les_paquets_valides() {
+        // 600 octets par media, paquets de 1000 : un seul media par paquet.
+        // Le premier appel a `interrompu` sert la verification du paquet 1,
+        // le second l'envoi de son unique media (les deux doivent laisser
+        // passer pour que ce paquet se termine et soit valide) ; le
+        // troisieme, celui qui arrete tout, doit tomber PENDANT le paquet 2
+        // (sur l'envoi de son media) et non avant lui, sinon le serveur
+        // n'aurait jamais de session a abandonner (voir le test suivant).
+        val medias = (1L..4L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val serveur = FauxServeur()
+        var appels = 0
+        val bilan = Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+            .synchroniser(setOf("DCIM/Camera"), interrompu = { appels++ >= 3 })
+        assertTrue(bilan.interrompu)
+        assertTrue("les paquets deja valides restent acquis",
+                   serveur.commits.isNotEmpty())
+    }
+
+    @Test fun une_interruption_previent_le_serveur_du_paquet_abandonne() {
+        val medias = (1L..4L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val serveur = FauxServeur()
+        var appels = 0
+        Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+            .synchroniser(setOf("DCIM/Camera"), interrompu = { appels++ >= 3 })
+        assertTrue(serveur.abandons.isNotEmpty())
+    }
+
+    @Test fun l_avancement_est_publie_avec_la_destination_prevue() {
+        val medias = listOf(
+            Media(1, "DCIM/Camera", "v.mp4", 600, 1759000102.0, estVideo = true))
+        val vus = mutableListOf<Avancement>()
+        Orchestrateur(FausseSource(medias), FauxServeur(), taillePaquet = 1000,
+                      surAvancement = { vus += it })
+            .synchroniser(setOf("DCIM/Camera"))
+        assertTrue("une phase d'analyse doit etre publiee",
+                   vus.any { it.phase == Phase.ANALYSE })
+        assertTrue("la destination prevue doit apparaitre",
+            vus.any { it.destinationPrevue == "Videos/2025/09 SEPTEMBRE" })
+    }
+
+    @Test fun l_avancement_final_annonce_le_total_en_octets() {
+        val medias = (1L..3L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val vus = mutableListOf<Avancement>()
+        Orchestrateur(FausseSource(medias), FauxServeur(), taillePaquet = 1000,
+                      surAvancement = { vus += it })
+            .synchroniser(setOf("DCIM/Camera"))
+        assertEquals(1800L, vus.last().octetsTotal)
     }
 }

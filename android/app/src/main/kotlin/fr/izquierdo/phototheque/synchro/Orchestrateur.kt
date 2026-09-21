@@ -21,6 +21,8 @@ interface Serveur {
     fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long,
                 empreinteAttendue: String): ResultatEnvoi
     fun commit(session: String, horizons: Map<String, Double>): Map<String, Double>
+    /** Oublie une session abandonnée. N'échoue jamais — voir ClientServeur. */
+    fun abandonner(session: String)
 }
 
 data class Bilan(
@@ -29,6 +31,9 @@ data class Bilan(
     val echecs: Int,
     val revoque: Boolean,
     val bilanServeur: Map<String, Double>,
+    /** L'utilisateur a demandé l'arrêt. Ce n'est PAS un échec, et ça ne doit
+     *  ni déclencher d'alerte ni provoquer de reprise automatique. */
+    val interrompu: Boolean = false,
 )
 
 /**
@@ -39,74 +44,128 @@ data class Bilan(
 class Orchestrateur(
     private val source: SourceMedias,
     private val serveur: Serveur,
+    private val taillePaquet: Long = Paquets.TAILLE_MAX_OCTETS,
+    private val horloge: () -> Long = System::currentTimeMillis,
+    private val surAvancement: (Avancement) -> Unit = {},
 ) {
-    fun synchroniser(dossiersChoisis: Set<String>): Bilan {
+    fun synchroniser(
+        dossiersChoisis: Set<String>,
+        interrompu: () -> Boolean = { false },
+    ): Bilan {
         val etat = serveur.horizon()
         val depuis = etat.depuis?.let { jourVersSecondes(it) }
-        val candidats = Selection.candidats(source.lister(), dossiersChoisis, etat.dossiers, depuis)
+        val tous = source.lister()
+        val candidats = Selection.candidats(tous, dossiersChoisis, etat.dossiers, depuis)
+        val lots = Paquets.decouper(candidats, taillePaquet)
 
-        var envoyes = 0; var refuses = 0; var echecs = 0; var revoque = false
-        val envois = mutableListOf<Envoi>()
+        val octetsTotal = candidats.sumOf { it.taille }
+        val dossiersVus = tous.groupingBy { it.dossier }.eachCount()
+        val debit = Debit()
+        debit.ajouter(0L, horloge())
 
-        // Un media devenu illisible est ECARTE du lot plutot que de faire
-        // echouer toute la synchronisation. Mais il entre quand meme dans
-        // `envois` avec une issue ECHEC : sans cette entree, Horizons.calculer
-        // ne le verrait pas, l'horizon du dossier sauterait PAR-DESSUS lui, et
-        // il serait perdu definitivement et en silence des la synchro suivante.
-        // L'omettre simplement rouvrirait le trou que Horizons.calculer existe
-        // pour combler.
-        val empreintes = mutableMapOf<Media, String>()
-        val lisibles = mutableListOf<Media>()
-        for (media in candidats) {
-            try {
-                empreintes[media] = Empreintes.sha256(source.ouvrir(media))
-                lisibles += media
-            } catch (e: Exception) {
-                echecs++
-                envois += Envoi(media.dossier, media.instant, Issue.ECHEC)
-            }
+        var envoyes = 0; var refuses = 0; var echecs = 0
+        var revoque = false; var arrete = false
+        var octetsFaits = 0L; var fichiersFaits = 0
+        // L'ensemble des dossiers geles traverse TOUS les paquets. Le remettre
+        // a zero a chaque paquet ferait avancer l'horizon par-dessus un
+        // fichier en echec du paquet precedent : perte definitive.
+        var arretes = emptySet<String>()
+        var bilanServeur = emptyMap<String, Double>()
+        var paquetsValides = 0
+
+        fun publier(phase: Phase, media: Media? = null) {
+            surAvancement(Avancement(
+                phase = phase,
+                fichiersFaits = fichiersFaits, fichiersTotal = candidats.size,
+                octetsFaits = octetsFaits, octetsTotal = octetsTotal,
+                octetsParSeconde = debit.octetsParSeconde(),
+                secondesRestantes = debit.secondesRestantes(octetsTotal - octetsFaits),
+                mediaEnCours = media?.chemin,
+                tailleEnCours = media?.taille,
+                destinationPrevue = media?.let {
+                    Destination.dossier(it.instant, it.estVideo, it.chemin)
+                },
+                paquetCourant = paquetsValides + 1,
+                paquetsValides = paquetsValides,
+                dossiersVus = dossiersVus,
+            ))
         }
 
-        val reponse = serveur.plan(lisibles.map {
-            FichierPlan(it.chemin, it.taille, empreintes.getValue(it))
-        })
-        val reclamees = reponse.needed.toSet()
+        publier(Phase.ANALYSE)
 
-        for (media in lisibles) {                        // déjà triés par date croissante
-            val empreinte = empreintes.getValue(media)
-            if (empreinte !in reclamees) {
-                // Déjà chez le serveur : rien à transférer, mais l'horizon peut
-                // passer par-dessus en toute sécurité.
-                envois += Envoi(media.dossier, media.instant, Issue.CONFIRME)
-                continue
-            }
-            // L'ouverture ET l'envoi sont proteges ensemble. ContentResolver
-            // peut lever si le media a ete supprime ou deplace entre le listing
-            // et maintenant — banal sur un telephone. Sans ce filet, l'exception
-            // remonterait hors de synchroniser() et le commit ne serait JAMAIS
-            // appele : les fichiers deja recus resteraient indefiniment dans le
-            // depot temporaire du NUC, sans que rien ne les range.
-            val issue = try {
-                when (serveur.envoyer(reponse.session, media.chemin,
-                                      source.ouvrir(media), media.taille, empreinte)) {
-                    ResultatEnvoi.OK -> { envoyes++; Issue.CONFIRME }
-                    ResultatEnvoi.EXTENSION_REFUSEE -> { refuses++; Issue.IGNORE }
-                    ResultatEnvoi.ECHEC -> { echecs++; Issue.ECHEC }
-                    ResultatEnvoi.REVOQUE -> { revoque = true; null }
+        for (lot in lots) {
+            if (interrompu() || revoque) { arrete = true; break }
+
+            // --- analyse : empreintes du paquet SEULEMENT ---
+            val envois = mutableListOf<Envoi>()
+            val empreintes = mutableMapOf<Media, String>()
+            val lisibles = mutableListOf<Media>()
+            for (media in lot) {
+                publier(Phase.ANALYSE, media)
+                try {
+                    empreintes[media] = Empreintes.sha256(source.ouvrir(media))
+                    lisibles += media
+                } catch (e: Exception) {
+                    // Ecarte du lot, mais INSCRIT comme echec : sans cette
+                    // entree, Horizons.calculer ne le verrait pas, l'horizon
+                    // sauterait par-dessus lui, et il serait perdu.
+                    echecs++
+                    envois += Envoi(media.dossier, media.instant, Issue.ECHEC)
                 }
-            } catch (e: Exception) {
-                echecs++
-                Issue.ECHEC
             }
-            if (issue == null) break          // revoque : on arrete la boucle
-            envois += Envoi(media.dossier, media.instant, issue)
+
+            val reponse = serveur.plan(lisibles.map {
+                FichierPlan(it.chemin, it.taille, empreintes.getValue(it))
+            })
+            val reclamees = reponse.needed.toSet()
+
+            // --- envoi ---
+            var abandonne = false
+            for (media in lisibles) {
+                if (interrompu()) { abandonne = true; arrete = true; break }
+                publier(Phase.ENVOI, media)
+                val empreinte = empreintes.getValue(media)
+                if (empreinte !in reclamees) {
+                    envois += Envoi(media.dossier, media.instant, Issue.CONFIRME)
+                    fichiersFaits++; octetsFaits += media.taille
+                    debit.ajouter(octetsFaits, horloge())
+                    continue
+                }
+                val issue = try {
+                    when (serveur.envoyer(reponse.session, media.chemin,
+                                          source.ouvrir(media), media.taille, empreinte)) {
+                        ResultatEnvoi.OK -> { envoyes++; Issue.CONFIRME }
+                        ResultatEnvoi.EXTENSION_REFUSEE -> { refuses++; Issue.IGNORE }
+                        ResultatEnvoi.ECHEC -> { echecs++; Issue.ECHEC }
+                        ResultatEnvoi.REVOQUE -> { revoque = true; null }
+                    }
+                } catch (e: Exception) {
+                    echecs++
+                    Issue.ECHEC
+                }
+                if (issue == null) break          // revoque : on arrete la boucle
+                envois += Envoi(media.dossier, media.instant, issue)
+                fichiersFaits++; octetsFaits += media.taille
+                debit.ajouter(octetsFaits, horloge())
+            }
+
+            if (abandonne) {
+                // Arret immediat : le paquet en cours est jete. On previent au
+                // mieux ; la purge des 24 h cote serveur est le filet.
+                serveur.abandonner(reponse.session)
+                break
+            }
+
+            // --- rangement ---
+            publier(Phase.RANGEMENT)
+            val resultat = Horizons.calculer(envois, arretes)
+            arretes = resultat.arretes
+            bilanServeur = serveur.commit(reponse.session, resultat.horizons)
+            paquetsValides++
         }
 
-        // TOUJOURS valider, même après un échec ou une révocation : sinon les
-        // fichiers déjà reçus resteraient indéfiniment dans le dépôt temporaire
-        // du NUC, sans que rien ne les range.
-        val bilanServeur = serveur.commit(reponse.session, Horizons.calculer(envois).horizons)
-        return Bilan(envoyes, refuses, echecs, revoque, bilanServeur)
+        publier(Phase.RANGEMENT)
+        return Bilan(envoyes, refuses, echecs, revoque, bilanServeur, arrete)
     }
 
     /**
