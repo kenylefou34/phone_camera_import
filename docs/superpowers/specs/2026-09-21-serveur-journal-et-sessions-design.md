@@ -15,6 +15,13 @@ fichiers et 14 Go. Elle s'est parfaitement rangée. Mais :
 - **le serveur ne s'en souvient pas** — rien, nulle part, ne dit qu'une
   synchronisation a eu lieu.
 
+Vérifié après coup, et pire que prévu : ce commit-là n'apparaît **même pas
+dans `journalctl`**. uvicorn journalise une requête au moment où il y répond ;
+le client ayant raccroché, la ligne n'a jamais été écrite. Le travail, lui, a
+bien eu lieu — 953 médias rangés, horizons avancés, dépôt vidé — en 1 h 02 min
+dont il ne reste aucune trace. `grep sync/commit` sur le journal ne prouve
+donc strictement rien, et c'est précisément le trou que ce lot comble.
+
 Ces deux faits se répondent. Quand le téléphone perd la réponse, le serveur doit
 pouvoir la donner. Aujourd'hui il ne le peut pas : le catalogue connaît les
 empreintes, la base des appareils connaît les horizons, et `journalctl` n'a que

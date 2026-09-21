@@ -241,9 +241,15 @@ rangés qu'au **`commit`**, à la toute fin.
 
 **Le défaut le plus déroutant, constaté le 2026-09-21.** Le client HTTP est
 construit sans délai explicite, donc avec les **10 secondes par défaut**
-d'OkHttp. Or trier une grosse session peut demander vingt minutes : le
-téléphone raccroche, affiche un échec, et laisse le compteur sur « Jamais
-sauvegardé » — pendant que le serveur range tout parfaitement.
+d'OkHttp. Or trier une grosse session peut demander **plus d'une heure** —
+1 h 02 mesurée le 21/09 pour 971 fichiers et 14 Go. Le téléphone raccroche,
+affiche un échec, et laisse le compteur sur « Jamais sauvegardé » — pendant que
+le serveur range tout parfaitement.
+
+Pire : ce commit-là **ne laisse aucune trace dans `journalctl`**. uvicorn
+journalise une requête quand il y répond ; le client étant parti, la ligne
+n'est jamais écrite. Chercher `sync/commit` dans le journal ne prouve donc
+rien.
 
 **Comment trancher :** regarder le NUC, pas le téléphone.
 

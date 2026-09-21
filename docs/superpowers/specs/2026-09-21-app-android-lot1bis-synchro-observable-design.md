@@ -31,7 +31,7 @@ Les cinq défauts, mesurés :
 | 2 | **Une phase muette au démarrage.** Le téléphone hache tous les candidats avant de pouvoir demander un plan. Rien ne part sur le réseau pendant ce temps. | `09:53:40` → `09:55:48`, soit **2 min 08 s** |
 | 3 | **On ne peut pas arrêter.** Aucun bouton. Fermer l'application abandonne tout : pas de `commit`, rien de rangé, l'horizon n'avance pas. | 14 Go auraient été perdus |
 | 4 | **L'application meurt si on lâche le téléphone.** La synchro vit dans le `viewModelScope` de l'activité. Ni service de premier plan, ni `WorkManager`. | écran éteint = synchro tuée |
-| 5 | **Un commit long expire, et la réussite est annoncée comme une panne.** `OkHttpClient.Builder()` est construit sans aucun délai : OkHttp applique 10 s. Le tri de 14 Go en a demandé plus de vingt minutes. | l'app a dit « échec », le serveur a tout rangé |
+| 5 | **Un commit long expire, et la réussite est annoncée comme une panne.** `OkHttpClient.Builder()` est construit sans aucun délai : OkHttp applique 10 s. Le tri de 14 Go en a demandé **1 h 02 min**. | l'app a dit « échec », le serveur a tout rangé |
 
 Le défaut 5 est le plus grave, parce qu'il est le contraire exact de ce que la
 conception d'origine cherche à garantir. Le lot 1 s'était donné pour fil
@@ -243,11 +243,14 @@ avec les 10 s par défaut d'OkHttp. Valeurs retenues :
 | connexion | 10 s | Sur le LAN, au-delà c'est que le serveur n'est pas là. |
 | `horizon`, `plan` | 30 s | Le serveur interroge le catalogue ; c'est rapide mais pas instantané. |
 | `upload` (écriture) | 5 min par bloc | Une vidéo de 3 Go à 12 Mo/s prend plusieurs minutes. |
-| `commit` (lecture) | **30 min** | Mesuré le 21/09 : trier 971 fichiers et 14 Go sur le disque NTFS a demandé plus de vingt minutes, à 5,5 Mo/s. |
+| `commit` (lecture) | **30 min** | Mesuré le 21/09 : trier 971 fichiers et 14 Go sur le disque NTFS a demandé **1 h 02 min** (10:19:24 → 11:22:04), soit 3,8 Mo/s de bout en bout. Ce délai de 30 min n'est donc **pas** dimensionné pour un commit monolithique : il ne tient que parce que les paquets bornent le travail d'un commit. |
 
-Le découpage en paquets rend ce dernier délai beaucoup moins critique — un
-paquet de 500 Mo se trie en moins de deux minutes — mais il doit rester généreux :
-un seul fichier peut faire 900 Mo, et rien n'interdit au disque d'être occupé.
+Le découpage en paquets est ce qui rend ce dernier délai tenable : à 3,8 Mo/s,
+un paquet de 500 Mo se trie en un peu plus de deux minutes, contre 1 h 02 pour
+la session entière du 21/09. **Sans les paquets, aucun délai raisonnable ne
+suffirait** — c'est le découpage qui règle le problème, le délai ne fait que le
+borner. Il doit rester généreux : un seul fichier peut faire 900 Mo, et rien
+n'interdit au disque d'être occupé.
 
 **Un commit ne doit jamais être considéré comme échoué tant qu'on n'en a pas la
 preuve.** C'est la leçon du 21/09.
