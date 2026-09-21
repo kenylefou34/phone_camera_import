@@ -2191,7 +2191,13 @@ dernier bilan :
                 _etat.value = base.copy(
                     serveurIntrouvable = issue.serveurIntrouvable,
                     erreur = issue.erreur,
-                    revoque = issue.revoque,
+                    // Meme source de verite qu'`appaire`, et pour la meme
+                    // raison : lire `issue.revoque` seul rejouerait une
+                    // revocation perimee apres un rescan de QR, et afficherait
+                    // le bandeau « revoque » sur un telephone fraichement
+                    // reappaire. Une revocation reelle vide le coffre AVANT de
+                    // publier l'issue, donc coffre vide = revocation en cours.
+                    revoque = issue.revoque && coffre.charge() == null,
                     // La verite vient du COFFRE, pas de l'issue. `derniereIssue`
                     // est un StateFlow de companion object : apres un rescan de
                     // QR suivi d'une reouverture de l'application, le nouveau
