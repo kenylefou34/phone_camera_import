@@ -51,7 +51,7 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   une attente qui double (2, 4, 8 s…) plafonnée à 60 s, et surtout un refus
   **sans calcul d'empreinte** (~38 ms → ~2 ms). Compteur en mémoire : un
   `systemctl restart phototheque` le remet à zéro si on se bloque soi-même.
-  **233 tests**.
+  **243 tests** côté serveur.
 - ✅ **Contrat serveur de l'app écrit** (issue #15) : `docs/CONTRAT-APP.md`,
   exemples **capturés sur un échange réel**. La section 6 de la spec y renvoie.
 - ✅ **Sous-projet 3, lot 1 de l'application Android ÉCRIT** (issue #12) :
@@ -98,12 +98,26 @@ permission retirée, serveur en erreur de rangement, aucun dossier trouvé.
 l'app) — attention, le lot 2 supprime la protection accidentelle qui masque
 aujourd'hui le cas du dossier vide.
 
+**Décision en suspens depuis le 17/09, jamais tranchée** : deux sauvegardes
+dorment sur le NUC, créées avant des opérations lourdes et devenues inutiles si
+tout va bien. Les garder ou les supprimer est au mainteneur, pas à un agent.
+- `~/mediasort_catalog.db.avant-signatures` (12 Mo) — état du catalogue d'avant
+  le rattrapage des signatures du 17/09 au matin, qui s'est bien passé.
+- `~/phototheque_devices.db.vide-20260917-134451` (16 Ko) — base d'appairage
+  vide mise de côté par `install.sh` lors du renommage.
+
 ## Feuille de route (issues GitHub)
 Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
 dossiers, client d'upload) — commencer par #15, qui fige le contrat qu'elle
-codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #24
+codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #26
 (`gh issue list`). Notamment : #4 doublons existants, #5 floues/rafales,
 #6 re-datation, #7 sauvegarde Famille.
+
+**Les constats mineurs différés ne vivent plus dans un journal de session** :
+#24 pour le lot Android, **#26 pour le lot serveur** (transport/auth/horizon du
+17/09 — ils n'avaient aucune trace jusqu'au 21/09). Le seul qui ait *gagné* en
+portée depuis son signalement est le court-circuit temporel sur le nom
+d'utilisateur, devenu un secret partiel depuis `identifiants.sh`.
 
 Le travail de #2, #3, #10, #14, #15, #19 et #21 est **fait** ; #12 est écrit mais pas éprouvé (#8, #9 et #11 sont fermées), mais
 ces quatre-là **apparaissent encore ouvertes sur GitHub** : leurs commits portent
@@ -169,6 +183,25 @@ fusionnée — ce qui reste à faire, de préférence après le déploiement ci-
   **par mutation** : casser volontairement le code et vérifier que c'est bien ce
   test-là qui tombe. Plusieurs faux verts ont été attrapés ainsi le 18/09
   (script absent → code 127, propriétés déjà vraies avant correctif).
+
+**Outillage (ça a déjà coûté une demi-heure chacun)**
+- **`pgrep -f "motif"` se trouve lui-même** : la ligne de commande du shell qui
+  l'exécute contient le motif. Une boucle `until ! pgrep -f "…"` ne sort donc
+  JAMAIS. C'est ce qui a fait croire, le 17/09, qu'un rattrapage de signatures
+  tournait encore alors qu'il était fini depuis vingt minutes. Filtrer sur le
+  vrai processus (`pgrep -f "python3 -m mediasort"`) ou exclure son propre PID.
+- **Chromium est confiné (snap)** : il n'écrit une capture que sous
+  `/home/invisart`, et **pas dans un dossier caché**. Viser le répertoire
+  scratchpad ou `~/.quelquechose` échoue avec « Permission denied » ou
+  « No such file or directory ». Passer par `~/un-dossier-visible/`, puis
+  nettoyer.
+- **`gh pr edit` est cassé sur ce dépôt** : il interroge l'API « Projects
+  classic », supprimée par GitHub, et échoue sans rien modifier. Pour changer le
+  titre ou le corps d'une PR, passer par l'API REST :
+  `gh api "repos/$REPO/pulls/13" -X PATCH -F body=@fichier.md -f title="…"`.
+- **Extrapoler une durée sur un échantillon pris dans l'ordre de la base est
+  faux** : 200 médias avaient annoncé 1 h pour le rattrapage des signatures, il
+  a pris 16 min (les gros fichiers sont regroupés en tête).
 
 **Conventions**
 - Les messages de commit du dépôt sont **sans accents** (sujet et corps).
