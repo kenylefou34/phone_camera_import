@@ -85,6 +85,10 @@ def _client(tmp_path, monkeypatch):
     monkeypatch.setenv("CATALOG_DB", str(tmp_path / "cat.db"))
     monkeypatch.setenv("INCOMING_DIR", str(tmp_path / "incoming"))
     monkeypatch.setenv("DEVICES_DB", str(tmp_path / "dev.db"))
+    # Sans cette ligne, config.APK_FILE resterait ~/.local/share/phototheque :
+    # le résultat des tests dépendrait de ce qui traîne dans le dossier
+    # personnel de celui qui les lance.
+    monkeypatch.setenv("APK_FILE", str(tmp_path / "app.apk"))
     import phototheque.config as c; importlib.reload(c)
     import phototheque.app as a; importlib.reload(a)
     return a, TestClient(a.app)
@@ -296,7 +300,7 @@ def test_pair_sans_certificat_ne_casse_pas(tmp_path, monkeypatch):
     assert client.get("/pair", headers=entetes).status_code == 200
 
 
-ADRESSES_ADMIN = ["/", "/pair", "/devices"]
+ADRESSES_ADMIN = ["/", "/pair", "/devices", "/apk"]
 
 
 def _avec_admin(tmp_path, monkeypatch, mot_de_passe="secret-admin"):
@@ -329,6 +333,11 @@ def test_revocation_exige_un_mot_de_passe(tmp_path, monkeypatch):
 @pytest.mark.parametrize("adresse", ADRESSES_ADMIN)
 def test_le_bon_mot_de_passe_ouvre_l_admin(adresse, tmp_path, monkeypatch):
     entetes = _avec_admin(tmp_path, monkeypatch)
+    # /apk ne sert pas une page mais un fichier : sans dépôt il répond
+    # légitimement 404. On en dépose donc un, pour que ce test mesure bien ce
+    # qu'il prétend mesurer — l'authentification — et pas l'absence d'APK.
+    if adresse == "/apk":
+        (tmp_path / "app.apk").write_bytes(b"PK\x03\x04")
     a, client = _client(tmp_path, monkeypatch)
     assert client.get(adresse, headers=entetes).status_code == 200, adresse
 

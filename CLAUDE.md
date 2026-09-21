@@ -60,9 +60,12 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   `docs/superpowers/plans/2026-09-18-app-android-lot1.md`.
   **Jamais essayé sur un vrai téléphone** — c'est la tâche 15 du plan, et elle
   reste à faire (voir la section REPRISE).
-  Outillage local : JDK 17 et SDK Android sous `~/outils/`, sans sudo.
-  Lancer les tests : `cd android && JAVA_HOME=~/outils/jdk17 ./gradlew testDebugUnitTest`
+  **Mode d'emploi complet, rejouable depuis zéro : `docs/APPLICATION-ANDROID.md`**
+  (outillage sans sudo, compilation, dépôt de l'APK, installation, appairage,
+  dépannage). Tests : `cd android && JAVA_HOME=~/outils/jdk17 ./gradlew testDebugUnitTest`
   (⚠️ `./gradlew test --tests` échoue : utiliser `testDebugUnitTest --tests`).
+  L'APK se dépose sur le NUC par `./deploy/envoyer-apk.sh` et se télécharge
+  depuis la page d'admin, derrière le mot de passe.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 

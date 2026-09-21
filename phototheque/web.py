@@ -196,8 +196,58 @@ def _jauge_disque(disk: dict) -> str:
     )
 
 
-def admin_html(devices: list, disk: dict, media: dict) -> str:
-    """Page d'administration : chiffres clés, occupation disque, appareils."""
+def _bloc_apk(apk: dict | None) -> str:
+    """Section « Application Android » de la page d'administration.
+
+    Le cas « rien de déposé » a son propre texte, qui dit la commande à lancer.
+    Une section vide, ou pire absente, laisserait croire que la fonction
+    n'existe pas — alors qu'il manque seulement un envoi depuis la machine de
+    compilation.
+    """
+    if apk is None:
+        return (
+            '<h2>Application Android</h2>'
+            '<div class="carte"><p class="vide">Aucune application déposée '
+            'sur ce serveur.</p>'
+            '<p class="vide">Depuis la machine de compilation : '
+            "<code>./deploy/envoyer-apk.sh</code></p></div>"
+        )
+
+    version = html.escape(str(apk.get("version") or "version inconnue"))
+    code = apk.get("version_code")
+    if code is not None:
+        version += f" (code {html.escape(str(code))})"
+    construit = apk.get("construit_le") or apk.get("depose_le")
+    # L'empreinte complète est illisible et inutile à l'œil ; les douze
+    # premiers caractères suffisent à comparer deux dépôts, et l'attribut
+    # `title` garde la valeur entière pour qui veut la copier.
+    sha = html.escape(str(apk.get("sha256") or ""))
+    trace = (f'<p class="quand" title="{sha}">SHA-256 : {sha[:12]}…</p>'
+             if sha else "")
+
+    return (
+        '<h2>Application Android</h2>'
+        '<div class="carte">'
+        f'<p><span class="nom">{version}</span></p>'
+        f'<p class="quand">{_go(apk["octets"])} · déposée le '
+        f"{_date(str(construit))}</p>"
+        f"{trace}"
+        '<p><a class="bouton principal" href="/apk">Télécharger l\'application'
+        "</a></p>"
+        '<p class="quand">Le téléphone doit autoriser l\'installation depuis '
+        "cette source. Ouvrez cette page <em>depuis le téléphone</em>.</p>"
+        "</div>"
+    )
+
+
+def admin_html(devices: list, disk: dict, media: dict,
+               apk: dict | None = None) -> str:
+    """Page d'administration : chiffres clés, occupation disque, appareils.
+
+    `apk` est facultatif : les appels historiques à trois arguments — et les
+    tests qui les utilisent — continuent de fonctionner, la section
+    « Application Android » affichant alors qu'aucun dépôt n'a eu lieu.
+    """
     if devices:
         lignes = "".join(
             '<li><span class="nom">{label}</span>'
@@ -229,6 +279,7 @@ def admin_html(devices: list, disk: dict, media: dict) -> str:
         f'<div class="carte"><ul class="appareils">{lignes}</ul></div>'
         '<h2>Ajouter un téléphone</h2>'
         '<a class="bouton principal" href="/pair">Afficher le QR d\'appairage</a>'
+        f"{_bloc_apk(apk)}"
         "<script>"
         "function revoquer(id){"
         "if(!confirm('Révoquer cet appareil ?'))return;"

@@ -10,14 +10,14 @@ from pathlib import Path
 
 from fastapi import (Depends, FastAPI, File, Form, Header, HTTPException,
                      Request, UploadFile)
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from mediasort import classify
 from mediasort.catalog import Catalog
 from mediasort.hashing import file_hash
-from . import (adminauth, config, essais, ingest, pairing, sessions, stats,
-               tls, web)
+from . import (adminauth, apk, config, essais, ingest, pairing, sessions,
+               stats, tls, web)
 from .devices import DeviceStore
 
 # docs_url/redoc_url/openapi_url à None = les routes n'existent pas du tout,
@@ -408,4 +408,28 @@ def pair_depuis(depuis: str = Form(...), _: None = Depends(require_admin)) -> st
 @app.get("/", response_class=HTMLResponse)
 def admin(_: None = Depends(require_admin)) -> str:
     d = stats.disk_stats(config.LIBRARY_DIR)
-    return web.admin_html(devices().list(), d, _media_counts())
+    return web.admin_html(devices().list(), d, _media_counts(),
+                          apk.infos(config.APK_FILE))
+
+
+@app.get("/apk")
+def apk_telecharger(_: None = Depends(require_admin)) -> FileResponse:
+    """Sert l'APK déposé par deploy/envoyer-apk.sh.
+
+    Derrière le mot de passe, comme le reste de l'administration. Le binaire
+    n'a rien de secret — il est inutilisable sans un QR d'appairage — mais un
+    service qui distribue un exécutable à tout le réseau sans rien demander
+    reste une porte qu'on n'a aucune raison d'ouvrir.
+
+    Le 404 explique quoi faire : sans cela, un service fraîchement installé
+    répondrait « non trouvé » et donnerait l'impression que la fonction est
+    cassée, alors qu'il manque seulement un dépôt.
+    """
+    vu = apk.infos(config.APK_FILE)
+    if vu is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Aucune application déposée sur ce serveur. Lancez "
+                   "./deploy/envoyer-apk.sh depuis la machine de compilation.")
+    return FileResponse(config.APK_FILE, media_type=apk.TYPE_MIME,
+                        filename=apk.nom_de_telechargement(vu))

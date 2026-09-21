@@ -797,3 +797,54 @@ def test_identifiants_affiche_fidelement_un_nom_contenant_un_espace(tmp_path):
     r2, _ = lancer_identifiants(tmp_path, ["un-mot-de-passe-solide"] * 2, identifiant="")
     assert "ken izq" in r2.stdout + r2.stderr, (
         f"nom deforme a l'affichage : {r2.stdout!r}")
+
+
+# --------------------------------------------- version lue dans le gradle
+
+def test_version_depuis_gradle_lit_le_nom_et_le_code(tmp_path):
+    gradle = tmp_path / "build.gradle.kts"
+    gradle.write_text('android {\n  defaultConfig {\n'
+                      '    versionCode = 7\n    versionName = "1.2.3"\n  }\n}\n')
+    code, sortie = appeler("version_depuis_gradle", str(gradle))
+    assert code == 0 and sortie == "1.2.3 7"
+
+
+def test_version_depuis_gradle_sans_fichier_ne_fait_pas_echouer(tmp_path):
+    """Le script appelant tourne sous `set -e` : un repli doit rendre 0."""
+    code, sortie = appeler("version_depuis_gradle", str(tmp_path / "absent.kts"))
+    assert code == 0 and sortie == "inconnue 0"
+
+
+def test_version_depuis_gradle_sans_version_declaree(tmp_path):
+    gradle = tmp_path / "build.gradle.kts"
+    gradle.write_text("android {\n  namespace = \"fr.exemple\"\n}\n")
+    code, sortie = appeler("version_depuis_gradle", str(gradle))
+    assert code == 0 and sortie == "inconnue 0"
+
+
+def test_version_depuis_gradle_garde_la_premiere_occurrence(tmp_path):
+    """Plusieurs modules dans un même fichier : c'est le premier qui compte.
+
+    Et surtout : la fonction ne doit pas utiliser `| head -1`, qui renverrait
+    141 sous `set -o pipefail` et ferait avorter le script appelant. Ce test
+    échouerait alors sur le code de sortie, pas sur la valeur.
+    """
+    gradle = tmp_path / "build.gradle.kts"
+    gradle.write_text('versionName = "1.0"\nversionCode = 1\n'
+                      'versionName = "2.0"\nversionCode = 2\n')
+    code, sortie = appeler("version_depuis_gradle", str(gradle))
+    assert code == 0 and sortie == "1.0 1"
+
+
+def test_le_script_d_envoi_est_executable_et_sain():
+    envoi = LIB.parent / "envoyer-apk.sh"
+    assert envoi.exists() and os.access(envoi, os.X_OK)
+    r = subprocess.run(["bash", "-n", str(envoi)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_le_script_d_envoi_refuse_un_argument_inconnu():
+    envoi = LIB.parent / "envoyer-apk.sh"
+    r = subprocess.run(["bash", str(envoi), "--nimporte-quoi"],
+                       capture_output=True, text=True)
+    assert r.returncode == 2 and "inconnu" in r.stderr

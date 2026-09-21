@@ -110,3 +110,25 @@ print(adminauth.empreinte(mot_de_passe))
     mv "$destination.nouveau" "$destination"
     chmod 600 "$destination"
 }
+
+version_depuis_gradle() {
+    # Affiche « versionName versionCode » lus dans un build.gradle.kts.
+    # Repli utilisé quand aapt2 n'est pas installé ; aapt2, lui, lit l'APK
+    # réellement produit et fait autorité (voir envoyer-apk.sh).
+    #
+    # AUCUN pipe : `sed ... | head -1` renverrait 141 sous `set -o pipefail`
+    # dès que head ferme le tuyau, et ferait avorter le script appelant. C'est
+    # la règle en tête de ce fichier, et elle a déjà coûté une production.
+    # On récupère donc toutes les correspondances et on garde la première par
+    # expansion de paramètre.
+    local fichier=$1 nom code
+    if [ ! -f "$fichier" ]; then
+        echo "inconnue 0"
+        return 0
+    fi
+    nom=$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' "$fichier")
+    code=$(sed -n 's/.*versionCode *= *\([0-9][0-9]*\).*/\1/p' "$fichier")
+    nom=${nom%%$'\n'*}
+    code=${code%%$'\n'*}
+    echo "${nom:-inconnue} ${code:-0}"
+}

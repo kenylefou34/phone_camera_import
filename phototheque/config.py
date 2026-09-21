@@ -26,6 +26,14 @@ ADMIN_FILE: Path = Path(os.environ.get("ADMIN_FILE", str(CONFIG_DIR / "admin")))
 ADMIN_USER_FILE: Path = Path(os.environ.get(
     "ADMIN_USER_FILE", str(CONFIG_DIR / "utilisateur")))
 
+# Données servies par le service, par opposition aux secrets de CONFIG_DIR :
+# l'APK de l'application y est déposé par deploy/envoyer-apk.sh. Dossier
+# séparé et en droits normaux — le binaire n'est pas un secret, et le mélanger
+# aux clés privées obligerait à ouvrir un dossier en 0700.
+DATA_DIR: Path = Path(os.environ.get(
+    "DATA_DIR", str(Path.home() / ".local" / "share" / "phototheque")))
+APK_FILE: Path = Path(os.environ.get("APK_FILE", str(DATA_DIR / "app.apk")))
+
 SERVICE_TYPE: str = "_phototheque._tcp"
 
 # FastAPI publie par défaut /docs, /redoc et /openapi.json, SANS

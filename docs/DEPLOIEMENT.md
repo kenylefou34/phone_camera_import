@@ -7,6 +7,11 @@ seul, en comprenant ce que fait chaque commande.
 > Le module s'appelait `mediaserve` jusqu'au 17/09/2026. Si tu tombes sur ce
 > nom dans un ancien document, c'est le même composant.
 
+**Ce document couvre le serveur.** Pour l'application Android — monter la
+chaîne de compilation, construire l'APK, le déposer sur le NUC, l'installer sur
+un téléphone et l'appairer — voir
+**[`APPLICATION-ANDROID.md`](APPLICATION-ANDROID.md)**.
+
 ---
 
 ## En une commande
