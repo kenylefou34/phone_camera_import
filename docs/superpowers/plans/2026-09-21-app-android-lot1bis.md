@@ -660,7 +660,8 @@ class DestinationTest {
     }
 
     @Test fun les_mois_portent_le_nom_francais_en_majuscules() {
-        // 2026-01-15, 2026-08-15 : janvier et aout, sans accent circonflexe.
+        // 2026-01-15 et 2026-08-16 (UTC) : janvier et aout, sans accent
+        // circonflexe — le serveur ecrit « AOUT », pas « AOÛT ».
         assertEquals("Photos/2026/01 JANVIER",
             Destination.dossier(1768435200.0, false, "DCIM/Camera/a.jpg"))
         assertEquals("Photos/2026/08 AOUT",
@@ -1034,7 +1035,7 @@ pour ne pas les écrire en double :
      * panne, le contraire exact de ce que la conception garantit.
      *
      * 30 min en lecture ne suffiraient PAS pour un commit monolithique : c'est
-     * le découpage en paquets (voir [Paquets]) qui borne le travail d'un
+     * le découpage en paquets (`synchro.Paquets`) qui borne le travail d'un
      * commit, le délai ne fait que le protéger.
      */
     private fun OkHttpClient.Builder.avecDelais(): OkHttpClient.Builder = this
@@ -1871,7 +1872,6 @@ Reprise pour etre testable."
 - Modify: `android/app/src/main/kotlin/fr/izquierdo/phototheque/ui/Ecrans.kt`
 - Modify: `android/app/src/main/kotlin/fr/izquierdo/phototheque/ui/ModeleAccueil.kt`
 - Modify: `android/app/src/main/kotlin/fr/izquierdo/phototheque/MainActivity.kt`
-- Modify: `android/app/src/main/kotlin/fr/izquierdo/phototheque/ui/EtatSynchro.kt`
 - Test: `android/app/src/test/kotlin/fr/izquierdo/phototheque/ui/LisibleTest.kt` *(créé)*
 
 **Interfaces:**
