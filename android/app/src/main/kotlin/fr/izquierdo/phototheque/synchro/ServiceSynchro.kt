@@ -8,6 +8,7 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
+import fr.izquierdo.phototheque.R
 
 /**
  * La notification qui accompagne une synchronisation en arrière-plan.
@@ -50,7 +51,11 @@ object ServiceSynchro {
         val notification = NotificationCompat.Builder(context, CANAL)
             .setContentTitle(titre)
             .setContentText("${avancement.pourcentage} %$vitesse")
-            .setSmallIcon(android.R.drawable.stat_sys_upload)
+            // Notre icone et non android.R.drawable.stat_sys_upload : la
+            // generique du systeme ne distingue pas une sauvegarde de photos
+            // d'un telechargement quelconque, alors que cette notification
+            // peut rester affichee une heure.
+            .setSmallIcon(R.drawable.ic_notification)
             .setOngoing(true)
             .setProgress(100, avancement.pourcentage, avancement.octetsTotal == 0L)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel,

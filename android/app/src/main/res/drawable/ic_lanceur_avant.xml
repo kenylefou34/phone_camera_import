@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Couche AVANT de l'icone adaptative : une photo qui monte.
+
+    Le motif montagne plus soleil dit « photo », la fleche dit « vers la
+    maison ». Sans la fleche ce serait l'icone d'une enieme galerie ; c'est
+    l'envoi qui distingue cette application.
+
+    TOUT le dessin tient dans la ZONE SURE : le cercle de rayon 33 centre sur
+    (54,54). Les lanceurs rognent en cercle, en carre arrondi ou en goutte
+    selon le telephone, et ce qui sort de ce cercle disparait sur certains
+    appareils. Un premier jet debordait de onze points et le bas du cadre
+    photo se faisait couper.
+
+    Les sommets ont ete abaisses et le soleil decale : plus haut, il se
+    confondait avec le pic de gauche et l'ensemble se lisait comme une bosse.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- La fleche d'abord : le cadre passera par-dessus et masquera le bas de
+         la hampe, ce qui fait SORTIR la fleche de la photo au lieu de la
+         poser a cote. -->
+    <path android:fillColor="#FFFFFFFF" android:pathData="M54,30 L66,43 L59,43 L59,54 L49,54 L49,43 L42,43 Z" />
+
+    <path android:fillColor="#FFFFFFFF" android:pathData="M35,50 L73,50 A4,4 0 0,1 77,54 L77,72 A4,4 0 0,1 73,76 L35,76 A4,4 0 0,1 31,72 L31,54 A4,4 0 0,1 35,50 Z" />
+
+    <!-- Soleil et montagnes dans le ton chaud du fond : ils se lisent comme
+         decoupes dans le cadre blanc plutot que poses dessus. -->
+    <path android:fillColor="#FFD96B4A" android:pathData="M39,58 m-3.2,0 a3.2,3.2 0 1,0 6.4,0 a3.2,3.2 0 1,0 -6.4,0 Z" />
+    <path android:fillColor="#FFD96B4A" android:pathData="M34,72 L47,62 L55,69 L63,64 L74,72 Z" />
+</vector>

@@ -38,7 +38,14 @@
          EncryptedSharedPreferences ne saurait plus déchiffrer. Le jeton
          d'appairage n'a de toute façon aucun sens sur un autre appareil : il
          faut rescanner un QR. -->
-    <application android:label="Photothèque" android:allowBackup="false"
+    <!-- roundIcon en plus d'icon : certains lanceurs (Pixel, plusieurs ROMs
+         constructeur) le preferent, et sans lui ils retombent sur l'icone
+         par defaut d'Android. Les deux pointent ici la meme icone adaptative,
+         c'est le lanceur qui choisit son masque. -->
+    <application android:label="Photothèque"
+                 android:icon="@mipmap/ic_launcher"
+                 android:roundIcon="@mipmap/ic_launcher_round"
+                 android:allowBackup="false"
                  android:supportsRtl="true">
         <activity android:name=".MainActivity" android:exported="true">
             <intent-filter>
