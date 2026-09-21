@@ -8,6 +8,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import fr.izquierdo.phototheque.synchro.Avancement
+import fr.izquierdo.phototheque.synchro.Phase
+import fr.izquierdo.phototheque.synchro.TravailSynchro
 
 @Composable
 fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
@@ -78,6 +81,80 @@ fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
         if (etat.enCours) { Spacer(Modifier.height(16.dp)); LinearProgressIndicator() }
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = surVoirDetail) { Text("Voir le détail") }
+    }
+}
+
+/**
+ * L'écran pendant une synchronisation — maquette B, « tout à l'écran ».
+ *
+ * L'accueil ne renvoie pas vers cet écran : il en DEVIENT un. Aucune
+ * navigation à faire pour voir ce qui se passe.
+ */
+@Composable
+fun EcranAvancement(avancement: Avancement, surInterrompre: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
+           horizontalAlignment = Alignment.CenterHorizontally) {
+
+        Text(when (avancement.phase) {
+                 Phase.ANALYSE -> "Analyse en cours"
+                 Phase.ENVOI -> "Sauvegarde en cours"
+                 Phase.RANGEMENT -> "Rangement sur le serveur"
+             },
+             style = MaterialTheme.typography.titleLarge)
+
+        Spacer(Modifier.height(12.dp))
+        Text("${avancement.fichiersFaits} / ${avancement.fichiersTotal}",
+             style = MaterialTheme.typography.headlineMedium)
+        Text("${Lisible.octets(avancement.octetsFaits)} sur " +
+             Lisible.octets(avancement.octetsTotal),
+             style = MaterialTheme.typography.bodyMedium)
+
+        Spacer(Modifier.height(12.dp))
+        // Barre DETERMINEE des qu'on connait le total : une barre qui tourne
+        // sans fin pendant une heure ne dit rien.
+        if (avancement.octetsTotal > 0L)
+            LinearProgressIndicator(progress = { avancement.pourcentage / 100f },
+                                    modifier = Modifier.fillMaxWidth())
+        else LinearProgressIndicator(Modifier.fillMaxWidth())
+
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(avancement.octetsParSeconde
+                     ?.let { "${Lisible.octets(it.toLong())}/s" } ?: "—")
+            Text(avancement.secondesRestantes?.let { "~ ${Lisible.duree(it)}" } ?: "—")
+        }
+
+        avancement.mediaEnCours?.let { chemin ->
+            Spacer(Modifier.height(20.dp))
+            Text("Fichier en cours", style = MaterialTheme.typography.labelMedium)
+            Text(chemin, style = MaterialTheme.typography.bodySmall)
+            avancement.tailleEnCours?.let {
+                Text(Lisible.octets(it), style = MaterialTheme.typography.bodySmall)
+            }
+            avancement.destinationPrevue?.let {
+                Text("→ $it", style = MaterialTheme.typography.bodySmall)
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
+        Text("Paquet ${avancement.paquetCourant} · " +
+             "${avancement.paquetsValides} validés",
+             style = MaterialTheme.typography.labelMedium)
+
+        // Repond a « je sais meme pas quel dossier ca synchronise », sans
+        // avoir a ouvrir un autre ecran.
+        Spacer(Modifier.height(8.dp))
+        Text("Dossiers : " + TravailSynchro.DOSSIERS_SAUVEGARDES.joinToString(", "),
+             style = MaterialTheme.typography.bodySmall)
+        val absents = TravailSynchro.DOSSIERS_SAUVEGARDES - avancement.dossiersVus.keys
+        if (avancement.dossiersVus.isNotEmpty() && absents.isNotEmpty()) {
+            Text("Introuvables sur ce téléphone : ${absents.joinToString(", ")}",
+                 color = MaterialTheme.colorScheme.error,
+                 style = MaterialTheme.typography.bodySmall)
+        }
+
+        Spacer(Modifier.height(24.dp))
+        OutlinedButton(onClick = surInterrompre) { Text("Interrompre") }
     }
 }
 

@@ -5,10 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fr.izquierdo.phototheque.appairage.Coffre
 import fr.izquierdo.phototheque.medias.Depot
-import fr.izquierdo.phototheque.reseau.Fabrique
-import fr.izquierdo.phototheque.reseau.ServeurRevoqueException
-import fr.izquierdo.phototheque.synchro.Orchestrateur
-import kotlinx.coroutines.Dispatchers
+import fr.izquierdo.phototheque.synchro.TravailSynchro
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -26,11 +23,8 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
     private val _etat = MutableStateFlow(EtatSynchro())
     val etat = _etat.asStateFlow()
 
-    /** Lot 1 : dossiers en dur. L'écran de choix arrive au lot 2. Publics
-     *  parce que l'écran de détail les confronte à ce qui existe vraiment sur
-     *  le téléphone : un dossier codé en dur mais absent est une sauvegarde
-     *  qui réussit à vide. */
-    val dossiersSauvegardes = setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp")
+    /** L'avancement publié par le travail de fond, null quand rien ne tourne. */
+    val avancement = TravailSynchro.avancement
 
     init {
         // Le compteur de jours est relu du disque : Android tue l'application
@@ -45,6 +39,34 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
         // qu'après une synchronisation les rendait invisibles à qui ouvre
         // l'application et la referme.
         rafraichirPermissions()
+
+        viewModelScope.launch {
+            TravailSynchro.derniereIssue.collect { issue ->
+                if (issue == null) return@collect
+                // Les CINQ pannes passent par ici. Ne lire que `bilan`
+                // laisserait trois d'entre elles sans message : un serveur
+                // introuvable, une revocation levee avant tout bilan, et une
+                // panne generique sortent toutes AVANT qu'un bilan existe.
+                val base = issue.bilan?.let {
+                    _etat.value.apresSynchro(
+                        it,
+                        accesPartiel = depot.accesPartiel(),
+                        accesRefuse = depot.accesRefuse(),
+                        derniereReussiteMs = memoire.derniereReussiteMs(),
+                    )
+                } ?: _etat.value.copy(enCours = false)
+                _etat.value = base.copy(
+                    serveurIntrouvable = issue.serveurIntrouvable,
+                    erreur = issue.erreur,
+                    revoque = issue.revoque,
+                    appaire = !issue.revoque,
+                    // Conserve APRES la synchro : c'est la seule liste qui
+                    // revele un dossier suivi mais absent du telephone, et
+                    // l'avancement qui la portait vient d'etre efface.
+                    dossiersVus = issue.dossiersVus.ifEmpty { _etat.value.dossiersVus },
+                )
+            }
+        }
     }
 
     /**
@@ -61,72 +83,17 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
     }
 
     /**
-     * Lance une synchronisation. Rien de ce qui se passe à l'intérieur ne doit
-     * pouvoir fermer l'application : une coroutine qui lève tue le processus,
-     * là où la conception promet un bandeau.
+     * Demande une synchronisation à Android. Le travail lui survit : ce modèle
+     * de vue ne l'exécute plus, il l'observe.
      */
     fun synchroniser() {
-        val charge = coffre.charge() ?: return
-        // La permission est RELUE, jamais simplement éteinte : la mettre à
-        // `false` en partant laisserait l'accueil sans bandeau si plus aucune
-        // branche ne la rallumait — et la branche la plus dangereuse est
-        // justement celle qui réussit, sur un téléphone qui ne voit plus rien.
-        _etat.value = _etat.value.copy(enCours = true, serveurIntrouvable = false,
-                                       erreur = null,
-                                       permissionRefusee = depot.accesRefuse())
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val serveur = Fabrique.serveur(getApplication(), charge)
-                if (serveur == null) {
-                    // Pas à la maison : ce n'est PAS une panne. Ni notification,
-                    // ni remise à zéro du compteur de jours. Mais la permission
-                    // est relue : une absence de serveur ne doit pas effacer un
-                    // avertissement qui, lui, reste vrai.
-                    _etat.value = _etat.value.copy(
-                        enCours = false, serveurIntrouvable = true,
-                        permissionRefusee = depot.accesRefuse())
-                    return@launch
-                }
-                // Ce que le téléphone contient VRAIMENT, relevé avant de
-                // conclure : si un des dossiers codés en dur n'existe pas, la
-                // synchro réussit avec zéro média et seule cette liste le dit.
-                _etat.value = _etat.value.copy(dossiersVus = depot.dossiers())
-                val bilan = Orchestrateur(depot, serveur).synchroniser(dossiersSauvegardes)
-                // Le jeton ne redeviendra jamais valable : garder le coffre plein
-                // ferait revenir sur l'accueil au prochain lancement, avec un
-                // jeton mort et aucune explication.
-                if (bilan.revoque) coffre.oublier()
-                // Les permissions sont relues APRÈS la synchro, et l'état s'en
-                // sert pour deux choses : rallumer le bandeau, et décider si
-                // cette synchro mérite d'avancer le compteur de jours.
-                val accesRefuse = depot.accesRefuse()
-                if (EtatSynchro.estUneReussite(bilan, accesRefuse)) {
-                    memoire.enregistrerReussite(System.currentTimeMillis())
-                }
-                _etat.value = _etat.value.apresSynchro(
-                    bilan,
-                    accesPartiel = depot.accesPartiel(),
-                    accesRefuse = accesRefuse,
-                    // Relue de la mémoire, jamais recalculée ici : c'est elle
-                    // qui fait foi d'un lancement à l'autre.
-                    derniereReussiteMs = memoire.derniereReussiteMs(),
-                )
-            } catch (e: ServeurRevoqueException) {
-                // Le serveur a RÉPONDU et nous refuse. Seul un nouveau QR
-                // débloque : on efface l'appairage et on le dit.
-                coffre.oublier()
-                _etat.value = _etat.value.copy(
-                    enCours = false, revoque = true, appaire = false)
-            } catch (e: SecurityException) {
-                // Permission retirée dans les Réglages : bandeau permanent,
-                // jamais une fermeture brutale.
-                _etat.value = _etat.value.copy(enCours = false, permissionRefusee = true)
-            } catch (e: Exception) {
-                // Tout le reste est une panne VISIBLE, pas un silence.
-                _etat.value = _etat.value.copy(
-                    enCours = false, erreur = e.message ?: e.javaClass.simpleName)
-            }
-        }
+        if (coffre.charge() == null) return
+        rafraichirPermissions()
+        TravailSynchro.lancer(getApplication())
+    }
+
+    fun interrompre() {
+        TravailSynchro.interrompre(getApplication())
     }
 
     /** Vrai si le QR scanne etait bien un appairage. Le resultat doit etre

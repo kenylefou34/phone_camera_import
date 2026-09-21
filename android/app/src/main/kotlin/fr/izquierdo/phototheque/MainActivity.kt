@@ -3,16 +3,20 @@ package fr.izquierdo.phototheque
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import fr.izquierdo.phototheque.synchro.TravailSynchro
 import fr.izquierdo.phototheque.ui.EcranAccueil
 import fr.izquierdo.phototheque.ui.EcranAppairage
+import fr.izquierdo.phototheque.ui.EcranAvancement
 import fr.izquierdo.phototheque.ui.EcranDetail
 import fr.izquierdo.phototheque.ui.ModeleAccueil
 
@@ -40,15 +44,29 @@ class MainActivity : ComponentActivity() {
         // l'application elle-meme — panne silencieuse, pas un plantage.
         permissions.launch(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                // POST_NOTIFICATIONS est demandee ICI et pas ailleurs : sans
+                // elle, le service de premier plan demarre mais sa
+                // notification reste invisible, et l'utilisateur n'a plus
+                // aucun moyen de voir ou d'arreter une synchro en cours.
                 arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES,
-                        android.Manifest.permission.READ_MEDIA_VIDEO)
+                        android.Manifest.permission.READ_MEDIA_VIDEO,
+                        android.Manifest.permission.POST_NOTIFICATIONS)
             else
                 arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE))
 
         setContent {
             MaterialTheme {
                 val etat by modele.etat.collectAsStateWithLifecycle()
-                var detail by remember { mutableStateOf(false) }
+                val avancement by modele.avancement.collectAsStateWithLifecycle()
+                // rememberSaveable et non remember : l'ecran de detail
+                // retombait sur l'accueil a chaque rotation (issue #24).
+                var detail by rememberSaveable { mutableStateOf(false) }
+
+                // Sans ce BackHandler, le bouton retour du systeme FERMAIT
+                // l'application depuis l'ecran de detail, en perdant le
+                // dernier bilan (issue #24).
+                BackHandler(enabled = detail) { detail = false }
+
                 when {
                     !etat.appaire -> EcranAppairage(
                         qrInvalide = etat.qrInvalide,
@@ -57,7 +75,9 @@ class MainActivity : ComponentActivity() {
                             scanner.launch(ScanOptions().setPrompt(
                                 "Scannez le QR affiché sur la page du serveur"))
                         })
-                    detail -> EcranDetail(etat, modele.dossiersSauvegardes)
+                    avancement != null -> EcranAvancement(
+                        avancement!!, surInterrompre = modele::interrompre)
+                    detail -> EcranDetail(etat, TravailSynchro.DOSSIERS_SAUVEGARDES)
                     else -> EcranAccueil(etat, System.currentTimeMillis(),
                         surSynchroniser = modele::synchroniser,
                         surVoirDetail = { detail = true })

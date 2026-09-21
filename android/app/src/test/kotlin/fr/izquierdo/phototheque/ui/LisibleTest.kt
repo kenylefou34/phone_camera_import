@@ -1,0 +1,31 @@
+package fr.izquierdo.phototheque.ui
+
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class LisibleTest {
+
+    @Test fun les_octets_se_lisent_en_francais() {
+        assertEquals("512 o", Lisible.octets(512))
+        assertEquals("1,0 Ko", Lisible.octets(1024))
+        assertEquals("29,0 Mo", Lisible.octets(29L * 1024 * 1024))
+        assertEquals("12,5 Go", Lisible.octets((12.5 * 1024 * 1024 * 1024).toLong()))
+    }
+
+    @Test fun une_duree_courte_se_dit_en_secondes() {
+        assertEquals("45 s", Lisible.duree(45))
+    }
+
+    @Test fun une_duree_moyenne_se_dit_en_minutes() {
+        assertEquals("18 min", Lisible.duree(18 * 60 + 20))
+    }
+
+    @Test fun une_duree_longue_se_dit_en_heures_et_minutes() {
+        // Le 21/09, le rangement a pris 1 h 02 : « 62 min » serait illisible.
+        assertEquals("1 h 02", Lisible.duree(62 * 60))
+    }
+
+    @Test fun une_duree_nulle_ne_dit_pas_zero_seconde() {
+        assertEquals("moins d'une minute", Lisible.duree(0))
+    }
+}
