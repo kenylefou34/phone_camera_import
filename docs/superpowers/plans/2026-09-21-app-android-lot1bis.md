@@ -2159,13 +2159,29 @@ dernier bilan :
 
 ```kotlin
         viewModelScope.launch {
-            TravailSynchro.dernierBilan.collect { bilan ->
-                if (bilan == null) return@collect
-                _etat.value = _etat.value.apresSynchro(
-                    bilan,
-                    accesPartiel = depot.accesPartiel(),
-                    accesRefuse = depot.accesRefuse(),
-                    derniereReussiteMs = memoire.derniereReussiteMs(),
+            TravailSynchro.derniereIssue.collect { issue ->
+                if (issue == null) return@collect
+                // Les CINQ pannes passent par ici. Ne lire que `bilan`
+                // laisserait trois d'entre elles sans message : un serveur
+                // introuvable, une revocation levee avant tout bilan, et une
+                // panne generique sortent toutes AVANT qu'un bilan existe.
+                val base = issue.bilan?.let {
+                    _etat.value.apresSynchro(
+                        it,
+                        accesPartiel = depot.accesPartiel(),
+                        accesRefuse = depot.accesRefuse(),
+                        derniereReussiteMs = memoire.derniereReussiteMs(),
+                    )
+                } ?: _etat.value.copy(enCours = false)
+                _etat.value = base.copy(
+                    serveurIntrouvable = issue.serveurIntrouvable,
+                    erreur = issue.erreur,
+                    revoque = issue.revoque,
+                    appaire = !issue.revoque,
+                    // Conserve APRES la synchro : c'est la seule liste qui
+                    // revele un dossier suivi mais absent du telephone, et
+                    // l'avancement qui la portait vient d'etre efface.
+                    dossiersVus = issue.dossiersVus.ifEmpty { _etat.value.dossiersVus },
                 )
             }
         }
@@ -2173,7 +2189,36 @@ dernier bilan :
 
 Conserver `viewModelScope` et `launch` dans les imports pour ce bloc.
 
-- [ ] **Step 7 : Navigation avec retour**
+- [ ] **Step 7 : Demander la permission de notifier**
+
+Depuis Android 13, `POST_NOTIFICATIONS` est une permission **à demander à
+l'exécution**. La déclarer au manifeste, comme le fait la tâche 8, ne suffit
+pas : sans la demande, la notification n'apparaît jamais — donc plus aucun
+avancement écran éteint, ni bouton pour arrêter. C'est-à-dire toute la valeur
+du service de premier plan.
+
+Dans `MainActivity.onCreate`, remplacer l'appel existant :
+
+```kotlin
+        permissions.launch(
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                // POST_NOTIFICATIONS est demandee ICI et pas ailleurs : sans
+                // elle, le service de premier plan demarre mais sa
+                // notification reste invisible, et l'utilisateur n'a plus
+                // aucun moyen de voir ou d'arreter une synchro en cours.
+                arrayOf(android.Manifest.permission.READ_MEDIA_IMAGES,
+                        android.Manifest.permission.READ_MEDIA_VIDEO,
+                        android.Manifest.permission.POST_NOTIFICATIONS)
+            else
+                arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE))
+```
+
+Un refus de `POST_NOTIFICATIONS` ne doit **rien** empêcher d'autre : la
+synchronisation continue, seul l'affichage en arrière-plan est perdu.
+`rafraichirPermissions()` ne s'occupe que de l'accès aux médias et n'a pas à
+en tenir compte.
+
+- [ ] **Step 8 : Navigation avec retour**
 
 Dans `MainActivity.kt`, remplacer le bloc `setContent` :
 
@@ -2222,18 +2267,18 @@ Gérer aussi l'action de la notification, en fin de `onCreate` :
         if (intent?.action == ServiceSynchro.ACTION_INTERROMPRE) modele.interrompre()
 ```
 
-- [ ] **Step 8 : Vérifier que tout compile et que les tests passent**
+- [ ] **Step 9 : Vérifier que tout compile et que les tests passent**
 
 Run : `cd android && JAVA_HOME=~/outils/jdk17 ./gradlew testDebugUnitTest assembleDebug`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 9 : Valider par mutation**
+- [ ] **Step 10 : Valider par mutation**
 
 Dans `Lisible.duree`, remplacer `else -> String.format("%d h %02d", …)` par
 `else -> "${secondes / 60} min"`, relancer.
 Expected: `une_duree_longue_se_dit_en_heures_et_minutes` échoue. Remettre.
 
-- [ ] **Step 10 : Commit**
+- [ ] **Step 11 : Commit**
 
 ```bash
 git add android/app/src/main/kotlin/fr/izquierdo/phototheque/ui/ \
