@@ -1181,10 +1181,14 @@ fichier existent déjà ; réutiliser leurs noms) :
             Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
         }
         val serveur = ServeurEspion(echouerSur = setOf("DCIM/Camera/m1.jpg"))
-        Orchestrateur(SourceFausse(medias), serveur, taillePaquet = 1000)
+        val bilan = Orchestrateur(SourceFausse(medias), serveur, taillePaquet = 1000)
             .synchroniser(setOf("DCIM/Camera"))
         assertTrue("aucun commit ne doit porter d'horizon pour ce dossier",
             serveur.commits.none { it.containsKey("DCIM/Camera") })
+        // Sans cette ligne, le test passerait aussi si le code arretait TOUTE
+        // la synchro au premier echec — or un dossier gele ne doit rien
+        // interrompre, seul son horizon est fige.
+        assertEquals(2, bilan.envoyes)
     }
 
     @Test fun un_dossier_sain_avance_malgre_l_echec_d_un_autre() {
@@ -1211,8 +1215,9 @@ fichier existent déjà ; réutiliser leurs noms) :
             // donc sans abandon a constater par le test suivant.
             .synchroniser(setOf("DCIM/Camera"), interrompu = { appels++ >= 3 })
         assertTrue(bilan.interrompu)
-        assertTrue("les paquets deja valides restent acquis",
-                   serveur.commits.isNotEmpty())
+        // Le compte exact, et pas `isNotEmpty()` : ce dernier passerait aussi
+        // si le paquet abandonne etait commite lui aussi.
+        assertEquals(1, serveur.commits.size)
     }
 
     @Test fun une_interruption_previent_le_serveur_du_paquet_abandonne() {
@@ -1248,6 +1253,39 @@ fichier existent déjà ; réutiliser leurs noms) :
                       surAvancement = { vus += it })
             .synchroniser(setOf("DCIM/Camera"))
         assertEquals(1800L, vus.last().octetsTotal)
+        // octetsTotal est calcule une fois et ne bouge jamais : sans cette
+        // seconde assertion, le test passerait meme si la progression n'etait
+        // jamais incrementee.
+        assertEquals(1800L, vus.last().octetsFaits)
+    }
+
+    @Test fun une_revocation_n_est_pas_une_interruption_demandee() {
+        // Couvre la sortie de TETE de boucle. Une revocation doit donner
+        // revoque=true et interrompu=false, quel que soit le paquet ou elle
+        // tombe.
+        val medias = (1L..4L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val bilan = Orchestrateur(
+            SourceFausse(medias),
+            ServeurEspion(revoquerSur = setOf("DCIM/Camera/m1.jpg")),
+            taillePaquet = 1000,
+        ).synchroniser(setOf("DCIM/Camera"))
+        assertTrue(bilan.revoque)
+        assertFalse("une revocation n'est pas un arret demande par l'utilisateur",
+                    bilan.interrompu)
+    }
+
+    @Test fun le_bilan_serveur_cumule_tous_les_paquets() {
+        // Un paquet qui echoue au rangement ne doit pas etre efface par un
+        // paquet suivant qui reussit.
+        val medias = (1L..2L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val serveur = ServeurEspion(erreursParCommit = listOf(1.0, 0.0))
+        val bilan = Orchestrateur(SourceFausse(medias), serveur, taillePaquet = 1000)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertEquals(1.0, bilan.bilanServeur["errors"]!!, 0.0)
     }
 ```
 
@@ -1263,6 +1301,9 @@ private class SourceFausse(private val medias: List<Media>) : SourceMedias {
 
 private class ServeurEspion(
     private val echouerSur: Set<String> = emptySet(),
+    private val revoquerSur: Set<String> = emptySet(),
+    /** Valeur de `errors` rendue par le 1er commit, le 2e, etc. */
+    private val erreursParCommit: List<Double> = emptyList(),
 ) : Serveur {
     val commits = mutableListOf<Map<String, Double>>()
     val abandons = mutableListOf<String>()
@@ -1272,12 +1313,16 @@ private class ServeurEspion(
     override fun plan(fichiers: List<FichierPlan>) =
         ReponsePlan(session = "%032x".format(++n), needed = fichiers.map { it.hash })
     override fun envoyer(session: String, chemin: String, flux: java.io.InputStream,
-                         taille: Long, empreinteAttendue: String) =
-        if (chemin in echouerSur) ResultatEnvoi.ECHEC else ResultatEnvoi.OK
+                         taille: Long, empreinteAttendue: String) = when (chemin) {
+        in revoquerSur -> ResultatEnvoi.REVOQUE
+        in echouerSur -> ResultatEnvoi.ECHEC
+        else -> ResultatEnvoi.OK
+    }
     override fun commit(session: String, horizons: Map<String, Double>):
             Map<String, Double> {
+        val erreurs = erreursParCommit.getOrElse(commits.size) { 0.0 }
         commits += horizons
-        return mapOf("sorted" to 1.0, "errors" to 0.0)
+        return mapOf("sorted" to 1.0, "errors" to erreurs)
     }
     override fun abandonner(session: String) { abandons += session }
 }
@@ -1380,7 +1425,14 @@ class Orchestrateur(
         publier(Phase.ANALYSE)
 
         for (lot in lots) {
-            if (interrompu() || revoque) { arrete = true; break }
+            // Les deux sorties sont SEPAREES. Les confondre ferait declarer
+            // `interrompu` une revocation — et de facon non deterministe, selon
+            // qu'elle tombe ou non sur le dernier paquet. Le lot promet cinq
+            // pannes et cinq messages distincts ; un ecran qui teste
+            // `interrompu` avant `revoque` annoncerait « arret demande » pour
+            // un appareil revoque.
+            if (revoque) break
+            if (interrompu()) { arrete = true; break }
 
             // --- analyse : empreintes du paquet SEULEMENT ---
             val envois = mutableListOf<Envoi>()
@@ -1397,6 +1449,11 @@ class Orchestrateur(
                     // sauterait par-dessus lui, et il serait perdu.
                     echecs++
                     envois += Envoi(media.dossier, media.instant, Issue.ECHEC)
+                    // La progression avance MEME sur un echec de lecture : sans
+                    // cela la barre se bloquerait sous 100 % sans jamais
+                    // l'atteindre, alors qu'un media disparu entre le listing et
+                    // l'envoi est un cas banal sur un telephone.
+                    fichiersFaits++; octetsFaits += media.taille
                 }
             }
 
@@ -1446,7 +1503,16 @@ class Orchestrateur(
             publier(Phase.RANGEMENT)
             val resultat = Horizons.calculer(envois, arretes)
             arretes = resultat.arretes
-            bilanServeur = serveur.commit(reponse.session, resultat.horizons)
+            val rendu = serveur.commit(reponse.session, resultat.horizons)
+            // CUMULE, jamais ecrase. Avec N commits, ne garder que le dernier
+            // ferait declarer reussie une synchro dont le 3e paquet a echoue au
+            // rangement : EtatSynchro.estUneReussite lit `errors` et avancerait
+            // le compteur de jours, la banniere « le serveur n'a pas reussi a
+            // ranger N medias » ne s'afficherait jamais, et l'ecran de detail
+            // montrerait le chiffre du dernier paquet au lieu du total.
+            bilanServeur = (bilanServeur.keys + rendu.keys).associateWith {
+                (bilanServeur[it] ?: 0.0) + (rendu[it] ?: 0.0)
+            }
             paquetsValides++
         }
 
