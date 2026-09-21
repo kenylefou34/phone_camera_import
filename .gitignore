@@ -111,3 +111,9 @@ __pycache__/
 
 # Espace de travail SDD (non versionné)
 .superpowers/
+
+# Application Android (sous-projet 3)
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties

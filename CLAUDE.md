@@ -11,7 +11,7 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
 + revue visuelle (doublons, floues/rafales, re-datation) ; **Phase 3** visages ;
 **Phase 4** génération (livre photo…).
 
-## État actuel (2026-09-18)
+## État actuel (2026-09-18, soir)
 - ✅ **Trieur `mediasort/`** (Python, stdlib + exiftool/ffmpeg) : range par vraie
   date (métadonnées > nom > système > `_A_TRIER/`), anti-doublon par catalogue
   SQLite d'empreintes. Testé.
@@ -51,48 +51,76 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   une attente qui double (2, 4, 8 s…) plafonnée à 60 s, et surtout un refus
   **sans calcul d'empreinte** (~38 ms → ~2 ms). Compteur en mémoire : un
   `systemctl restart phototheque` le remet à zéro si on se bloque soi-même.
-  **233 tests**.
+  **243 tests** côté serveur.
 - ✅ **Contrat serveur de l'app écrit** (issue #15) : `docs/CONTRAT-APP.md`,
-  exemples **capturés sur un échange réel**. À lire avant d'écrire l'app (#12) ;
-  la section 6 de la spec y renvoie.
+  exemples **capturés sur un échange réel**. La section 6 de la spec y renvoie.
+- ✅ **Sous-projet 3, lot 1 de l'application Android ÉCRIT** (issue #12) :
+  Kotlin natif sous `android/`, **84 tests**, APK de débogage produit. Conception :
+  `docs/superpowers/specs/2026-09-18-application-android-design.md` ; plan :
+  `docs/superpowers/plans/2026-09-18-app-android-lot1.md`.
+  **Jamais essayé sur un vrai téléphone** — c'est la tâche 15 du plan, et elle
+  reste à faire (voir la section REPRISE).
+  Outillage local : JDK 17 et SDK Android sous `~/outils/`, sans sudo.
+  Lancer les tests : `cd android && JAVA_HOME=~/outils/jdk17 ./gradlew testDebugUnitTest`
+  (⚠️ `./gradlew test --tests` échoue : utiliser `testDebugUnitTest --tests`).
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
-## ⚠️ REPRISE — état au 2026-09-18 (fin de session)
+## ⚠️ REPRISE — première chose à faire
 
-**Tout est déployé et vérifié sur le NUC** (`5ad55b5` au moment d'écrire ; le
-service a été relancé et la surface contrôlée : `/`, `/pair`, `/devices` et
-`/status` en 401, `/docs`, `/redoc` et `/openapi.json` en 404).
+**Essayer l'application sur un vrai téléphone** — tâche 15 du plan
+`docs/superpowers/plans/2026-09-18-app-android-lot1.md`. Tout le reste du lot 1
+est écrit, relu et corrigé ; rien n'a jamais tourné sur un appareil.
 
-Le mainteneur a choisi ses identifiants avec `./deploy/identifiants.sh` —
-l'identifiant n'est plus `admin`. Si besoin : `rm ~/.config/phototheque/utilisateur`
-le ramène à `admin`.
+```bash
+cd ~/dev/phone_camera_import/android
+JAVA_HOME=~/outils/jdk17 ./gradlew assembleDebug
+~/outils/android-sdk/platform-tools/adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
-**Sécurité du réseau** (voir la mémoire `projet-nuc-exposition-reseau`) : le
-serveur photo n'est **pas** joignable depuis Internet. Plex avait ouvert tout
-seul un port sur la box via UPnP ; l'accès distant a été coupé le 18/09 et il
-ne reste aucune redirection. L'UPnP de la box reste activé — un programme peut
-donc encore s'ouvrir un accès sans prévenir ; à couper un jour, en sachant que
-ça peut gêner console de jeu et visio.
+(Activer d'abord le débogage USB : Réglages → À propos → 7 appuis sur « Numéro
+de build », puis Options pour développeurs → Débogage USB.)
 
-**Prochaine étape** : sous-projet 3, l'application Android (issue #12). Le
-contrat qu'elle doit implémenter est écrit : **`docs/CONTRAT-APP.md`** (#15,
-fait le 18/09). Lire aussi #22 : l'app devra hacher chaque fichier avant de
-savoir s'il est utile, ce qui coûte cher sur un téléphone. Voir aussi le commentaire du 18/09 sur #12 : prévoir un lien de
-téléchargement de l'APK sur la page du serveur.
+**À vérifier en premier**, car deux fonctions en dépendent (le bandeau
+d'avertissement ET l'avancée du compteur) : une synchro avec la permission
+accordée doit afficher « Sauvegardé aujourd'hui » et **aucun** bandeau. Sinon,
+c'est `Depot.accesRefuse()` qu'il faut regarder.
 
-**Fait le 17/09** : rattrapage des signatures sur le NUC (44 669 médias en
-16 min) ; renommage `mediaserve` → `phototheque` ; retrait du trieur C++ ;
-refonte des pages web ; README et `DEPLOIEMENT.md` réécrits pas à pas.
+**Ce que l'essai ne pourra PAS prouver :** l'étape 5 (régénérer le certificat du
+NUC pour vérifier l'épinglage) affiche le même écran que « couper le Wi-Fi ».
+C'est l'issue **#23**, laissée ouverte sciemment.
+
+**Les cinq pannes doivent produire cinq messages distincts** — c'est le fil
+conducteur de tout le lot : pas à la maison (silencieux), appareil révoqué,
+permission retirée, serveur en erreur de rangement, aucun dossier trouvé.
+
+**Après l'essai** : issue #23 (épinglage), puis lot 2 (choix des dossiers dans
+l'app) — attention, le lot 2 supprime la protection accidentelle qui masque
+aujourd'hui le cas du dossier vide.
+
+**Sauvegardes du 17/09 : plus rien à trancher** (vérifié le 21/09). Les deux
+copies de secours qui dormaient sur le NUC
+(`mediasort_catalog.db.avant-signatures`, `phototheque_devices.db.vide-*`) ont
+disparu entre-temps. Les bases de production, elles, sont bien là :
+`~/mediasort_catalog.db` (19 Mo) et `~/phototheque_devices.db` (24 Ko).
 
 ## Feuille de route (issues GitHub)
 Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
 dossiers, client d'upload) — commencer par #15, qui fige le contrat qu'elle
-codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #22
+codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #27
 (`gh issue list`). Notamment : #4 doublons existants, #5 floues/rafales,
 #6 re-datation, #7 sauvegarde Famille.
 
-Le travail de #2, #3, #10, #14, #15, #19 et #21 est **fait** (#8, #9 et #11 sont fermées), mais
+**Les constats mineurs différés ne vivent plus dans un journal de session** :
+#24 pour le lot Android, **#26 pour le lot serveur** (transport/auth/horizon du
+17/09 — ils n'avaient aucune trace jusqu'au 21/09). **#27** porte la moitié
+restante du constat C2 de ce lot : le serveur refuse désormais les extensions
+qu'il ne sait pas ranger, mais le trieur en ligne de commande les ignore
+toujours **sans le moindre compteur** — l'utilisateur ne peut pas savoir. Le seul qui ait *gagné* en
+portée depuis son signalement est le court-circuit temporel sur le nom
+d'utilisateur, devenu un secret partiel depuis `identifiants.sh`.
+
+Le travail de #2, #3, #10, #14, #15, #19 et #21 est **fait** ; #12 est écrit mais pas éprouvé (#8, #9 et #11 sont fermées), mais
 ces quatre-là **apparaissent encore ouvertes sur GitHub** : leurs commits portent
 bien `closes #N`, or GitHub ne ferme une issue qu'à la fusion dans la branche par
 défaut. Elles se fermeront toutes seules quand **PR #13 (`dev` → `main`)** sera
@@ -120,8 +148,34 @@ fusionnée — ce qui reste à faire, de préférence après le déploiement ci-
 - Le NUC héberge aussi **Plex** (snap, port 32400) et l'**UPnP de la box est
   activé** : un programme peut s'ouvrir un accès Internet sans prévenir. Voir la
   mémoire `projet-nuc-exposition-reseau`.
+- **Audit réseau LAN (fait au démarrage du projet, 2026-09-14)** : le **NAS
+  `192.168.1.20` expose du FTP en clair** (ProFTPD) + SMB — identifiants et
+  fichiers non chiffrés sur le LAN. Hors périmètre de l'appli photo (appareil
+  tiers, non reconfigurable par nous). Détail + inventaire des hôtes : mémoire
+  `projet-audit-reseau-lan`.
 - Pas de `curl` sur le NUC ; `sudo` exige un vrai terminal (le canal `!` n'a pas
   de TTY) ; PEP 668 impose le venv.
+- **Le `?` sur l'icône réseau du NUC ne veut PAS dire que le service photo est
+  tombé** (constaté le 2026-09-21). C'est NetworkManager en état
+  `CONNECTED_SITE` : « le LAN marche, je n'atteins pas Internet ». Le service
+  photo n'a jamais besoin d'Internet, seulement du LAN — un téléphone sur le
+  même WiFi le joint normalement pendant tout l'épisode. Redémarrer le NUC pour
+  ça ne sert à rien.
+  Diagnostic en une commande :
+  `journalctl -b -1 | grep "NetworkManager state is now"` — `CONNECTED_GLOBAL` =
+  tout va bien, `CONNECTED_SITE` = Internet KO, LAN OK.
+  Ce jour-là : lien WiFi **associé sans interruption du 16/09 09:06 au 21/09
+  08:56** (zéro événement noyau `wlo2`), aucune mise en veille, aucun trou dans
+  le journal ; seules les bascules de connectivité se dégradaient (3 en 16
+  jours, puis 6 le 19/09, 11 le 20/09, bloqué en `CONNECTED_SITE` à 03:22:53 le
+  21/09). Cause en amont : la box ou le lien opérateur.
+  Deux pièges rencontrés en cherchant : `grep "PM: hibernation"` remonte des
+  lignes de **démarrage** (`Registered nosave memory`), ce ne sont pas des
+  veilles ; et un grep large sur `disconnect|deauthenticat` donne 744 lignes de
+  bruit là où le noyau n'en a que quelques-unes de réelles (filtrer sur `wlo2:`).
+- **`eno1` (ethernet du NUC) n'a aucun câble** (`cat /sys/class/net/eno1/carrier`
+  = 0) : le WiFi est l'unique chemin vers le serveur photo. Un câble le rendrait
+  insensible aux aléas radio — action physique, à la main du mainteneur.
 
 **Pièges du serveur**
 - **FastAPI publie `/docs`, `/redoc` et `/openapi.json` sans authentification.**
@@ -151,6 +205,25 @@ fusionnée — ce qui reste à faire, de préférence après le déploiement ci-
   **par mutation** : casser volontairement le code et vérifier que c'est bien ce
   test-là qui tombe. Plusieurs faux verts ont été attrapés ainsi le 18/09
   (script absent → code 127, propriétés déjà vraies avant correctif).
+
+**Outillage (ça a déjà coûté une demi-heure chacun)**
+- **`pgrep -f "motif"` se trouve lui-même** : la ligne de commande du shell qui
+  l'exécute contient le motif. Une boucle `until ! pgrep -f "…"` ne sort donc
+  JAMAIS. C'est ce qui a fait croire, le 17/09, qu'un rattrapage de signatures
+  tournait encore alors qu'il était fini depuis vingt minutes. Filtrer sur le
+  vrai processus (`pgrep -f "python3 -m mediasort"`) ou exclure son propre PID.
+- **Chromium est confiné (snap)** : il n'écrit une capture que sous
+  `/home/invisart`, et **pas dans un dossier caché**. Viser le répertoire
+  scratchpad ou `~/.quelquechose` échoue avec « Permission denied » ou
+  « No such file or directory ». Passer par `~/un-dossier-visible/`, puis
+  nettoyer.
+- **`gh pr edit` est cassé sur ce dépôt** : il interroge l'API « Projects
+  classic », supprimée par GitHub, et échoue sans rien modifier. Pour changer le
+  titre ou le corps d'une PR, passer par l'API REST :
+  `gh api "repos/$REPO/pulls/13" -X PATCH -F body=@fichier.md -f title="…"`.
+- **Extrapoler une durée sur un échantillon pris dans l'ordre de la base est
+  faux** : 200 médias avaient annoncé 1 h pour le rattrapage des signatures, il
+  a pris 16 min (les gros fichiers sont regroupés en tête).
 
 **Conventions**
 - Les messages de commit du dépôt sont **sans accents** (sujet et corps).

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <!-- Sans cette déclaration, Android 14+ fait tourner l'appli en « mode de
+         compatibilité » : une sélection partielle de photos y accorde quand
+         même READ_MEDIA_IMAGES/VIDEO pour la durée de la session, et
+         Depot.accesPartiel() ne verrait alors JAMAIS l'accès partiel — le
+         mode de panne silencieux exact que cette fonction existe pour
+         signaler. -->
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
+        android:minSdkVersion="34" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- Non requise formellement par NsdManager, qui delegue le socket
+         multicast au service systeme. Ajoutee par prudence : elle ameliore la
+         fiabilite de la decouverte mDNS sur certaines ROMs constructeur, et un
+         echec de decouverte est SILENCIEUX par conception (« serveur
+         introuvable » ne declenche aucune alerte). Permission normale, sans
+         invite a l'execution. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- allowBackup="false" : la sauvegarde Android copierait le fichier des
+         préférences chiffrées, mais PAS la clé, qui vit dans le Keystore et ne
+         quitte jamais l'appareil. Après restauration sur un nouveau téléphone,
+         EncryptedSharedPreferences ne saurait plus déchiffrer. Le jeton
+         d'appairage n'a de toute façon aucun sens sur un autre appareil : il
+         faut rescanner un QR. -->
+    <application android:label="Photothèque" android:allowBackup="false"
+                 android:supportsRtl="true">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

@@ -1,0 +1,160 @@
+package fr.izquierdo.phototheque.synchro
+
+import fr.izquierdo.phototheque.medias.Media
+import fr.izquierdo.phototheque.reseau.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import java.io.InputStream
+
+class OrchestrateurTest {
+
+    private fun media(instant: Double, nom: String = "a.jpg") =
+        Media(instant.toLong(), "DCIM/Camera", nom, 10L, instant)
+
+    /** Serveur simule : on programme le resultat de chaque envoi. */
+    private class FauxServeur(
+        val horizons: Map<String, Double> = emptyMap(),
+        val reclame: (List<FichierPlan>) -> List<String> = { f -> f.map { it.hash } },
+        val resultats: MutableList<ResultatEnvoi> = mutableListOf(),
+    ) : Serveur {
+        var horizonsEnvoyes: Map<String, Double>? = null
+        var commitAppele = false
+        override fun horizon() = ReponseHorizon(null, horizons)
+        override fun plan(f: List<FichierPlan>) = ReponsePlan("a".repeat(32), reclame(f))
+        /** Les empreintes vues par le serveur, dans l'ordre : elles doivent
+         *  etre celles que le plan a annoncees, jamais recalculees. */
+        val empreintesRecues = mutableListOf<String>()
+        override fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long,
+                             empreinteAttendue: String): ResultatEnvoi {
+            empreintesRecues += empreinteAttendue
+            return if (resultats.isEmpty()) ResultatEnvoi.OK else resultats.removeAt(0)
+        }
+        override fun commit(session: String, horizons: Map<String, Double>): Map<String, Double> {
+            horizonsEnvoyes = horizons; commitAppele = true; return mapOf("sorted" to 1.0)
+        }
+    }
+
+    private class FausseSource(val medias: List<Media>) : SourceMedias {
+        override fun lister() = medias
+        override fun ouvrir(media: Media): InputStream = "contenu".byteInputStream()
+    }
+
+    @Test fun cas_nominal_tout_est_envoye_et_l_horizon_avance() {
+        val serveur = FauxServeur()
+        val bilan = Orchestrateur(FausseSource(listOf(media(100.0), media(200.0))), serveur)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertEquals(2, bilan.envoyes)
+        assertEquals(mapOf("DCIM/Camera" to 200.0), serveur.horizonsEnvoyes)
+    }
+
+    @Test fun l_empreinte_passee_a_l_envoi_est_celle_annoncee_au_plan() {
+        // Le serveur renvoie l'empreinte du fichier TEL QUE RECU et le client la
+        // compare : encore faut-il qu'il compare a celle que le plan a annoncee.
+        // La recalculer au moment de l'envoi rendrait la verification circulaire
+        // et laisserait passer un transfert abime.
+        val serveur = FauxServeur()
+        Orchestrateur(FausseSource(listOf(media(100.0))), serveur)
+            .synchroniser(setOf("DCIM/Camera"))
+        val attendue = fr.izquierdo.phototheque.medias.Empreintes
+            .sha256("contenu".byteInputStream())
+        assertEquals(listOf(attendue), serveur.empreintesRecues)
+    }
+
+    @Test fun un_echec_au_milieu_arrete_l_horizon_avant_lui() {
+        val serveur = FauxServeur(resultats = mutableListOf(
+            ResultatEnvoi.OK, ResultatEnvoi.ECHEC, ResultatEnvoi.OK))
+        val bilan = Orchestrateur(
+            FausseSource(listOf(media(100.0), media(200.0), media(300.0))), serveur)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertEquals(mapOf("DCIM/Camera" to 100.0), serveur.horizonsEnvoyes)
+        assertEquals(1, bilan.echecs)
+    }
+
+    @Test fun le_commit_est_appele_MEME_apres_un_echec() {
+        // Sans cela les fichiers deja recus resteraient indefiniment dans le
+        // depot temporaire du NUC, sans que rien ne les range.
+        val serveur = FauxServeur(resultats = mutableListOf(ResultatEnvoi.ECHEC))
+        Orchestrateur(FausseSource(listOf(media(100.0))), serveur)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertTrue(serveur.commitAppele)
+    }
+
+    @Test fun une_extension_refusee_ne_compte_pas_comme_un_echec() {
+        val serveur = FauxServeur(resultats = mutableListOf(ResultatEnvoi.EXTENSION_REFUSEE))
+        val bilan = Orchestrateur(FausseSource(listOf(media(100.0, "a.webm"))), serveur)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertEquals(0, bilan.echecs)
+        assertEquals(1, bilan.refuses)
+        assertEquals(mapOf("DCIM/Camera" to 100.0), serveur.horizonsEnvoyes)
+    }
+
+    @Test fun une_revocation_arrete_tout_immediatement() {
+        val serveur = FauxServeur(resultats = mutableListOf(ResultatEnvoi.REVOQUE))
+        val bilan = Orchestrateur(
+            FausseSource(listOf(media(100.0), media(200.0))), serveur)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertTrue(bilan.revoque)
+        assertEquals(0, bilan.envoyes)
+    }
+
+    @Test fun les_medias_deja_connus_ne_sont_pas_envoyes() {
+        // Le serveur ne reclame rien : on ne transfere rien, mais on valide
+        // quand meme pour faire avancer l'horizon.
+        val serveur = FauxServeur(reclame = { emptyList() })
+        val bilan = Orchestrateur(FausseSource(listOf(media(100.0))), serveur)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertEquals(0, bilan.envoyes)
+        assertTrue(serveur.commitAppele)
+        assertEquals(mapOf("DCIM/Camera" to 100.0), serveur.horizonsEnvoyes)
+    }
+
+    @Test fun un_media_illisible_ne_fait_pas_echouer_la_synchro_ni_perdre_le_commit() {
+        // Cas banal : la photo a ete supprimee entre le listing et l'envoi.
+        // Sans filet, l'exception remontait hors de synchroniser() et le commit
+        // n'avait jamais lieu — les fichiers deja recus restaient bloques pour
+        // toujours dans le depot temporaire du NUC.
+        val bavard = media(100.0)
+        val muet = media(200.0, "disparu.jpg")
+        val source = object : SourceMedias {
+            override fun lister() = listOf(bavard, muet)
+            override fun ouvrir(media: Media): InputStream =
+                if (media.nom == "disparu.jpg") throw java.io.FileNotFoundException(media.nom)
+                else "contenu".byteInputStream()
+        }
+        val serveur = FauxServeur()
+
+        val bilan = Orchestrateur(source, serveur).synchroniser(setOf("DCIM/Camera"))
+
+        assertTrue("le commit doit avoir lieu malgre le media illisible", serveur.commitAppele)
+        assertEquals(1, bilan.envoyes)
+        assertEquals(1, bilan.echecs)
+        // L'horizon ne doit PAS passer par-dessus le media illisible.
+        assertEquals(mapOf("DCIM/Camera" to 100.0), serveur.horizonsEnvoyes)
+    }
+
+    @Test fun un_media_illisible_bloque_l_horizon_de_son_dossier() {
+        // Le media a 100 est illisible des le calcul d'empreinte, celui a 200
+        // part sans probleme, tous deux dans le MEME dossier. Si l'illisible
+        // etait simplement omis de `envois`, l'horizon sauterait a 200 et le
+        // media a 100 ne serait PLUS JAMAIS propose — perte definitive et
+        // silencieuse. Le dossier doit donc rester bloque.
+        val perdu = media(100.0, "disparu.jpg")
+        val bon = media(200.0)
+        val source = object : SourceMedias {
+            override fun lister() = listOf(perdu, bon)
+            override fun ouvrir(media: Media): InputStream =
+                if (media.nom == "disparu.jpg") throw java.io.FileNotFoundException(media.nom)
+                else "contenu".byteInputStream()
+        }
+        val serveur = FauxServeur()
+
+        Orchestrateur(source, serveur).synchroniser(setOf("DCIM/Camera"))
+
+        assertTrue("le commit doit avoir lieu", serveur.commitAppele)
+        assertFalse(
+            "l'horizon a saute par-dessus un media illisible : il est perdu",
+            "DCIM/Camera" in serveur.horizonsEnvoyes!!)
+    }
+}
