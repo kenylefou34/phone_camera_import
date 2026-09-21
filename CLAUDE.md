@@ -98,13 +98,11 @@ permission retirée, serveur en erreur de rangement, aucun dossier trouvé.
 l'app) — attention, le lot 2 supprime la protection accidentelle qui masque
 aujourd'hui le cas du dossier vide.
 
-**Décision en suspens depuis le 17/09, jamais tranchée** : deux sauvegardes
-dorment sur le NUC, créées avant des opérations lourdes et devenues inutiles si
-tout va bien. Les garder ou les supprimer est au mainteneur, pas à un agent.
-- `~/mediasort_catalog.db.avant-signatures` (12 Mo) — état du catalogue d'avant
-  le rattrapage des signatures du 17/09 au matin, qui s'est bien passé.
-- `~/phototheque_devices.db.vide-20260917-134451` (16 Ko) — base d'appairage
-  vide mise de côté par `install.sh` lors du renommage.
+**Sauvegardes du 17/09 : plus rien à trancher** (vérifié le 21/09). Les deux
+copies de secours qui dormaient sur le NUC
+(`mediasort_catalog.db.avant-signatures`, `phototheque_devices.db.vide-*`) ont
+disparu entre-temps. Les bases de production, elles, sont bien là :
+`~/mediasort_catalog.db` (19 Mo) et `~/phototheque_devices.db` (24 Ko).
 
 ## Feuille de route (issues GitHub)
 Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
