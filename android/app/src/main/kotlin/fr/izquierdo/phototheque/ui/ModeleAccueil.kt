@@ -67,7 +67,13 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                 _etat.value = base.copy(
                     serveurIntrouvable = issue.serveurIntrouvable,
                     erreur = issue.erreur,
-                    revoque = issue.revoque,
+                    // Meme source de verite qu'`appaire` : une revocation
+                    // reelle vide le coffre AVANT de publier l'issue, donc
+                    // coffre vide = revocation en cours. Lire `issue.revoque`
+                    // seul rejouerait une revocation perimee apres un rescan
+                    // de QR, et afficherait « revoque » sur un telephone
+                    // fraichement reappaire.
+                    revoque = issue.revoque && coffre.charge() == null,
                     // Deduit du coffre, pas de `issue.revoque` : `derniereIssue`
                     // est un StateFlow de companion object, donc de la duree de
                     // vie du PROCESSUS. Une revocation rescannee puis
