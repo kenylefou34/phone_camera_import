@@ -148,3 +148,39 @@ def test_une_session_mal_formee_repond_404(tmp_path, monkeypatch):
                     headers={"Authorization": f"Bearer {secret}"},
                     json={"session": "pas-un-identifiant", "horizons": {}})
     assert r.status_code == 404
+
+
+def test_la_destination_predite_par_l_app_correspond_au_serveur(tmp_path):
+    """L'écran d'avancement annonce « → Videos/2025/09 SEPTEMBRE ».
+
+    Cette prédiction est calculée EN DOUBLE dans l'application
+    (`synchro/Destination.kt`). Ce test fige la convention côté serveur : s'il
+    tombe, c'est que le serveur a changé de règle et que l'application ment
+    désormais à l'écran.
+    """
+    import datetime
+    from pathlib import Path
+    from mediasort import classify
+
+    class Resultat:
+        def __init__(self, d): self.date = d
+
+    attendus = [
+        ("DCIM/Camera/IMG.jpg", "photo", datetime.date(2025, 9, 27),
+         "Photos/2025/09 SEPTEMBRE"),
+        ("DCIM/Camera/VID.mp4", "video", datetime.date(2025, 9, 27),
+         "Videos/2025/09 SEPTEMBRE"),
+        ("Pictures/WhatsApp/IMG.jpg", "photo", datetime.date(2025, 9, 27),
+         "WhatsApp/Photos/2025/09 SEPTEMBRE"),
+        ("Movies/whatsapp/VID.mp4", "video", datetime.date(2025, 9, 27),
+         "WhatsApp/Videos/2025/09 SEPTEMBRE"),
+        ("DCIM/Camera/a.jpg", "photo", datetime.date(2026, 1, 15),
+         "Photos/2026/01 JANVIER"),
+        ("DCIM/Camera/a.jpg", "photo", datetime.date(2026, 8, 15),
+         "Photos/2026/08 AOUT"),
+    ]
+    for relatif, mtype, jour, attendu in attendus:
+        chemin = classify.destination(
+            tmp_path, tmp_path / relatif, Resultat(jour), mtype)
+        obtenu = str(chemin.parent.relative_to(tmp_path))
+        assert obtenu == attendu, f"{relatif} -> {obtenu}, attendu {attendu}"
