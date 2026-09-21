@@ -157,6 +157,27 @@ fusionnée — ce qui reste à faire, de préférence après le déploiement ci-
   `projet-audit-reseau-lan`.
 - Pas de `curl` sur le NUC ; `sudo` exige un vrai terminal (le canal `!` n'a pas
   de TTY) ; PEP 668 impose le venv.
+- **Le `?` sur l'icône réseau du NUC ne veut PAS dire que le service photo est
+  tombé** (constaté le 2026-09-21). C'est NetworkManager en état
+  `CONNECTED_SITE` : « le LAN marche, je n'atteins pas Internet ». Le service
+  photo n'a jamais besoin d'Internet, seulement du LAN — un téléphone sur le
+  même WiFi le joint normalement pendant tout l'épisode. Redémarrer le NUC pour
+  ça ne sert à rien.
+  Diagnostic en une commande :
+  `journalctl -b -1 | grep "NetworkManager state is now"` — `CONNECTED_GLOBAL` =
+  tout va bien, `CONNECTED_SITE` = Internet KO, LAN OK.
+  Ce jour-là : lien WiFi **associé sans interruption du 16/09 09:06 au 21/09
+  08:56** (zéro événement noyau `wlo2`), aucune mise en veille, aucun trou dans
+  le journal ; seules les bascules de connectivité se dégradaient (3 en 16
+  jours, puis 6 le 19/09, 11 le 20/09, bloqué en `CONNECTED_SITE` à 03:22:53 le
+  21/09). Cause en amont : la box ou le lien opérateur.
+  Deux pièges rencontrés en cherchant : `grep "PM: hibernation"` remonte des
+  lignes de **démarrage** (`Registered nosave memory`), ce ne sont pas des
+  veilles ; et un grep large sur `disconnect|deauthenticat` donne 744 lignes de
+  bruit là où le noyau n'en a que quelques-unes de réelles (filtrer sur `wlo2:`).
+- **`eno1` (ethernet du NUC) n'a aucun câble** (`cat /sys/class/net/eno1/carrier`
+  = 0) : le WiFi est l'unique chemin vers le serveur photo. Un câble le rendrait
+  insensible aux aléas radio — action physique, à la main du mainteneur.
 
 **Pièges du serveur**
 - **FastAPI publie `/docs`, `/redoc` et `/openapi.json` sans authentification.**
