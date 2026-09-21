@@ -8,6 +8,7 @@ import fr.izquierdo.phototheque.reseau.Fabrique
 import fr.izquierdo.phototheque.reseau.ServeurRevoqueException
 import fr.izquierdo.phototheque.ui.Memoire
 import fr.izquierdo.phototheque.ui.EtatSynchro
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,6 +42,11 @@ class TravailSynchro(
 ) : CoroutineWorker(context, parametres) {
 
     override suspend fun doWork(): Result {
+        // `_derniereIssue` est un StateFlow de companion object, donc de la
+        // duree de vie du processus : sans cette remise a zero, un nouveau
+        // collecteur (ecran recree, nouvelle synchro) rejouerait l'issue de
+        // l'execution PRECEDENTE - un vieux bandeau d'erreur qui reapparait.
+        _derniereIssue.value = null
         val contexte = applicationContext
         val charge = Coffre(contexte).charge() ?: return Result.success()
         val depot = Depot(contexte)
@@ -77,7 +83,9 @@ class TravailSynchro(
         // perdue des que `_avancement` repasse a null en fin de course.
         var dossiersVus = emptyMap<String, Int>()
         var dernierePhasePubliee: Phase? = null
-        var dernierPourcentagePublie = -1
+        // 0L : garantit la premiere publication de l'orchestrateur, quelle
+        // que soit l'heure du telephone.
+        var dernierePublicationMs = 0L
 
         val bilan = try {
             withContext(Dispatchers.IO) {
@@ -86,16 +94,22 @@ class TravailSynchro(
                     surAvancement = { vu ->
                         _avancement.value = vu
                         dossiersVus = vu.dossiersVus
-                        // On ne republie la notification que si la phase ou
-                        // le pourcentage entier a change : sans ce filtre,
-                        // l'orchestrateur appelle ce callback jusqu'a deux
-                        // fois par media, en rafales instantanees quand les
-                        // fichiers sont deja connus du serveur - des
-                        // milliers d'appels sur un gros lot.
+                        // Republie si la phase change (toujours, immediat),
+                        // ou si au moins une seconde s'est ecoulee depuis la
+                        // derniere notification postee. Un filtre sur le
+                        // pourcentage ENTIER ne suffit pas : sur une serie de
+                        // petites photos, 1 % peut valoir des dizaines de
+                        // fichiers, et le titre resterait fige plusieurs
+                        // minutes sur l'unique surface visible ecran eteint.
+                        // Et compter les fichiers plutot que le temps
+                        // restaurerait la rafale d'origine (jusqu'a deux
+                        // appels par media) des que le serveur connait deja
+                        // tout, sans aucune E/S entre deux iterations.
+                        val maintenant = System.currentTimeMillis()
                         if (vu.phase != dernierePhasePubliee ||
-                            vu.pourcentage != dernierPourcentagePublie) {
+                            maintenant - dernierePublicationMs >= 1000) {
                             dernierePhasePubliee = vu.phase
-                            dernierPourcentagePublie = vu.pourcentage
+                            dernierePublicationMs = maintenant
                             setForegroundAsync(ServiceSynchro.information(contexte, vu))
                         }
                     },
@@ -106,6 +120,22 @@ class TravailSynchro(
             _avancement.value = null
             _derniereIssue.value = IssueSynchro(revoque = true, dossiersVus = dossiersVus)
             return Result.success()
+        } catch (e: CancellationException) {
+            // Un arret demande par l'utilisateur, pas une panne.
+            // `cancelUniqueWork` annule le job du worker ; `withContext` NE
+            // rend PAS la valeur de retour de l'orchestrateur dans ce cas
+            // (le Bilan(interrompu = true) qu'il a construit en sortant
+            // proprement de sa boucle n'arrive donc jamais ici) - il relaie
+            // l'annulation, et CancellationException herite d'Exception sur
+            // la JVM. Sans ce catch dedie AVANT le generique, celui-ci
+            // afficherait « La sauvegarde a echoue : Job was cancelled ».
+            _avancement.value = null
+            _derniereIssue.value = IssueSynchro(
+                bilan = Bilan(0, 0, 0, revoque = false, bilanServeur = emptyMap(),
+                              interrompu = true),
+                dossiersVus = dossiersVus,
+            )
+            throw e          // une annulation se relance TOUJOURS
         } catch (e: Exception) {
             _avancement.value = null
             _derniereIssue.value = IssueSynchro(
