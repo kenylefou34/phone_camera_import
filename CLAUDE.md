@@ -109,13 +109,16 @@ tout va bien. Les garder ou les supprimer est au mainteneur, pas à un agent.
 ## Feuille de route (issues GitHub)
 Prochaine étape : **sous-projet 3 = app Android** (issue #12 : scan QR, scan des
 dossiers, client d'upload) — commencer par #15, qui fige le contrat qu'elle
-codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #26
+codera en dur. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #27
 (`gh issue list`). Notamment : #4 doublons existants, #5 floues/rafales,
 #6 re-datation, #7 sauvegarde Famille.
 
 **Les constats mineurs différés ne vivent plus dans un journal de session** :
 #24 pour le lot Android, **#26 pour le lot serveur** (transport/auth/horizon du
-17/09 — ils n'avaient aucune trace jusqu'au 21/09). Le seul qui ait *gagné* en
+17/09 — ils n'avaient aucune trace jusqu'au 21/09). **#27** porte la moitié
+restante du constat C2 de ce lot : le serveur refuse désormais les extensions
+qu'il ne sait pas ranger, mais le trieur en ligne de commande les ignore
+toujours **sans le moindre compteur** — l'utilisateur ne peut pas savoir. Le seul qui ait *gagné* en
 portée depuis son signalement est le court-circuit temporel sur le nom
 d'utilisateur, devenu un secret partiel depuis `identifiants.sh`.
 
