@@ -31,8 +31,15 @@ data class Bilan(
     val echecs: Int,
     val revoque: Boolean,
     val bilanServeur: Map<String, Double>,
-    /** L'utilisateur a demandé l'arrêt. Ce n'est PAS un échec, et ça ne doit
-     *  ni déclencher d'alerte ni provoquer de reprise automatique. */
+    /**
+     * La synchronisation s'est arrêtée avant la fin. Ce n'est PAS un échec :
+     * ça ne doit ni déclencher d'alerte, ni provoquer de reprise automatique.
+     *
+     * L'orchestrateur ne sait pas QUI a demandé l'arrêt — le drapeau qu'on lui
+     * passe vaut aussi bien pour un appui sur « Interrompre » que pour une
+     * contrainte réseau perdue. C'est `TravailSynchro` qui fait la différence
+     * avant de l'afficher : « Sauvegarde interrompue. » parle d'une décision.
+     */
     val interrompu: Boolean = false,
 )
 
@@ -161,7 +168,9 @@ class Orchestrateur(
 
             if (abandonne) {
                 // Arret immediat : le paquet en cours est jete. On previent au
-                // mieux ; la purge des 24 h cote serveur est le filet.
+                // mieux -- si l'appel echoue, les fichiers deja montes restent
+                // sur le disque du NUC : le serveur ne purge aucune session
+                // (issue #30), il n'y a pas de filet.
                 serveur.abandonner(reponse.session)
                 break
             }
@@ -171,6 +180,16 @@ class Orchestrateur(
             val resultat = Horizons.calculer(envois, arretes)
             arretes = resultat.arretes
             val bilanPaquet = serveur.commit(reponse.session, resultat.horizons)
+            // Le serveur n'ecrit AUCUN horizon quand son tri a echoue, et il a
+            // DETRUIT le fichier fautif (app.py : le nettoyage de la session
+            // s'execute avant le test sur `errors`). Si un paquet suivant
+            // faisait avancer l'horizon de ces dossiers-la, le media detruit
+            // passerait dessous et serait perdu pour toujours. Un seul commit
+            // par synchro rendait cette protection inutile ; le decoupage en
+            // paquets la rend indispensable. On gele donc TOUS les dossiers du
+            // paquet, pas seulement ceux dont l'application a constate un
+            // echec : de ceux-la, elle n'a rien vu du tout.
+            if ((bilanPaquet["errors"] ?: 0.0) > 0.0) arretes = arretes + lot.map { it.dossier }
             // Cumule et non ecrase : avec N commits, ne garder que le dernier
             // ferait declarer reussie une synchro dont un paquet a echoue au
             // rangement (EtatSynchro.estUneReussite ne regarderait que celui-la).

@@ -123,6 +123,30 @@ class ClientServeurTest {
             client.envoyer("s".repeat(32), "DCIM/a.jpg", "x".byteInputStream(), 1L, EMPREINTE))
     }
 
+    @Test fun horizon_et_plan_passent_par_le_client_court_pas_par_celui_du_commit() {
+        // Spec 8 : 30 s pour horizon/plan, 30 min pour le seul commit. Si
+        // horizon passait par le client long, un candidat mDNS perime qui
+        // accepte la connexion sans repondre bloquerait la decouverte 30 min
+        // PAR ADRESSE, ecran vierge. Ce test verrouille l'aiguillage, que
+        // FabriqueTest ne peut pas voir : lui ne verifie que les delais.
+        val vus = mutableListOf<String>()
+        fun marque(nom: String) = OkHttpClient.Builder()
+            .addInterceptor { chaine -> vus += nom; chaine.proceed(chaine.request()) }
+            .build()
+        val c = ClientServeur(serveur.url("/").toString().trimEnd('/'), "jeton",
+                              marque("long"), marque("court"))
+
+        serveur.enqueue(MockResponse().setBody("""{"depuis":null,"dossiers":{}}"""))
+        c.horizon()
+        serveur.enqueue(MockResponse().setBody(
+            """{"session":"${"0".repeat(32)}","needed":[]}"""))
+        c.plan(emptyList())
+        serveur.enqueue(MockResponse().setBody("""{"sorted":1}"""))
+        c.commit("0".repeat(32), emptyMap())
+
+        assertEquals(listOf("court", "court", "long"), vus)
+    }
+
     @Test fun le_commit_sur_une_reponse_non_200_leve() {
         // Sur 401/404/500 le corps s'analysait sans lever et donnait une map
         // vide : l'application croyait avoir reussi alors que AUCUN horizon

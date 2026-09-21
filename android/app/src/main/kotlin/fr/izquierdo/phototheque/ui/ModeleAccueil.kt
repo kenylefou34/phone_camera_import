@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fr.izquierdo.phototheque.appairage.Coffre
 import fr.izquierdo.phototheque.medias.Depot
+import fr.izquierdo.phototheque.synchro.EtatTravail
 import fr.izquierdo.phototheque.synchro.TravailSynchro
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,11 +48,15 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                 // laisserait trois d'entre elles sans message : un serveur
                 // introuvable, une revocation levee avant tout bilan, et une
                 // panne generique sortent toutes AVANT qu'un bilan existe.
+
+                // Lu UNE seule fois : la reponse sert a trois endroits plus
+                // bas, et trois lectures pourraient se contredire.
+                val accesRefuse = depot.accesRefuse()
                 val base = issue.bilan?.let {
                     _etat.value.apresSynchro(
                         it,
                         accesPartiel = depot.accesPartiel(),
-                        accesRefuse = depot.accesRefuse(),
+                        accesRefuse = accesRefuse,
                         derniereReussiteMs = memoire.derniereReussiteMs(),
                     )
                 } ?: _etat.value.copy(
@@ -61,12 +66,16 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                     // s'execute que si un bilan existe) resterait invisible
                     // jusqu'au prochain `onResume` : l'ecran afficherait
                     // « La sauvegarde a echoue » au lieu du bandeau juste.
-                    permissionRefusee = depot.accesRefuse(),
+                    permissionRefusee = accesRefuse,
                     accesPartiel = depot.accesPartiel(),
                 )
                 _etat.value = base.copy(
                     serveurIntrouvable = issue.serveurIntrouvable,
-                    erreur = issue.erreur,
+                    // Une permission retiree a DEJA son bandeau, qui dit quoi
+                    // faire. Y ajouter « La sauvegarde a echoue : Permission
+                    // Denial… » donnerait deux messages pour une seule panne,
+                    // dont un que personne ne peut exploiter.
+                    erreur = if (accesRefuse) null else issue.erreur,
                     // Meme source de verite qu'`appaire` : une revocation
                     // reelle vide le coffre AVANT de publier l'issue, donc
                     // coffre vide = revocation en cours. Lire `issue.revoque`
@@ -97,8 +106,15 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
         // « pas de reseau du tout » qui ne publie jamais rien, c'etait sinon
         // le seul retour possible a l'utilisateur qui manquait.
         viewModelScope.launch {
-            TravailSynchro.enCours(application).collect { enCours ->
-                _etat.value = _etat.value.copy(enCours = enCours)
+            TravailSynchro.etatTravail(application).collect { travail ->
+                _etat.value = _etat.value.copy(
+                    enCours = travail != EtatTravail.INACTIF,
+                    // Distingue « WorkManager diffère faute de réseau » de
+                    // « la recherche du serveur est en cours » : sans ça,
+                    // l'écran afficherait « en attente d'un réseau » pendant
+                    // les 3 à 13 s qui suivent chaque appui.
+                    enAttenteReseau = travail == EtatTravail.EN_ATTENTE,
+                )
             }
         }
     }
@@ -123,6 +139,13 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
     fun synchroniser() {
         if (coffre.charge() == null) return
         rafraichirPermissions()
+        // Le résultat de la synchronisation PRÉCÉDENTE s'efface ici. Sans
+        // cela, l'accueil affiche « Sauvegarde en cours… » ET « La sauvegarde
+        // a échoué » en même temps : pendant les 3 à 13 s qui précèdent la
+        // première publication, et indéfiniment si la contrainte réseau
+        // diffère le travail.
+        _etat.value = _etat.value.copy(
+            erreur = null, serveurIntrouvable = false, dernierBilan = null)
         TravailSynchro.lancer(getApplication())
     }
 

@@ -66,12 +66,31 @@ object Fabrique {
      * 30 min en lecture ne suffiraient PAS pour un commit monolithique : c'est
      * le découpage en paquets (`synchro.Paquets`) qui borne le travail d'un
      * commit, le délai ne fait que le protéger.
+     *
+     * Ce délai-là est réservé au commit et à l'envoi ; [clientCourt] en dérive
+     * la version 30 s que réclame la spec §8 pour le reste.
      */
     private fun OkHttpClient.Builder.avecDelais(): OkHttpClient.Builder = this
         .connectTimeout(10, TimeUnit.SECONDS)
         // Une video de 3 Go a 12 Mo/s prend plusieurs minutes a ecrire.
         .writeTimeout(5, TimeUnit.MINUTES)
         .readTimeout(30, TimeUnit.MINUTES)
+
+    /**
+     * Le même client, mais qui n'attend une réponse que 30 s (spec §8).
+     *
+     * Appliquer les 30 min du commit à tout le reste est une régression
+     * franche : un candidat mDNS périmé qui accepte la connexion TCP sans
+     * jamais répondre bloquerait la découverte **30 min par adresse**, écran
+     * vierge, avant la toute première publication d'avancement. Avant ce lot,
+     * c'était 10 s.
+     *
+     * Dérivé par `newBuilder()` et non reconstruit : l'épinglage du
+     * certificat, le vérificateur de nom d'hôte et l'interdiction de rejeu
+     * sont conservés tels quels — et le pool de connexions est partagé.
+     */
+    fun clientCourt(long: OkHttpClient): OkHttpClient =
+        long.newBuilder().readTimeout(30, TimeUnit.SECONDS).build()
 
     /** Client HTTP qui n'accepte QUE le certificat annoncé dans le QR. */
     fun client(charge: ChargeAppairage): OkHttpClient {
@@ -112,8 +131,11 @@ object Fabrique {
      */
     fun serveur(context: Context, charge: ChargeAppairage): Serveur? {
         val http = client(charge)
+        // La sonde ci-dessous est un `horizon()`, donc elle passe par le
+        // client court : une adresse morte est ecartee en 30 s, pas en 30 min.
+        val court = clientCourt(http)
         for (base in Decouverte.adresses(context) + charge.url) {
-            val candidat = ClientServeur(base, charge.token, http)
+            val candidat = ClientServeur(base, charge.token, http, court)
             try {
                 candidat.horizon()
                 return Adaptateur(candidat)

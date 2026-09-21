@@ -14,7 +14,8 @@ import fr.izquierdo.phototheque.synchro.TravailSynchro
 
 @Composable
 fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
-                 surSynchroniser: () -> Unit, surVoirDetail: () -> Unit) {
+                 surSynchroniser: () -> Unit, surInterrompre: () -> Unit,
+                 surVoirDetail: () -> Unit) {
     val jours = EtatSynchro.joursDepuis(maintenantMs, etat.derniereReussiteMs)
     val alerte = jours == null || jours >= EtatSynchro.SEUIL_ALERTE_JOURS
 
@@ -64,8 +65,15 @@ fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
         if (enErreur > 0) {
             Spacer(Modifier.height(8.dp))
             Text(
+                // « Ils seront représentés » serait FAUX : le serveur détruit
+                // le fichier qu'il n'a pas su ranger (app.py nettoie la
+                // session avant de regarder `errors`). Ce qui est vrai, c'est
+                // que l'horizon du dossier n'a pas bougé — il sera donc
+                // reproposé en entier, et l'anti-doublon écartera ce qui est
+                // déjà rangé.
                 "Le serveur n'a pas réussi à ranger $enErreur média(s). " +
-                "Ils seront représentés à la prochaine sauvegarde.",
+                "Le dossier concerné sera reproposé en entier à la prochaine " +
+                "sauvegarde.",
                 color = MaterialTheme.colorScheme.error)
         }
         if (etat.serveurIntrouvable) {
@@ -83,9 +91,31 @@ fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
 
         Spacer(Modifier.height(24.dp))
         Button(onClick = surSynchroniser, enabled = !etat.enCours) {
-            Text(if (etat.enCours) "Sauvegarde en cours…" else "Sauvegarder maintenant")
+            Text(when {
+                etat.enAttenteReseau -> "Sauvegarde en attente…"
+                etat.enCours -> "Sauvegarde en cours…"
+                else -> "Sauvegarder maintenant"
+            })
         }
-        if (etat.enCours) { Spacer(Modifier.height(16.dp)); LinearProgressIndicator() }
+        // Cet écran n'est visible PENDANT une synchronisation que tant
+        // qu'aucun avancement n'a été publié (sinon MainActivity bascule sur
+        // EcranAvancement). Il n'y a donc alors ni écran d'avancement, ni
+        // notification, ni bouton « Interrompre » : sans ce bloc, un travail
+        // que WorkManager diffère faute de réseau laisse un bouton grisé et
+        // AUCUNE explication ni aucune sortie — indéfiniment.
+        if (etat.enCours) {
+            Spacer(Modifier.height(16.dp))
+            LinearProgressIndicator()
+            Spacer(Modifier.height(8.dp))
+            // Les deux cas se distinguent par l'état réel de WorkManager :
+            // dire « en attente d'un réseau » pendant la recherche du serveur
+            // (3 à 13 s à chaque sauvegarde) serait un message faux.
+            Text(if (etat.enAttenteReseau)
+                     "En attente d'un réseau… la sauvegarde démarrera toute seule."
+                 else "Recherche du serveur sur le réseau…")
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = surInterrompre) { Text("Interrompre") }
+        }
         Spacer(Modifier.height(8.dp))
         TextButton(onClick = surVoirDetail) { Text("Voir le détail") }
     }
@@ -128,7 +158,7 @@ fun EcranAvancement(avancement: Avancement, surInterrompre: () -> Unit) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Text(avancement.octetsParSeconde
                      ?.let { "${Lisible.octets(it.toLong())}/s" } ?: "—")
-            Text(avancement.secondesRestantes?.let { "~ ${Lisible.duree(it)}" } ?: "—")
+            Text(avancement.secondesRestantes?.let { Lisible.restant(it) } ?: "—")
         }
 
         avancement.mediaEnCours?.let { chemin ->

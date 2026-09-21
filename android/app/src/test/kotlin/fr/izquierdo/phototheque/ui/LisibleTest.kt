@@ -28,4 +28,11 @@ class LisibleTest {
     @Test fun une_duree_nulle_ne_dit_pas_zero_seconde() {
         assertEquals("moins d'une minute", Lisible.duree(0))
     }
+
+    @Test fun le_temps_restant_ne_dit_pas_environ_moins_d_une_minute() {
+        // L'ecran prefixait la duree d'un tilde sans regarder ce qu'elle
+        // valait : « ~ moins d'une minute » se lit comme une faute de frappe.
+        assertEquals("moins d'une minute", Lisible.restant(0))
+        assertEquals("~ 45 s", Lisible.restant(45))
+    }
 }

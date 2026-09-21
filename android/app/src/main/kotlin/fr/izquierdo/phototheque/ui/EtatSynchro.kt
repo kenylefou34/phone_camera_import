@@ -9,6 +9,16 @@ import fr.izquierdo.phototheque.synchro.Bilan
  */
 data class EtatSynchro(
     val enCours: Boolean = false,
+    /**
+     * Le travail est accepté par WorkManager mais DIFFÉRÉ : la contrainte
+     * réseau n'est pas satisfaite. Distinct de [enCours] seul, qui couvre
+     * aussi les quelques secondes de recherche du serveur : les confondre
+     * afficherait « en attente d'un réseau » à chaque sauvegarde normale.
+     *
+     * Sans ce drapeau, l'attente ne produit RIEN — pas d'avancement, donc pas
+     * d'écran d'avancement, pas de notification, pas de bouton pour sortir.
+     */
+    val enAttenteReseau: Boolean = false,
     val derniereReussiteMs: Long? = null,
     val dernierBilan: Bilan? = null,
     val accesPartiel: Boolean = false,

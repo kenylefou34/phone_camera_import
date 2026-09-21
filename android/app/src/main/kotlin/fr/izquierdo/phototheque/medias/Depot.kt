@@ -82,9 +82,6 @@ class Depot(private val context: Context) : SourceMedias {
             ?: throw java.io.IOException("media illisible : ${media.chemin}")
     }
 
-    /** Dossiers présents sur le téléphone et nombre de médias de chacun. */
-    fun dossiers(): Map<String, Int> =
-        lister().groupingBy { it.dossier }.eachCount()
 
     /**
      * Vrai si l'application n'a AUCUN accès aux médias.

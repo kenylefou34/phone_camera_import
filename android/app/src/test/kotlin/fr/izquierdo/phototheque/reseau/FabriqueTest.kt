@@ -2,6 +2,7 @@ package fr.izquierdo.phototheque.reseau
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 /**
@@ -29,6 +30,10 @@ class FabriqueTest {
         val sansTls = Fabrique.client(
             ChargeAppairage("http://192.168.1.21:8787", "jeton", null))
         assertFalse("client sans TLS", sansTls.retryOnConnectionFailure)
+
+        // Le client court est DERIVE du precedent : s'il etait reconstruit,
+        // il perdrait ce drapeau -- et c'est lui qui sonde le reseau.
+        assertFalse("client court", Fabrique.clientCourt(avecTls).retryOnConnectionFailure)
     }
 
     @Test fun les_delais_sont_poses_explicitement() {
@@ -45,5 +50,26 @@ class FabriqueTest {
     @Test fun les_delais_valent_aussi_pour_le_client_epingle() {
         val http = Fabrique.client(ChargeAppairage("https://x:8787", "jeton", "a".repeat(64)))
         assertEquals(1_800_000, http.readTimeoutMillis)
+    }
+
+    @Test fun la_sonde_de_decouverte_n_attend_pas_trente_minutes() {
+        // Spec 8 : 30 s pour horizon/plan, 30 min pour le seul commit.
+        // Appliquer les 30 min partout est une regression franche : un
+        // candidat mDNS perime qui accepte la connexion TCP sans jamais
+        // repondre bloquerait la decouverte 30 min PAR ADRESSE, ecran vierge,
+        // avant la premiere publication d'avancement. Avant ce lot : 10 s.
+        val long = Fabrique.client(ChargeAppairage("https://x:8787", "jeton", "a".repeat(64)))
+        val court = Fabrique.clientCourt(long)
+        assertEquals(30_000, court.readTimeoutMillis)
+        // Le commit, lui, garde ses 30 min : deriver le court ne doit pas
+        // avoir abime le long.
+        assertEquals(1_800_000, long.readTimeoutMillis)
+        // Et le court garde le reste des reglages, epinglage compris : le
+        // reconstruire au lieu de le deriver ouvrirait la connexion de sonde
+        // a n'importe quel certificat.
+        assertEquals(10_000, court.connectTimeoutMillis)
+        assertEquals(300_000, court.writeTimeoutMillis)
+        assertSame(long.sslSocketFactory, court.sslSocketFactory)
+        assertSame(long.hostnameVerifier, court.hostnameVerifier)
     }
 }

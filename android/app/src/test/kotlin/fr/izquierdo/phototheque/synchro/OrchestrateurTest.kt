@@ -214,6 +214,52 @@ class OrchestrateurTest {
         assertEquals(2, bilan.envoyes)
     }
 
+    @Test fun un_rangement_rate_par_le_serveur_gele_le_dossier_pour_les_suivants() {
+        // LE test qui protege les photos contre le decoupage en paquets.
+        //
+        // Quand son tri echoue, le serveur n'ecrit AUCUN horizon -- mais il a
+        // DEJA detruit le fichier fautif (app.py : le nettoyage de la session
+        // s'execute avant le test sur `errors`, et mediasort n'efface pas ce
+        // qu'il n'a pas su ranger). L'application, elle, n'a rien constate :
+        // tous ses envois ont recu un 200, donc `Horizons.calculer` ne gele
+        // rien. Si un paquet suivant du meme dossier faisait avancer
+        // l'horizon, le media detruit passerait dessous : il n'existe plus
+        // nulle part et ne sera PLUS JAMAIS propose.
+        val medias = (1L..2L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val serveur = FauxServeur(bilansCommit = mutableListOf(
+            mapOf("sorted" to 0.0, "errors" to 1.0),
+            mapOf("sorted" to 1.0, "errors" to 0.0),
+        ))
+        Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+            .synchroniser(setOf("DCIM/Camera"))
+        // Sans cette assertion, un code qui s'arreterait au premier paquet
+        // passerait le test suivant sans rien prouver.
+        assertEquals("deux paquets, donc deux commits", 2, serveur.commits.size)
+        // Le PREMIER commit porte forcement l'horizon : l'application ne peut
+        // pas deviner que le tri va echouer. C'est a partir du deuxieme que la
+        // perte se joue.
+        assertTrue("un horizon transmis apres un rangement rate fait passer " +
+                   "le media detruit sous l'horizon : perte definitive",
+                   serveur.commits.drop(1).none { it.containsKey("DCIM/Camera") })
+    }
+
+    @Test fun un_rangement_REUSSI_ne_gele_aucun_dossier() {
+        // Le pendant du test precedent : geler sans regarder `errors` serait
+        // tout aussi faux, l'horizon ne bougerait plus jamais au-dela du
+        // premier paquet et chaque synchro reproposerait toute la
+        // bibliotheque.
+        val medias = (1L..2L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val serveur = FauxServeur()
+        Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+            .synchroniser(setOf("DCIM/Camera"))
+        assertEquals(2, serveur.commits.size)
+        assertEquals(mapOf("DCIM/Camera" to 2000.0), serveur.commits[1])
+    }
+
     @Test fun un_dossier_sain_avance_malgre_l_echec_d_un_autre() {
         val medias = listOf(
             Media(1, "DCIM/Camera", "m1.jpg", 600, 1000.0),

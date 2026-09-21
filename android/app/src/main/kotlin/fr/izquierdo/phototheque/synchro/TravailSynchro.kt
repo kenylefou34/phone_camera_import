@@ -35,6 +35,15 @@ data class IssueSynchro(
 )
 
 /**
+ * Ce que WorkManager sait du travail de synchronisation.
+ *
+ * EN_ATTENTE et EN_COURS sont séparés parce que l'écran doit en dire deux
+ * choses différentes : « en attente d'un réseau » serait faux pendant les 3 à
+ * 13 s de recherche du serveur qui suivent chaque appui sur le bouton.
+ */
+enum class EtatTravail { INACTIF, EN_ATTENTE, EN_COURS }
+
+/**
  * La synchronisation, exécutée par Android et non par l'écran.
  *
  * `WorkManager` garantit trois choses que le `viewModelScope` ne donnait pas :
@@ -53,36 +62,11 @@ class TravailSynchro(
         // collecteur (ecran recree, nouvelle synchro) rejouerait l'issue de
         // l'execution PRECEDENTE - un vieux bandeau d'erreur qui reapparait.
         _derniereIssue.value = null
+        // Une execution neuve n'a recu aucun ordre d'arret. Sans cette remise
+        // a zero, un arret demande lors de la synchro PRECEDENTE ferait
+        // annoncer « interrompue » a celle-ci.
+        arretDemande = false
         val contexte = applicationContext
-        val charge = Coffre(contexte).charge() ?: return Result.success()
-        val depot = Depot(contexte)
-
-        setForeground(ServiceSynchro.information(contexte, Avancement()))
-
-        // CoroutineWorker s'execute par defaut sur Dispatchers.Default, dont
-        // le pool est dimensionne au nombre de coeurs. Fabrique.serveur et
-        // Orchestrateur.synchroniser sont BLOQUANTS et peuvent tenir un
-        // thread une heure (ModeleAccueil avait deja fait ce choix
-        // explicitement). `CoroutineWorker.coroutineContext` existe pour ca,
-        // mais il est deprecie depuis work-runtime 2.9.0 au profit de
-        // withContext(...) ici meme.
-        val serveur = try {
-            withContext(Dispatchers.IO) { Fabrique.serveur(contexte, charge) }
-        } catch (e: ServeurRevoqueException) {
-            Coffre(contexte).oublier()
-            _avancement.value = null
-            _derniereIssue.value = IssueSynchro(revoque = true)
-            return Result.success()
-        } ?: run {
-            // Pas a la maison : ce n'est PAS une panne. On ne reessaie pas en
-            // boucle : NetworkType.CONNECTED se contente d'un reseau
-            // quelconque (la 4G y compris) et ne garantit pas qu'on soit a la
-            // maison, donc rien ici ne redeclenchera au retour. C'est un
-            // prochain lancement, manuel ou planifie, qui retentera.
-            _avancement.value = null
-            _derniereIssue.value = IssueSynchro(serveurIntrouvable = true)
-            return Result.success()
-        }
 
         // Retenu au fil des publications de l'orchestrateur : c'est la seule
         // source de `dossiersVus`, et sans cette variable la valeur serait
@@ -91,13 +75,49 @@ class TravailSynchro(
         // panne survenue AVANT la premiere publication se lirait comme un
         // « MediaStore n'a rien rendu » qu'elle n'a jamais constate.
         var dossiersVus: Map<String, Int>? = null
-        var dernierePhasePubliee: Phase? = null
-        // 0L : garantit la premiere publication de l'orchestrateur, quelle
-        // que soit l'heure du telephone.
-        var dernierePublicationMs = 0L
+        // Le bilan REEL, retenu au vol : une annulation empeche `withContext`
+        // de le rendre (voir le catch de CancellationException), et sans lui
+        // l'ecran annoncerait « 0 envoyes » apres vingt paquets valides.
+        var bilanPartiel: Bilan? = null
 
-        val bilan = try {
-            withContext(Dispatchers.IO) {
+        // Tout le corps est sous `try` : la preparation aussi. `setForeground`
+        // leve sur Android 12+ quand le demarrage d'un service de premier plan
+        // depuis l'arriere-plan est restreint - exactement le cas d'une
+        // reprise automatique, application fermee. Hors du try, l'exception
+        // marquait le travail en echec sans qu'aucun message n'existe nulle
+        // part : ni avancement, ni bilan, ni erreur. La panne muette que tout
+        // le sous-projet interdit.
+        try {
+            val charge = Coffre(contexte).charge() ?: return Result.success()
+            val depot = Depot(contexte)
+
+            setForeground(ServiceSynchro.information(contexte, Avancement()))
+
+            // CoroutineWorker s'execute par defaut sur Dispatchers.Default,
+            // dont le pool est dimensionne au nombre de coeurs. Fabrique.serveur
+            // et Orchestrateur.synchroniser sont BLOQUANTS et peuvent tenir un
+            // thread une heure (ModeleAccueil avait deja fait ce choix
+            // explicitement). `CoroutineWorker.coroutineContext` existe pour
+            // ca, mais il est deprecie depuis work-runtime 2.9.0 au profit de
+            // withContext(...) ici meme.
+            val serveur = withContext(Dispatchers.IO) { Fabrique.serveur(contexte, charge) }
+                ?: run {
+                    // Pas a la maison : ce n'est PAS une panne. On ne reessaie
+                    // pas en boucle : NetworkType.CONNECTED se contente d'un
+                    // reseau quelconque (la 4G y compris) et ne garantit pas
+                    // qu'on soit a la maison, donc rien ici ne redeclenchera au
+                    // retour. C'est un prochain lancement, manuel ou planifie,
+                    // qui retentera.
+                    _derniereIssue.value = IssueSynchro(serveurIntrouvable = true)
+                    return Result.success()
+                }
+
+            var dernierePhasePubliee: Phase? = null
+            // 0L : garantit la premiere publication de l'orchestrateur, quelle
+            // que soit l'heure du telephone.
+            var dernierePublicationMs = 0L
+
+            val bilan = withContext(Dispatchers.IO) {
                 Orchestrateur(
                     depot, serveur,
                     surAvancement = { vu ->
@@ -123,30 +143,52 @@ class TravailSynchro(
                         }
                     },
                 ).synchroniser(DOSSIERS_SAUVEGARDES, interrompu = { isStopped })
+                 // DANS le bloc, donc execute avant que `withContext` ne
+                 // relaie l'annulation : c'est la seule facon de garder le
+                 // travail deja accompli quand la synchro est coupee.
+                 .also { bilanPartiel = it }
             }
+
+            // Le 401 sur /sync/upload ne leve pas ServeurRevoqueException : il
+            // ressort ici comme Bilan.revoque. Sans ce nettoyage, un jeton mort
+            // survivrait aux redemarrages et l'accueil s'ouvrirait dessus
+            // indefiniment.
+            if (bilan.revoque) Coffre(contexte).oublier()
+
+            // Un arret, demande ou subi, n'est pas une reussite muette : le
+            // compter comme telle eteindrait l'alerte des 7 jours - le seul
+            // filet du projet contre les pannes muettes - pour une semaine sur
+            // une synchro arretee au bout de deux fichiers. Cette regle-la lit
+            // le bilan BRUT : peu importe QUI a arrete, la synchro n'est pas
+            // allee au bout.
+            if (!bilan.interrompu && EtatSynchro.estUneReussite(bilan, depot.accesRefuse())) {
+                Memoire(contexte).enregistrerReussite(System.currentTimeMillis())
+            }
+            _derniereIssue.value = IssueSynchro(
+                bilan = bilan.pourLEcran(), revoque = bilan.revoque, dossiersVus = dossiersVus)
+            return if (Reprise.fautIlRelancer(bilan) && runAttemptCount < TENTATIVES_MAX)
+                Result.retry() else Result.success()
+
         } catch (e: ServeurRevoqueException) {
             Coffre(contexte).oublier()
-            _avancement.value = null
             _derniereIssue.value = IssueSynchro(revoque = true, dossiersVus = dossiersVus)
             return Result.success()
         } catch (e: CancellationException) {
-            // Un arret demande par l'utilisateur, pas une panne.
-            // `cancelUniqueWork` annule le job du worker ; `withContext` NE
-            // rend PAS la valeur de retour de l'orchestrateur dans ce cas
-            // (le Bilan(interrompu = true) qu'il a construit en sortant
-            // proprement de sa boucle n'arrive donc jamais ici) - il relaie
-            // l'annulation, et CancellationException herite d'Exception sur
-            // la JVM. Sans ce catch dedie AVANT le generique, celui-ci
-            // afficherait « La sauvegarde a echoue : Job was cancelled ».
-            _avancement.value = null
+            // Un arret, pas une panne. `cancelUniqueWork` annule le job du
+            // worker ; `withContext` NE rend PAS la valeur de retour de
+            // l'orchestrateur dans ce cas - il relaie l'annulation, et
+            // CancellationException herite d'Exception sur la JVM. Sans ce
+            // catch dedie AVANT le generique, celui-ci afficherait
+            // « La sauvegarde a echoue : Job was cancelled ».
             _derniereIssue.value = IssueSynchro(
-                bilan = Bilan(0, 0, 0, revoque = false, bilanServeur = emptyMap(),
-                              interrompu = true),
+                // `bilanPartiel` et non des zeros : on peut arreter apres
+                // vingt paquets valides et six cents fichiers montes.
+                bilan = (bilanPartiel ?: Bilan(0, 0, 0, revoque = false,
+                                               bilanServeur = emptyMap())).pourLEcran(),
                 dossiersVus = dossiersVus,
             )
             throw e          // une annulation se relance TOUJOURS
         } catch (e: Exception) {
-            _avancement.value = null
             _derniereIssue.value = IssueSynchro(
                 erreur = e.message ?: e.javaClass.simpleName, dossiersVus = dossiersVus)
             // Bornee : une SecurityException (permission retiree) ne se
@@ -154,27 +196,27 @@ class TravailSynchro(
             // relancerait a l'infini (delai double jusqu'a 5 h), recalculant
             // toutes les empreintes a chaque tentative.
             return if (runAttemptCount < TENTATIVES_MAX) Result.retry() else Result.success()
+        } finally {
+            // Un seul endroit, et il couvre TOUTES les sorties : il n'existe
+            // plus d'etat dont l'ecran d'avancement ne sorte jamais. Ne touche
+            // qu'a `_avancement`, pour ne pas ecraser l'issue qu'une branche
+            // vient de publier.
+            _avancement.value = null
         }
-
-        // Le 401 sur /sync/upload ne leve pas ServeurRevoqueException : il
-        // ressort ici comme Bilan.revoque. Sans ce nettoyage, un jeton mort
-        // survivrait aux redemarrages et l'accueil s'ouvrirait dessus
-        // indefiniment.
-        if (bilan.revoque) Coffre(contexte).oublier()
-
-        // Un arret DEMANDE par l'utilisateur n'est pas une reussite muette :
-        // le compter comme telle eteindrait l'alerte des 7 jours - le seul
-        // filet du projet contre les pannes muettes - pour une semaine sur
-        // une synchro arretee au bout de deux fichiers.
-        if (!bilan.interrompu && EtatSynchro.estUneReussite(bilan, depot.accesRefuse())) {
-            Memoire(contexte).enregistrerReussite(System.currentTimeMillis())
-        }
-        _derniereIssue.value = IssueSynchro(
-            bilan = bilan, revoque = bilan.revoque, dossiersVus = dossiersVus)
-        _avancement.value = null
-        return if (Reprise.fautIlRelancer(bilan) && runAttemptCount < TENTATIVES_MAX)
-            Result.retry() else Result.success()
     }
+
+    /**
+     * Le bilan tel que l'ECRAN doit l'annoncer.
+     *
+     * « Sauvegarde interrompue. » est une phrase sur une DECISION de
+     * l'utilisateur. Or `isStopped` vaut aussi vrai pour une contrainte reseau
+     * perdue ou un arret systeme : l'annoncer ainsi serait faux, et c'est
+     * precisement ce que fait l'etape 7 de la recette (couper le Wi-Fi).
+     * Les regles internes - reussite, reprise - continuent de lire le bilan
+     * BRUT, pour lequel seul compte le fait que la synchro n'est pas allee au
+     * bout.
+     */
+    private fun Bilan.pourLEcran(): Bilan = copy(interrompu = interrompu && arretDemande)
 
     companion object {
         /** Lot 1 : dossiers en dur. L'écran de choix arrive au lot 2. */
@@ -212,17 +254,37 @@ class TravailSynchro(
                 .enqueueUniqueWork(NOM, ExistingWorkPolicy.KEEP, demande)
         }
 
+        /** Vrai quand l'arret vient de l'UTILISATEUR. `isStopped` ne suffit
+         *  pas : il vaut aussi vrai pour une contrainte reseau perdue ou un
+         *  arret systeme. @Volatile parce qu'il est ecrit depuis le fil de
+         *  l'interface et lu depuis un fil d'E/S. */
+        @Volatile private var arretDemande = false
+
         fun interrompre(context: Context) {
+            // Pose AVANT l'annulation : c'est ce drapeau, et non `isStopped`,
+            // qui distingue un arret demande d'une coupure subie.
+            arretDemande = true
             WorkManager.getInstance(context).cancelUniqueWork(NOM)
         }
 
-        /** Vrai tant qu'une synchronisation est planifiee ou en cours.
-         *  Derive de WorkManager et non d'un drapeau pose a la main : un
-         *  travail differe par la contrainte reseau resterait sinon
-         *  « en cours » pour toujours, et l'utilisateur n'aurait aucun
-         *  retour de son appui. */
-        fun enCours(context: Context): Flow<Boolean> =
+        /** Etat du travail, derive de WorkManager et non d'un drapeau pose a
+         *  la main : un travail differe par la contrainte reseau resterait
+         *  sinon « en cours » pour toujours, et l'utilisateur n'aurait aucun
+         *  retour de son appui.
+         *
+         *  EN_ATTENTE et EN_COURS sont SEPARES parce que l'ecran doit en dire
+         *  deux choses differentes : « en attente d'un reseau » serait faux
+         *  pendant les 3 a 13 s de recherche du serveur, qui suivent chaque
+         *  appui sur le bouton. */
+        fun etatTravail(context: Context): Flow<EtatTravail> =
             WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(NOM)
-                .map { infos -> infos.any { !it.state.isFinished } }
+                .map { infos ->
+                    when {
+                        infos.any { it.state == WorkInfo.State.RUNNING } ->
+                            EtatTravail.EN_COURS
+                        infos.any { !it.state.isFinished } -> EtatTravail.EN_ATTENTE
+                        else -> EtatTravail.INACTIF
+                    }
+                }
     }
 }

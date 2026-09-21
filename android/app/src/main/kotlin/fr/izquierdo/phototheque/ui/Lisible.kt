@@ -22,4 +22,15 @@ object Lisible {
         secondes < 3600 -> "${secondes / 60} min"
         else -> String.format("%d h %02d", secondes / 3600, (secondes % 3600) / 60)
     }
+
+    /**
+     * Le temps restant tel que l'écran l'affiche.
+     *
+     * Le tilde marque une estimation, mais « ~ moins d'une minute » se lit
+     * comme une faute de frappe. La règle vit ici et pas dans le composable :
+     * le seuil qui produit ce texte est celui de [duree], les séparer les
+     * ferait diverger au premier changement.
+     */
+    fun restant(secondes: Long): String =
+        if (secondes <= 0) duree(secondes) else "~ ${duree(secondes)}"
 }

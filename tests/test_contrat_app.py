@@ -159,7 +159,6 @@ def test_la_destination_predite_par_l_app_correspond_au_serveur(tmp_path):
     désormais à l'écran.
     """
     import datetime
-    from pathlib import Path
     from mediasort import classify
 
     class Resultat:

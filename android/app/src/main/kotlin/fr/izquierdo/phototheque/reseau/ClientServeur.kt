@@ -45,7 +45,20 @@ class ServeurRevoqueException : Exception("appareil revoque")
 class ClientServeur(
     private val baseUrl: String,
     private val jeton: String,
+    /** Client aux délais LONGS : `upload` (une vidéo de 3 Go) et `commit`
+     *  (jusqu'à 30 min de rangement). */
     private val http: OkHttpClient,
+    /**
+     * Client à la lecture COURTE (30 s), pour `horizon` et `plan`.
+     *
+     * Les séparer n'est pas un raffinement : un candidat mDNS périmé qui
+     * accepte la connexion TCP sans jamais répondre bloquerait la découverte
+     * 30 min PAR ADRESSE, écran vierge, avant la première publication. Spec
+     * §8 : 30 s pour ces deux appels, 30 min pour le seul commit.
+     *
+     * Par défaut le même, pour les tests qui n'en fournissent qu'un.
+     */
+    private val httpCourt: OkHttpClient = http,
 ) {
     private fun requete(chemin: String) = Request.Builder()
         .url("$baseUrl$chemin")
@@ -65,7 +78,7 @@ class ClientServeur(
     }
 
     fun horizon(): ReponseHorizon =
-        http.newCall(requete("/sync/horizon").get().build()).execute().use { r ->
+        httpCourt.newCall(requete("/sync/horizon").get().build()).execute().use { r ->
             verifierCode(r, "horizon refusé")
             Contrat.json.decodeFromString(r.body!!.string())
         }
@@ -73,7 +86,7 @@ class ClientServeur(
     fun plan(fichiers: List<FichierPlan>): ReponsePlan {
         val corps = Contrat.json.encodeToString(RequetePlan.serializer(), RequetePlan(fichiers))
             .toRequestBody("application/json".toMediaType())
-        return http.newCall(requete("/sync/plan").post(corps).build()).execute().use { r ->
+        return httpCourt.newCall(requete("/sync/plan").post(corps).build()).execute().use { r ->
             verifierCode(r, "plan refusé")
             Contrat.json.decodeFromString(r.body!!.string())
         }
@@ -182,15 +195,23 @@ class ClientServeur(
      * **N'échoue jamais.** Deux raisons : la route n'existe pas encore côté
      * serveur (lot serveur, issue #30), et quand on abandonne c'est souvent
      * PARCE QUE le réseau est tombé. Un échec ici masquerait l'arrêt que
-     * l'utilisateur vient de demander. Le filet, c'est la purge des sessions
-     * de plus de 24 h côté serveur.
+     * l'utilisateur vient de demander.
+     *
+     * Il n'y a PAS de filet : le serveur ne purge rien (la seule purge qui
+     * existe, `devices.purge_pending`, concerne les appairages). Une session
+     * abandonnée reste donc sur le disque du NUC jusqu'à ce que l'issue #30
+     * soit faite, ou qu'on l'efface à la main.
      */
     fun abandonner(session: String) {
         try {
             val corps = Contrat.json
                 .encodeToString(RequeteAbandon.serializer(), RequeteAbandon(session))
                 .toRequestBody("application/json".toMediaType())
-            http.newCall(requete("/sync/abandon").post(corps).build()).execute().close()
+            // Client COURT : cet appel est fait au moment où l'utilisateur
+            // vient de demander l'arrêt. Attendre 30 min une réponse qui ne
+            // viendra peut-être jamais retiendrait la synchronisation qu'il
+            // essaie justement de stopper.
+            httpCourt.newCall(requete("/sync/abandon").post(corps).build()).execute().close()
         } catch (e: Exception) {
             // Volontairement muet : voir la documentation ci-dessus.
         }

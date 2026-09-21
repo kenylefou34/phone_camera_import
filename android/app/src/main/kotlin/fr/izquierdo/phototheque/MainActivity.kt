@@ -83,6 +83,10 @@ class MainActivity : ComponentActivity() {
                     detail -> EcranDetail(etat, TravailSynchro.DOSSIERS_SAUVEGARDES)
                     else -> EcranAccueil(etat, System.currentTimeMillis(),
                         surSynchroniser = modele::synchroniser,
+                        // Le travail peut etre EN ATTENTE d'un reseau : aucun
+                        // avancement n'est publie, donc aucun autre ecran ne
+                        // propose d'en sortir.
+                        surInterrompre = modele::interrompre,
                         surVoirDetail = { detail = true })
                 }
             }
