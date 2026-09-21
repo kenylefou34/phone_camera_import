@@ -2105,8 +2105,12 @@ fun EcranAvancement(avancement: Avancement, surInterrompre: () -> Unit) {
         Spacer(Modifier.height(8.dp))
         Text("Dossiers : " + TravailSynchro.DOSSIERS_SAUVEGARDES.joinToString(", "),
              style = MaterialTheme.typography.bodySmall)
+        // Pas de garde sur `isNotEmpty()` : elle ne protegerait de rien —
+        // l'orchestrateur calcule la carte AVANT la premiere publication, donc
+        // tout Avancement publie a deja regarde — et elle masquerait le cas ou
+        // les trois dossiers suivis sont absents.
         val absents = TravailSynchro.DOSSIERS_SAUVEGARDES - avancement.dossiersVus.keys
-        if (avancement.dossiersVus.isNotEmpty() && absents.isNotEmpty()) {
+        if (absents.isNotEmpty()) {
             Text("Introuvables sur ce téléphone : ${absents.joinToString(", ")}",
                  color = MaterialTheme.colorScheme.error,
                  style = MaterialTheme.typography.bodySmall)
@@ -2177,16 +2181,35 @@ dernier bilan :
                         accesRefuse = depot.accesRefuse(),
                         derniereReussiteMs = memoire.derniereReussiteMs(),
                     )
-                } ?: _etat.value.copy(enCours = false)
+                } ?: _etat.value.copy(
+                    // Relues ici aussi : sans elles, une permission retiree en
+                    // pleine synchro sortirait en panne generique alors qu'un
+                    // message juste existe pour elle.
+                    permissionRefusee = depot.accesRefuse(),
+                    accesPartiel = depot.accesPartiel(),
+                )
                 _etat.value = base.copy(
                     serveurIntrouvable = issue.serveurIntrouvable,
                     erreur = issue.erreur,
                     revoque = issue.revoque,
-                    appaire = !issue.revoque,
+                    // La verite vient du COFFRE, pas de l'issue. `derniereIssue`
+                    // est un StateFlow de companion object : apres un rescan de
+                    // QR suivi d'une reouverture de l'application, le nouveau
+                    // collecteur recevrait l'ancienne issue et renverrait a
+                    // l'appairage avec « revoque » alors que le coffre est
+                    // plein. Un message de panne FAUX coute aussi cher qu'un
+                    // message manquant.
+                    appaire = coffre.charge() != null,
                     // Conserve APRES la synchro : c'est la seule liste qui
                     // revele un dossier suivi mais absent du telephone, et
                     // l'avancement qui la portait vient d'etre efface.
-                    dossiersVus = issue.dossiersVus.ifEmpty { _etat.value.dossiersVus },
+                    // `?:` et NON `ifEmpty` : EtatSynchro distingue exprès
+                    // `null` (« pas encore regarde ») de la carte VIDE
+                    // (« regarde, MediaStore n'a rien rendu »), et documente
+                    // le second comme le cas le plus grave de tous. Aplatir
+                    // les deux rendait le message « Aucun dossier trouve »
+                    // definitivement injoignable.
+                    dossiersVus = issue.dossiersVus ?: _etat.value.dossiersVus,
                 )
             }
         }
@@ -2239,7 +2262,11 @@ Dans `MainActivity.kt`, remplacer le bloc `setContent` :
                 // Sans ce BackHandler, le bouton retour du systeme FERMAIT
                 // l'application depuis l'ecran de detail, en perdant le
                 // dernier bilan (issue #24).
-                BackHandler(enabled = detail) { detail = false }
+                // `avancement == null` en plus de `detail` : arme pendant
+                // l'ecran d'avancement, le premier retour eteindrait `detail`
+                // en coulisse sans rien changer a l'ecran, et le second
+                // fermerait l'application.
+                BackHandler(enabled = detail && avancement == null) { detail = false }
 
                 when {
                     !etat.appaire -> EcranAppairage(
