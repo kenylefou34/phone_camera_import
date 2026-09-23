@@ -387,6 +387,13 @@ class TravailSynchro(
             // Relu des préférences, et non d'un état en mémoire : ce code
             // tourne aussi depuis le bouton de la NOTIFICATION, application
             // fermée, où aucun modèle de vue n'existe.
+            //
+            // L'ordre compte, et il est garanti : `cancelUniqueWork` et
+            // `enqueueUniquePeriodicWork` sont tous deux postés sur le MÊME
+            // exécuteur sérialisé de WorkManager, donc l'annulation est
+            // traitée avant la replanification. Si elle ne l'était pas, le
+            // `KEEP` de `planifier` verrait un travail encore vivant, ne
+            // ferait rien, et l'annulation détruirait la chaîne juste après.
             planifier(context, MagasinReglages(context).lire().auto, apresUnArret = true)
         }
 

@@ -306,8 +306,9 @@ fun EcranDetail(etat: EtatSynchro, reglages: Reglages) {
 
         // Les dossiers sauvegardés sont ceux des RÉGLAGES — dont les trois
         // dossiers d'origine ne sont plus que la valeur initiale
-        // (Reglages.DEFAUT). Si l'un d'eux n'existe pas sur ce téléphone — WhatsApp
-        // récent range sous Android/media/com.whatsapp/… — la synchro réussit
+        // (Reglages.DEFAUT). Si l'un d'eux n'existe pas sur ce téléphone —
+        // WhatsApp récent range sous Android/media/com.whatsapp/… — la synchro
+        // réussit
         // avec ZÉRO média et rien ne le signale. Confronter les réglages à ce
         // que MediaStore contient vraiment est la seule façon de le voir.
         //
