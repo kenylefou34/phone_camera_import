@@ -386,6 +386,23 @@ class OrchestrateurTest {
                      serveur.commits.last().getValue("DCIM/Camera"), 0.001)
     }
 
+    @Test fun la_date_de_debut_sert_de_plancher_meme_sans_ordre_de_reprise_actif() {
+        // Rôle DISTINCT de l'ordre de reprise ponctuel (Selection.plancherReprise) :
+        // la date de début est aussi le plancher PERMANENT des dossiers sans
+        // horizon (spec §4.2 règle 2). Ici la reprise a DÉJÀ été menée à son
+        // terme (debutApplique = debutJour), donc seul ce rôle permanent est
+        // en jeu -- le serveur, lui, ne connaît aucun `depuis`.
+        val vieux = media(100.0)
+        val recent = media(2_000_000_000.0)
+        val serveur = FauxServeur()
+
+        val bilan = Orchestrateur(FausseSource(listOf(vieux, recent)), serveur).synchroniser(
+            Reglages(dossiersSeuls = setOf("DCIM/Camera"),
+                     debutJour = "2020-01-01", debutApplique = "2020-01-01"))
+
+        assertEquals(1, bilan.envoyes)
+    }
+
     @Test fun un_media_illisible_fait_quand_meme_progresser_la_barre() {
         // Un echec d'ENVOI avance fichiersFaits/octetsFaits ; un echec de
         // LECTURE (media supprime entre le listing et l'envoi, cas banal sur

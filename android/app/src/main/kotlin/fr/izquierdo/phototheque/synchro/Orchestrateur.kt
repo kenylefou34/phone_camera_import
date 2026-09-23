@@ -61,7 +61,14 @@ class Orchestrateur(
         interrompu: () -> Boolean = { false },
     ): Bilan {
         val etat = serveur.horizon()
-        val depuis = etat.depuis?.let { jourVersSecondes(it) }
+        // La date de début choisie sur le téléphone prime sur la date de
+        // depuis d'appairage du serveur : elle est le plancher PERMANENT des
+        // dossiers sans horizon (spec §4.2 règle 2, ex. cocher un dossier
+        // jamais synchronisé ne doit pas remonter à la nuit des temps), et un
+        // réglage posé par l'utilisateur doit l'emporter sur une valeur
+        // d'appairage qu'il ne voit jamais. Rôle DISTINCT de `plancherReprise`
+        // plus bas, qui n'abaisse que ponctuellement.
+        val depuis = (reglages.debutJour ?: etat.depuis)?.let { jourVersSecondes(it) }
         val tous = source.lister()
         val dossiersChoisis = Choix.dossiersASauvegarder(
             reglages, tous.map { it.dossier }.toSet())

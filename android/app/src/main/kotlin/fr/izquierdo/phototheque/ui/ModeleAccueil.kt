@@ -189,7 +189,7 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
      *
      * Relit `magasin.lire()`, pas `_reglages.value` : ce dernier est posé une
      * fois à la construction du modèle de vue et jamais rafraîchi. Le travail
-     * de fond écrit `dossiersConnus` (et bientôt `debutApplique`, tâche 7)
+     * de fond écrit `dossiersConnus` et `debutApplique` (tâche 7)
      * directement dans les préférences, sans passer par ce `StateFlow`. Partir
      * de `_reglages.value` réécrirait l'objet entier avec ces champs-là
      * PÉRIMÉS — le geste le plus normal qui soit (cocher un dossier)

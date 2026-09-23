@@ -187,12 +187,13 @@ class TravailSynchro(
 
             // Les dossiers entrés par une coche récursive depuis la dernière
             // synchronisation, et la date de début dont la reprise vient
-            // d'être menée à son terme (`debutApplique`, tâche 7). Une seule
-            // lecture, un seul `copy`, une seule écriture : deux `ecrire()`
-            // bâtis chacun sur sa propre lecture s'écraseraient l'un l'autre
-            // selon l'ordre — et perdre `debutApplique` reproposerait tous
-            // les vieux médias chaque nuit, exactement ce que ce champ existe
-            // pour empêcher.
+            // d'être menée à son terme (`debutApplique`, tâche 7). La
+            // décision de ce qu'il faut écrire est extraite dans
+            // `Reglages.apresSynchro` — seule pièce testable sur la JVM de ce
+            // geste, voir son KDoc pour le détail des gardes — et appelée ici
+            // en une seule lecture, un seul appel, une seule écriture : deux
+            // `ecrire()` bâtis chacun sur sa propre lecture s'écraseraient
+            // l'un l'autre selon l'ordre.
             val vus = dossiersVus?.keys.orEmpty()
             val magasin = MagasinReglages(contexte)
             val avant = magasin.lire()
@@ -205,30 +206,27 @@ class TravailSynchro(
             val nouveaux = if (avant.dossiersConnus.isEmpty()) emptySet()
                            else Choix.nouveauxParRecursivite(
                                vus, avant.dossiersConnus, avant.dossiersRecursifs)
-            // `dossiersConnus` est rangé DANS LE MÊME geste que sa lecture :
-            // sans cela, les mêmes dossiers seraient annoncés « nouveaux » à
-            // chaque synchronisation, et l'avertissement deviendrait un bruit
-            // qu'on apprend à ignorer.
-            //
-            // N'écrit rien si `vus` est vide : une permission média retirée
-            // fait rendre `lister()` une liste vide, la synchro « réussit »
-            // quand même (aucun média à envoyer n'est pas un échec), et sans
-            // cette garde `dossiersConnus` repartirait à zéro — la prochaine
-            // synchro, permission revenue, annoncerait alors TOUS les
-            // dossiers récursifs comme nouveaux, à tort.
-            //
-            // Les deux champs ont chacun leur propre condition (`vus` non
-            // vide pour l'un, synchro complète et réussie pour l'autre) : un
-            // paquet interrompu peut très bien avoir déjà publié des
-            // dossiers vus sans que la synchro soit allée à son terme, et
-            // écrire `debutApplique` dans ce cas-là ferait croire la reprise
-            // terminée alors qu'il reste de vieux médias sous l'horizon
-            // jamais reproposés.
+            // N'écrit rien si ni l'un ni l'autre champ ne peut changer : une
+            // permission média retirée fait rendre `lister()` une liste vide,
+            // la synchro « réussit » quand même (aucun média à envoyer n'est
+            // pas un échec), et sans cette garde `dossiersConnus` repartirait
+            // à zéro — la prochaine synchro, permission revenue, annoncerait
+            // alors TOUS les dossiers récursifs comme nouveaux, à tort.
             if (vus.isNotEmpty() || reussiteComplete) {
-                magasin.ecrire(avant.copy(
-                    dossiersConnus = if (vus.isNotEmpty()) vus else avant.dossiersConnus,
-                    debutApplique = if (reussiteComplete) reglages.debutJour
-                                     else avant.debutApplique,
+                magasin.ecrire(avant.apresSynchro(
+                    vus,
+                    // Un accès PARTIEL (Android 14+, Depot.accesPartiel) ne
+                    // doit JAMAIS consommer une reprise : `lister()` ne rend
+                    // alors que les médias que l'utilisateur a sélectionnés,
+                    // la synchro « réussit » quand même, et `debutApplique`
+                    // serait rangé à tort — l'accès complet accordé plus
+                    // tard ne reproposerait alors plus jamais les médias
+                    // restés hors sélection. `reussiteComplete` seul reste
+                    // correct pour `Memoire.enregistrerReussite` ci-dessus :
+                    // un accès partiel a déjà son propre état permanent
+                    // (`EtatSynchro.accesPartiel`), pas le compteur de jours.
+                    reussiteComplete && !depot.accesPartiel(),
+                    reglages.debutJour,
                 ))
             }
 

@@ -49,6 +49,45 @@ data class Reglages(
      */
     fun repriseADemander(): Boolean = debutJour != null && debutJour != debutApplique
 
+    /**
+     * Ce que ces réglages deviennent une fois une synchronisation menée à son
+     * terme, réussie ou non. Extraite de `TravailSynchro` pour être testable
+     * sur la JVM : c'est la seule pièce de ce `Worker` qui décide d'une
+     * écriture DURABLE, et ce projet n'a aucun test d'instrumentation Android
+     * pour la couvrir autrement (même geste que `Reprise.fautIlRelancer` et
+     * `EtatSynchro.apresSynchro`).
+     *
+     * @param vus dossiers réellement vus sur le téléphone à cette
+     *   synchronisation. Vide si rien n'a été vu — permission retirée, ou
+     *   aucun des dossiers cochés n'existe sur ce téléphone.
+     * @param reussiteComplete la synchronisation est allée à son terme SANS
+     *   accroc : ni interrompue, ni révoquée, ni en échec local, ni en échec
+     *   de rangement côté serveur. Un accès PARTIEL (Android 14+) doit déjà
+     *   avoir été retiré de cette valeur par l'appelant : sinon `lister()` ne
+     *   rendrait que les médias que l'utilisateur a sélectionnés, la reprise
+     *   se croirait menée à son terme, et les médias hors sélection
+     *   resteraient perdus sous l'horizon même après un accès complet
+     *   accordé plus tard.
+     * @param debutJourEnCours la date de début demandée pour CETTE
+     *   synchronisation (`debutJour` au moment du lancement).
+     *
+     * `debutApplique` n'est rangé que si `vus` est ÉGALEMENT non vide : sans
+     * cette garde, une synchronisation qui « réussit » sans avoir rien vu
+     * (aucun des dossiers cochés n'existe sur ce téléphone) consommerait
+     * quand même une reprise qui n'a jamais eu l'occasion de s'exécuter.
+     * `dossiersConnus`, lui, ne dépend que de `vus` : il décrit ce qui EST
+     * visible, pas ce que la synchronisation a accompli.
+     */
+    fun apresSynchro(
+        vus: Set<String>,
+        reussiteComplete: Boolean,
+        debutJourEnCours: String?,
+    ): Reglages = copy(
+        dossiersConnus = if (vus.isNotEmpty()) vus else dossiersConnus,
+        debutApplique = if (vus.isNotEmpty() && reussiteComplete) debutJourEnCours
+                        else debutApplique,
+    )
+
     fun versJson(): String = FORMAT.encodeToString(serializer(), this)
 
     companion object {

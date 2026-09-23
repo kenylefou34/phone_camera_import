@@ -14,7 +14,12 @@ object Selection {
      *   `null` en régime normal. Quand il vaut quelque chose, il ABAISSE le
      *   plancher de chaque dossier — il ne le remonte jamais, sinon reprendre
      *   « depuis 2020 » fermerait la fenêtre 2019-2020 d'un dossier dont
-     *   l'horizon est à 2019.
+     *   l'horizon est à 2019. Et il ne peut pas non plus en CRÉER un là où il
+     *   n'y en avait aucun (dossier sans horizon et sans `depuisSecondes`) :
+     *   abaisser un plancher inexistant ne veut rien dire, et lui laisser
+     *   quand même imposer `plancherReprise` remonterait la limite d'un
+     *   dossier qui n'en avait pas — le rôle de plancher permanent revient à
+     *   `depuisSecondes`, pas à la reprise.
      *
      *   C'est ce paramètre, et non une réécriture d'horizon côté serveur, qui
      *   fait qu'abaisser la date de début repropose les vieux médias. La
@@ -40,7 +45,7 @@ object Selection {
             val normal = horizons[media.dossier] ?: depuisSecondes
             val plancher = when {
                 plancherReprise == null -> normal
-                normal == null -> plancherReprise
+                normal == null -> null
                 else -> minOf(normal, plancherReprise)
             }
             plancher == null || media.instant >= plancher

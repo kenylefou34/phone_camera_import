@@ -73,6 +73,9 @@ class SelectionTest {
     }
 
     @Test fun sans_ordre_de_reprise_l_horizon_commande_toujours() {
+        // Régime par défaut du nouveau paramètre : `plancherReprise` à
+        // `null` ne doit RIEN changer au comportement existant, c'est
+        // l'horizon (ou `depuisSecondes`) qui commande seul.
         val vieux = Media(1, "DCIM/Camera", "a.jpg", 10, instant = 100.0)
         val recent = Media(2, "DCIM/Camera", "b.jpg", 10, instant = 900.0)
 
@@ -90,15 +93,36 @@ class SelectionTest {
         // Reprendre « depuis 2020 » sur un dossier dont l'horizon est à 2019
         // ne doit pas fermer la fenêtre 2019-2020 : la reprise ABAISSE le
         // plancher, elle ne le remonte jamais.
-        val media = Media(1, "DCIM/Camera", "a.jpg", 10, instant = 300.0)
+        val avantHorizon = Media(1, "DCIM/Camera", "z.jpg", 10, instant = 100.0)
+        val media = Media(2, "DCIM/Camera", "a.jpg", 10, instant = 300.0)
 
         val candidats = Selection.candidats(
-            medias = listOf(media),
+            medias = listOf(avantHorizon, media),
             dossiersChoisis = setOf("DCIM/Camera"),
             horizons = mapOf("DCIM/Camera" to 200.0),
             depuisSecondes = null,
             plancherReprise = 500.0)
 
+        // La fenêtre 100-200 reste fermée : la reprise, plus haute que
+        // l'horizon, ne l'a PAS rouverte.
         assertEquals(listOf(media), candidats)
+    }
+
+    @Test fun un_ordre_de_reprise_n_impose_aucun_plancher_la_ou_il_n_y_en_avait_pas() {
+        // La reprise ABAISSE un plancher existant ; elle n'en crée jamais un
+        // tout seul. Sans horizon et sans `depuisSecondes`, un dossier n'a
+        // AUCUNE limite -- ce rôle de plancher permanent revient à
+        // `depuisSecondes` (voir Orchestrateur.synchroniser, qui y fait
+        // désormais porter la date de début), pas à la reprise.
+        val vieux = Media(1, "DCIM/Camera", "a.jpg", 10, instant = 1.0)
+
+        val candidats = Selection.candidats(
+            medias = listOf(vieux),
+            dossiersChoisis = setOf("DCIM/Camera"),
+            horizons = emptyMap(),
+            depuisSecondes = null,
+            plancherReprise = 500.0)
+
+        assertEquals(listOf(vieux), candidats)
     }
 }
