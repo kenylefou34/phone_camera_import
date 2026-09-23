@@ -341,6 +341,10 @@ python3 -m mediasort --catalog ~/mediasort_catalog.db --backfill-signatures
 cd ~/phone_camera_import && git pull && ./deploy/install.sh
 # puis https://IZQUIERDO-NUC.local:8787/ (admin, identifiant "admin") et /pair (QR)
 #   (nuc.local ne résout PAS : la machine s'annonce en <hostname>.local)
+#   (DEPUIS UN TELEPHONE : utiliser l'IP, pas le nom .local — les navigateurs
+#    Android ne resolvent pas le mDNS. `avahi-resolve -4 -n IZQUIERDO-NUC.local`
+#    donne l'IP du moment. L'application, elle, passe par NsdManager et n'a pas
+#    ce probleme.)
 #   (le navigateur avertit au premier accès : certificat auto-signé, normal)
 #   (mot de passe affiché une seule fois par install.sh)
 # Choisir/changer identifiant ET mot de passe d'admin (sans sudo ni redémarrage) :

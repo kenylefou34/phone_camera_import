@@ -2359,9 +2359,14 @@ cd ~/dev/phone_camera_import
 ./deploy/envoyer-apk.sh
 ```
 
-Puis, sur le téléphone, ouvrir la page d'administration et
-« Télécharger l'application ». Voir `docs/APPLICATION-ANDROID.md` §6 si
-l'installation coince.
+Puis, sur le téléphone, ouvrir **`https://<IP-DU-NUC>:8787/`** et
+« Télécharger l'application ».
+
+**Pas le nom `.local`** : les navigateurs Android ne résolvent pas le mDNS, et
+l'URL échouera même si le serveur répond. L'IP du moment s'obtient par
+`avahi-resolve -4 -n IZQUIERDO-NUC.local` depuis le poste. Le navigateur
+avertira deux fois — certificat auto-signé, et adresse ne correspondant pas au
+nom. Voir `docs/APPLICATION-ANDROID.md` §6 si l'installation coince.
 
 **Au premier lancement, Android demande la permission de notifier.**
 Refusez-la exprès une première fois, et vérifiez que la synchronisation

@@ -161,9 +161,24 @@ servent au développement.
 
 ### 6a. Depuis la page d'administration — aucun câble
 
-1. Sur le téléphone, ouvrir `https://IZQUIERDO-NUC.local:8787/`
-2. Le navigateur **avertit que le certificat n'est pas reconnu**. C'est normal :
-   il est auto-signé. Passer outre.
+1. Sur le téléphone, ouvrir **`https://<IP-DU-NUC>:8787/`** — par exemple
+   `https://192.168.1.31:8787/`.
+
+   > **⚠️ NE PAS utiliser `https://IZQUIERDO-NUC.local:8787/` depuis le
+   > téléphone.** Les navigateurs Android **ne résolvent pas le mDNS** : Chrome
+   > n'a pas de résolveur `.local` pour sa barre d'adresse, et l'URL échoue
+   > même quand le serveur répond parfaitement. Constaté le 23/09.
+   >
+   > L'**application**, elle, n'a pas ce problème : elle passe par
+   > `NsdManager`, l'API mDNS native d'Android, qui fonctionne. Seul le
+   > navigateur est concerné.
+   >
+   > Pour connaître l'IP du moment, depuis le poste de développement :
+   > `avahi-resolve -4 -n IZQUIERDO-NUC.local`
+
+2. Le navigateur avertit **deux fois** : le certificat est auto-signé, **et**
+   l'adresse IP ne correspond pas au nom qu'il porte. Les deux sont normaux
+   ici. Passer outre.
 3. Saisir l'identifiant et le mot de passe d'administration.
 4. Section « Application Android » → **Télécharger l'application**.
 5. Android demande d'autoriser l'installation depuis cette source
