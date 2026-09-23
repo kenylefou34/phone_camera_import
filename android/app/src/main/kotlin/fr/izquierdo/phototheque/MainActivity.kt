@@ -130,7 +130,6 @@ class MainActivity : ComponentActivity() {
                         surChangerAuto = modele::changerAuto)
                     Ecran.APPAREIL -> EcranAppareil(
                         reglages = reglages,
-                        depot = depot,
                         surDesappairer = modele::desappairer)
                 }
             }

@@ -28,4 +28,30 @@ object Desappairage {
         effacerLocal()
         return ResultatDesappairage(prevenu)
     }
+
+    /**
+     * Ce qui arrivera VRAIMENT à la prochaine synchronisation après un
+     * réappairage — pour que l'écran de confirmation ne promette pas
+     * l'inverse de ce qui se passe.
+     *
+     * `Orchestrateur.synchroniser` fait primer `reglages.debutJour` sur
+     * l'horizon d'appairage du serveur : « La date de début choisie sur le
+     * téléphone prime sur la date de depuis d'appairage du serveur »
+     * (`Orchestrateur.kt`). Et côté serveur, `Devices.pair()`
+     * (`phototheque/devices.py`) pose cet horizon à la date DU JOUR à
+     * CHAQUE appairage, jamais à l'historique complet. D'où les deux cas :
+     * - aucune date de début posée → le nouvel appareil ne reprendra que ce
+     *   qui date d'aujourd'hui ou après, pas l'historique ;
+     * - une date de début posée → elle SURVIT au désappairage (les
+     *   réglages ne sont pas liés à un serveur) et continue de commander ce
+     *   qui sera repris, l'horizon du serveur ne comptant alors pour rien.
+     */
+    fun consequenceReappairage(debutJour: String?): String = if (debutJour != null)
+        "Le nouvel appairage reprendra depuis le $debutJour, la date que " +
+        "vous avez déjà configurée dans « Quand sauvegarder »."
+    else
+        "Le nouvel appairage repartira de la date du jour : vos médias " +
+        "plus anciens ne seront pas repris automatiquement. Pour les " +
+        "reprendre, posez une date de début dans « Quand sauvegarder » " +
+        "après le réappairage."
 }

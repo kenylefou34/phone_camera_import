@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import fr.izquierdo.phototheque.appairage.Coffre
 import fr.izquierdo.phototheque.medias.Depot
 import fr.izquierdo.phototheque.reseau.ClientServeur
+import fr.izquierdo.phototheque.reseau.Decouverte
 import fr.izquierdo.phototheque.reseau.Fabrique
 import fr.izquierdo.phototheque.synchro.Coche
 import fr.izquierdo.phototheque.synchro.Desappairage
@@ -198,6 +199,14 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
         // l'ANCIEN serveur, elle n'a plus rien à dire sur celui-ci.
         _etat.value = _etat.value.copy(appaire = true, qrInvalide = false, revoque = false,
                                        desappairementNonPrevenu = false)
+        // Un désappairage précédent déprogramme l'automatique SANS toucher
+        // aux réglages (`desappairer`, plus bas) : si `reglages.auto` est
+        // resté vrai, ce réappairage doit le reprogrammer, sinon
+        // l'interrupteur resterait affiché actif alors que plus rien n'est
+        // planifié — la panne muette que ce sous-projet existe pour
+        // supprimer, et précisément le scénario « désappairer puis
+        // rescanner » que cette fonctionnalité écrit.
+        TravailSynchro.planifier(getApplication(), _reglages.value.auto)
         return true
     }
 
@@ -255,14 +264,17 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
      * date de fin (`Reglages.enAuto`) : c'est à l'écran de le dire au moment
      * où on coche.
      *
-     * [TravailSynchro.planifier] n'est appelé qu'à deux endroits dans tout
-     * le modèle de vue, et ce sont les deux seuls qui doivent exister :
-     * ici, à chaque bascule de la case par l'utilisateur — c'est le SEUL
-     * endroit où un changement de `reglages.auto` se traduit en travail
-     * programmé ou déprogrammé, pour qu'un deuxième chemin ne puisse jamais
-     * les faire diverger — et dans `init`, une fois au démarrage, pour
-     * retrouver un réglage déjà coché si la base de WorkManager a été vidée
-     * sans que les préférences le soient (voir son commentaire).
+     * [TravailSynchro.planifier] a plusieurs appelants dans ce modèle de
+     * vue — ce n'est PLUS « deux, et les deux seuls » comme l'affirmait une
+     * précédente version de ce commentaire : cette affirmation même est ce
+     * qui a longtemps découragé d'ajouter l'appel manquant dans
+     * `enregistrerAppairage` (voir sa doc). Ce qui reste vrai, et qui
+     * compte : ici, à chaque bascule de la case par l'utilisateur, c'est le
+     * SEUL endroit où un changement VOLONTAIRE de `reglages.auto` se
+     * traduit en travail programmé ou déprogrammé. Les autres appelants
+     * (`init`, `enregistrerAppairage`, `desappairer`) ne font que
+     * RECONCILIER le travail planifié avec un `reglages.auto` déjà décidé
+     * ailleurs — aucun d'eux ne change ce booléen.
      */
     fun changerAuto(actif: Boolean) {
         val r = magasin.lire()
@@ -280,13 +292,10 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
      * est de se dépanner et de changer de serveur : voir [Desappairage] pour
      * la raison qui impose un effacement local INCONDITIONNEL.
      *
-     * Construit ici son propre [ClientServeur] plutôt que de passer par
+     * Construit ici ses propres [ClientServeur] plutôt que de passer par
      * [Fabrique.serveur] : celui-ci rend l'interface `Serveur`, taillée pour
      * `Orchestrateur`, qui n'expose pas `desappairer()` — et exige une charge
-     * non nulle que `coffre.charge()` ne garantit pas. Le prix assumé est
-     * l'absence de redécouverte mDNS ici : au moment précis où l'on
-     * désappaire, le serveur est de toute façon injoignable par définition
-     * (voir [Desappairage]), et cet appel reste « au mieux ».
+     * non nulle que `coffre.charge()` ne garantit pas.
      */
     fun desappairer() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -294,8 +303,19 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                 prevenirServeur = {
                     coffre.charge()?.let { charge ->
                         val http = Fabrique.client(charge)
-                        ClientServeur(charge.url, charge.token, http, Fabrique.clientCourt(http))
-                            .desappairer()
+                        val court = Fabrique.clientCourt(http)
+                        // Comme Fabrique.serveur() (Decouverte.kt) : l'adresse
+                        // du NUC change (bail DHCP ordinaire, cf. CLAUDE.md —
+                        // .21 puis .31 en deux jours). Se limiter à
+                        // `charge.url` ferait échouer CETTE notification à
+                        // chaque fois que l'adresse a bougé depuis
+                        // l'appairage — le cas le plus courant ici — et le
+                        // bandeau mentirait en réclamant une révocation
+                        // manuelle d'un serveur pourtant joignable à trois
+                        // mètres.
+                        (Decouverte.adresses(getApplication()) + charge.url).any { base ->
+                            ClientServeur(base, charge.token, http, court).desappairer()
+                        }
                     } ?: false
                 },
                 effacerLocal = {
@@ -304,10 +324,23 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                     // serveur, et les perdre obligerait à tout recocher pour
                     // un simple changement de NUC.
                     TravailSynchro.planifier(getApplication(), actif = false)
+                    // Une ancienne réussite ne dit plus rien sur le PROCHAIN
+                    // serveur : la garder afficherait « sauvegardé il y a
+                    // 2 h » en vert après un changement de NUC qui n'a encore
+                    // rien reçu — une fausse réassurance, pire qu'une fausse
+                    // alerte, puisqu'elle éteint le seul filet du projet
+                    // contre les pannes muettes.
+                    memoire.oublier()
                 })
             _etat.value = _etat.value.copy(
                 appaire = false, revoque = false,
-                desappairementNonPrevenu = !resultat.serveurPrevenu)
+                desappairementNonPrevenu = !resultat.serveurPrevenu,
+                // Sans ceci, l'accueil rouvrirait sur « sauvegardé il y a
+                // 2 h » le temps que `_etat` soit relu ailleurs : la même
+                // fausse réassurance que memoire.oublier() efface sur le
+                // disque, mais encore visible en mémoire tant qu'on ne la
+                // corrige pas ici aussi.
+                derniereReussiteMs = null)
         }
     }
 }

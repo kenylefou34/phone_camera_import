@@ -307,4 +307,24 @@ class ClientServeurTest {
         assertFalse(c.desappairer())      // ne doit pas lever
         serveur.shutdown()
     }
+
+    @Test fun desappairer_passe_par_le_client_court_pas_par_celui_du_commit() {
+        // Même raison que pour horizon/plan (voir le test dédié plus haut) :
+        // on ne fait pas attendre l'utilisateur devant un serveur qu'on ne
+        // joindra pas. Les quatre autres tests de desappairer() passent le
+        // MÊME client aux deux paramètres et ne peuvent donc rien garantir
+        // sur ce point précis.
+        val vus = mutableListOf<String>()
+        fun marque(nom: String) = OkHttpClient.Builder()
+            .addInterceptor { chaine -> vus += nom; chaine.proceed(chaine.request()) }
+            .build()
+        val serveur = MockWebServer()
+        serveur.enqueue(MockResponse().setBody("""{"retire":true}"""))
+        serveur.start()
+        val c = ClientServeur(serveur.url("/").toString().trimEnd('/'), "jeton",
+                              marque("long"), marque("court"))
+        c.desappairer()
+        assertEquals(listOf("court"), vus)
+        serveur.shutdown()
+    }
 }

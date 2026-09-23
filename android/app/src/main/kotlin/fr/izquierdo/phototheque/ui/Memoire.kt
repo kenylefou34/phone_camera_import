@@ -27,6 +27,18 @@ class Memoire(context: Context) {
         prefs.edit().putLong(CLE, instantMs).apply()
     }
 
+    /**
+     * Efface la dernière réussite connue.
+     *
+     * Appelée au désappairage : après un changement de serveur, une ancienne
+     * réussite ne dit plus rien sur CELUI-CI. L'afficher en vert serait une
+     * fausse réassurance — pire qu'une fausse alerte, puisqu'elle éteindrait
+     * le seul filet de ce projet contre les pannes muettes.
+     */
+    fun oublier() {
+        prefs.edit().remove(CLE).apply()
+    }
+
     companion object {
         private const val CLE = "derniere_reussite"
 
