@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fr.izquierdo.phototheque.appairage.Coffre
 import fr.izquierdo.phototheque.medias.Depot
+import fr.izquierdo.phototheque.synchro.Coche
 import fr.izquierdo.phototheque.synchro.EtatTravail
 import fr.izquierdo.phototheque.synchro.TravailSynchro
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -101,6 +102,12 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                     // (jamais publie) et carte vide (regarde, rien trouve) ne
                     // doivent jamais etre confondus : `?:` et non `ifEmpty`.
                     dossiersVus = issue.dossiersVus ?: _etat.value.dossiersVus,
+                    // Pas de repli sur l'ancienne valeur, contrairement a
+                    // dossiersVus : ce signal est propre a CETTE issue (seule
+                    // la fin reussie de doWork le calcule, TravailSynchro.kt).
+                    // Le conserver d'une synchro a l'autre ferait ressurgir un
+                    // avertissement perime apres une synchro qui a echoue.
+                    dossiersNouveaux = issue.dossiersNouveaux,
                 )
             }
         }
@@ -171,5 +178,23 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
         coffre.enregistrer(charge)
         _etat.value = _etat.value.copy(appaire = true, qrInvalide = false, revoque = false)
         return true
+    }
+
+    /**
+     * Change la coche d'un dossier et persiste aussitôt.
+     *
+     * Pas de bouton « enregistrer » distinct : un réglage qu'on croit posé et
+     * qui se perd (application tuée avant qu'on ne quitte l'écran) serait la
+     * panne muette exacte que ce sous-projet existe pour éviter.
+     */
+    fun changerCoche(chemin: String, coche: Coche) {
+        val r = _reglages.value
+        val nouveau = r.copy(
+            dossiersSeuls = if (coche == Coche.DOSSIER) r.dossiersSeuls + chemin
+                            else r.dossiersSeuls - chemin,
+            dossiersRecursifs = if (coche == Coche.RECURSIVE) r.dossiersRecursifs + chemin
+                                else r.dossiersRecursifs - chemin)
+        _reglages.value = nouveau
+        magasin.ecrire(nouveau)
     }
 }

@@ -122,4 +122,29 @@ class Depot(private val context: Context) : SourceMedias {
             "android.permission.READ_MEDIA_VISUAL_USER_SELECTED") == PackageManager.PERMISSION_GRANTED
         return !complet && partiel
     }
+
+    /**
+     * Les premiers médias d'un dossier, pour l'aperçu.
+     *
+     * [limite] est bas et volontaire : l'aperçu sert à VÉRIFIER qu'on a bien
+     * coché le bon dossier, pas à contempler. Charger davantage ferait payer un
+     * décodage d'image à une question qui se tranche en un coup d'œil.
+     */
+    fun apercu(dossier: String, limite: Int = 8): List<Media> =
+        lister().filter { it.dossier == dossier }.sortedByDescending { it.instant }.take(limite)
+
+    /**
+     * La vignette d'un média, ou `null` si elle est illisible.
+     *
+     * Un `null` n'est pas une anomalie : un fichier supprimé entre la requête
+     * MediaStore et l'affichage est parfaitement ordinaire. Lever ici ferait
+     * planter l'aperçu sur un dossier par ailleurs sain.
+     */
+    fun vignette(media: Media, cote: Int = 256): android.graphics.Bitmap? = try {
+        val base = if (media.estVideo) MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                   else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+        context.contentResolver.loadThumbnail(
+            ContentUris.withAppendedId(base, media.id),
+            android.util.Size(cote, cote), null)
+    } catch (e: Exception) { null }
 }

@@ -9,7 +9,6 @@ import fr.izquierdo.phototheque.reseau.ServeurRevoqueException
 import fr.izquierdo.phototheque.ui.MagasinReglages
 import fr.izquierdo.phototheque.ui.Memoire
 import fr.izquierdo.phototheque.ui.EtatSynchro
-import fr.izquierdo.phototheque.ui.Reglages
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -34,6 +33,10 @@ data class IssueSynchro(
     // le plus grave, cf EtatSynchro.dossiersVus — et ne doit jamais etre
     // confondue avec l'absence de reponse.
     val dossiersVus: Map<String, Int>? = null,
+    // Vide par defaut : seule la fin REUSSIE de doWork() le calcule. Les
+    // sorties en panne (revocation, annulation, exception) n'ont rien de
+    // fiable a dire ici - autant ne rien annoncer que d'annoncer a tort.
+    val dossiersNouveaux: Set<String> = emptySet(),
 )
 
 /**
@@ -174,8 +177,33 @@ class TravailSynchro(
             if (!bilan.interrompu && EtatSynchro.estUneReussite(bilan, depot.accesRefuse())) {
                 Memoire(contexte).enregistrerReussite(System.currentTimeMillis())
             }
+
+            // Les dossiers entres par une coche recursive depuis la derniere
+            // synchronisation. Une seule lecture, un seul `copy`, une seule
+            // ecriture : la tache 7 ajoute une autre mise a jour au meme
+            // endroit (`debutApplique`), et deux `ecrire()` batis chacun sur
+            // sa propre lecture s'ecraseraient l'un l'autre selon l'ordre.
+            val vus = dossiersVus?.keys.orEmpty()
+            val magasin = MagasinReglages(contexte)
+            val avant = magasin.lire()
+            // Vide au tout premier lancement (aucune synchronisation
+            // n'a encore rempli `dossiersConnus`) : sans cette garde, cette
+            // toute premiere synchronisation annoncerait TOUS les dossiers
+            // pris par une coche recursive comme « nouveaux », alors
+            // qu'aucun ne l'est reellement - il n'y a simplement encore rien
+            // eu a comparer. On se contente alors de remplir `dossiersConnus`.
+            val nouveaux = if (avant.dossiersConnus.isEmpty()) emptySet()
+                           else Choix.nouveauxParRecursivite(
+                               vus, avant.dossiersConnus, avant.dossiersRecursifs)
+            // `dossiersConnus` est range DANS LE MEME geste que sa lecture :
+            // sans cela, les memes dossiers seraient annonces « nouveaux » a
+            // chaque synchronisation, et l'avertissement deviendrait un bruit
+            // qu'on apprend a ignorer.
+            magasin.ecrire(avant.copy(dossiersConnus = vus))
+
             _derniereIssue.value = IssueSynchro(
-                bilan = bilan.pourLEcran(), revoque = bilan.revoque, dossiersVus = dossiersVus)
+                bilan = bilan.pourLEcran(), revoque = bilan.revoque, dossiersVus = dossiersVus,
+                dossiersNouveaux = nouveaux)
             return if (Reprise.fautIlRelancer(bilan) && runAttemptCount < TENTATIVES_MAX)
                 Result.retry() else Result.success()
 
@@ -238,18 +266,6 @@ class TravailSynchro(
     private fun Bilan.pourLEcran(): Bilan = copy(interrompu = interrompu && arretDemande)
 
     companion object {
-        /**
-         * Lot 1 : dossiers en dur, devenus la valeur par défaut d'un réglage.
-         *
-         * Miroir de [Reglages.DEFAUT] et non une recopie : les trois chemins ne
-         * sont écrits qu'UNE fois, dans `Reglages.kt`. Un commentaire qui
-         * affirmerait le lien sans que le code le garantisse mentirait dès que
-         * l'un des deux changerait sans l'autre. Reste l'argument de
-         * `EcranDetail`.
-         */
-        val DOSSIERS_SAUVEGARDES: Set<String>
-            get() = Reglages.DEFAUT.dossiersSeuls
-
         private const val NOM = "synchro"
 
         /** Au-dela, on arrete de relancer : un media illisible ou une

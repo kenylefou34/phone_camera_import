@@ -9,8 +9,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import fr.izquierdo.phototheque.synchro.Avancement
+import fr.izquierdo.phototheque.synchro.Choix
 import fr.izquierdo.phototheque.synchro.Phase
-import fr.izquierdo.phototheque.synchro.TravailSynchro
 
 @Composable
 fun EcranAccueil(etat: EtatSynchro, reglages: Reglages, maintenantMs: Long,
@@ -140,7 +140,7 @@ fun EcranAccueil(etat: EtatSynchro, reglages: Reglages, maintenantMs: Long,
  * navigation à faire pour voir ce qui se passe.
  */
 @Composable
-fun EcranAvancement(avancement: Avancement, surInterrompre: () -> Unit) {
+fun EcranAvancement(avancement: Avancement, reglages: Reglages, surInterrompre: () -> Unit) {
     Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()),
            horizontalAlignment = Alignment.CenterHorizontally) {
 
@@ -191,15 +191,27 @@ fun EcranAvancement(avancement: Avancement, surInterrompre: () -> Unit) {
              style = MaterialTheme.typography.labelMedium)
 
         // Repond a « je sais meme pas quel dossier ca synchronise », sans
-        // avoir a ouvrir un autre ecran.
+        // avoir a ouvrir un autre ecran. Resolu depuis les reglages, pas une
+        // constante : la synchro lit desormais les dossiers choisis par
+        // l'utilisateur (Choix.dossiersASauvegarder), et un ecran qui
+        // afficherait encore les trois dossiers d'origine mentirait des
+        // qu'un seul reglage est change.
         Spacer(Modifier.height(8.dp))
-        Text("Dossiers : " + TravailSynchro.DOSSIERS_SAUVEGARDES.joinToString(", "),
+        val dossiersChoisis = Choix.dossiersASauvegarder(reglages, avancement.dossiersVus.keys)
+        Text("Dossiers : " + dossiersChoisis.joinToString(", "),
              style = MaterialTheme.typography.bodySmall)
         // Pas de garde sur `dossiersVus.isNotEmpty()` ici : l'orchestrateur
         // calcule la carte avant la toute premiere publication, donc tout
         // `Avancement` recu a deja regarde MediaStore — y compris quand les
-        // trois dossiers suivis sont absents, le cas le plus grave.
-        val absents = TravailSynchro.DOSSIERS_SAUVEGARDES - avancement.dossiersVus.keys
+        // dossiers suivis sont absents, le cas le plus grave.
+        //
+        // Compare aux reglages BRUTS (dossiersSeuls + dossiersRecursifs), pas
+        // a `dossiersChoisis` : celui-ci est deja filtre par ce qui existe
+        // sur ce telephone (Choix.resoudre), donc toujours inclus dans
+        // `dossiersVus.keys` — la difference serait vide a coup sur, et
+        // l'avertissement ne se declencherait plus jamais.
+        val brut = reglages.dossiersSeuls + reglages.dossiersRecursifs
+        val absents = brut - avancement.dossiersVus.keys
         if (absents.isNotEmpty()) {
             Text("Introuvables sur ce téléphone : ${absents.joinToString(", ")}",
                  color = MaterialTheme.colorScheme.error,
@@ -240,7 +252,7 @@ private fun Bandeau(texte: String) {
 }
 
 @Composable
-fun EcranDetail(etat: EtatSynchro, dossiersSauvegardes: Set<String>) {
+fun EcranDetail(etat: EtatSynchro, reglages: Reglages) {
     Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState())) {
         Text("Dernière synchronisation", style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(16.dp))
@@ -256,11 +268,12 @@ fun EcranDetail(etat: EtatSynchro, dossiersSauvegardes: Set<String>) {
             bilan.bilanServeur.forEach { (cle, valeur) -> Text("$cle : ${valeur.toInt()}") }
         }
 
-        // Les trois dossiers sauvegardés sont codés en dur. Si l'un d'eux
-        // n'existe pas sur ce téléphone — WhatsApp récent range sous
-        // Android/media/com.whatsapp/… — la synchro réussit avec ZÉRO média et
-        // rien ne le signale. Confronter la liste codée en dur à ce que
-        // MediaStore contient vraiment est la seule façon de le voir.
+        // Les dossiers sauvegardés sont ceux des RÉGLAGES, plus la constante
+        // codée en dur d'origine (Reglages.DEFAUT en est la valeur de
+        // départ). Si l'un d'eux n'existe pas sur ce téléphone — WhatsApp
+        // récent range sous Android/media/com.whatsapp/… — la synchro réussit
+        // avec ZÉRO média et rien ne le signale. Confronter les réglages à ce
+        // que MediaStore contient vraiment est la seule façon de le voir.
         //
         // La section s'affiche dès qu'on a REGARDÉ (dossiersVus non null), même
         // si MediaStore n'a rien rendu : ce cas-là est le plus grave de tous, et
@@ -274,17 +287,38 @@ fun EcranDetail(etat: EtatSynchro, dossiersSauvegardes: Set<String>) {
                 Text("Aucun dossier trouvé — l'application ne voit aucun média.",
                      color = MaterialTheme.colorScheme.error)
             }
+            // Résolu (Choix.resoudre), donc restreint à ce qui existe VRAIMENT
+            // ici : un dossier récursif couvre des sous-dossiers qui ne sont
+            // pas littéralement dans les réglages, et c'est justement ce que
+            // « suivi » doit refléter pour chaque dossier réel.
+            val dossiersChoisis = Choix.dossiersASauvegarder(reglages, vus.keys)
             vus.entries.sortedByDescending { it.value }.forEach { (nom, combien) ->
-                val suivi = nom in dossiersSauvegardes
+                val suivi = nom in dossiersChoisis
                 Text("$nom : $combien" +
                      if (suivi) " — sauvegardé" else " — non sauvegardé")
             }
-            val absents = dossiersSauvegardes - vus.keys
+            // Comparé aux réglages BRUTS, pas à `dossiersChoisis` : celui-ci
+            // est déjà filtré sur ce qui existe ici, donc toujours inclus dans
+            // `vus.keys` — la différence serait vide à coup sûr, et cette
+            // alerte ne se déclencherait plus jamais.
+            val brut = reglages.dossiersSeuls + reglages.dossiersRecursifs
+            val absents = brut - vus.keys
             if (absents.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text("Dossiers sauvegardés introuvables ici : ${absents.joinToString(", ")}",
                      color = MaterialTheme.colorScheme.error)
             }
+        }
+
+        // Les dossiers pris par une coche récursive depuis la dernière
+        // synchronisation : une coche récursive est une délégation dans le
+        // temps, elle prendra demain des dossiers qui n'existent pas
+        // aujourd'hui (une application installée, un nouveau répertoire de
+        // captures). Sans ce rappel, il faudrait surveiller soi-même.
+        if (etat.dossiersNouveaux.isNotEmpty()) {
+            Spacer(Modifier.height(24.dp))
+            Text("Nouveaux dossiers pris par une coche « et ses sous-dossiers » :")
+            etat.dossiersNouveaux.sorted().forEach { Text("• $it") }
         }
     }
 }

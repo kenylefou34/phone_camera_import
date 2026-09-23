@@ -61,6 +61,14 @@ data class EtatSynchro(
      * existe pour le dénoncer.
      */
     val dossiersVus: Map<String, Int>? = null,
+    /**
+     * Dossiers entrés dans la sauvegarde par une coche « et ses
+     * sous-dossiers » depuis la dernière synchronisation, et non par un choix
+     * un par un. Une coche récursive est une délégation dans le temps : elle
+     * prendra demain des dossiers qui n'existent pas aujourd'hui (une
+     * application installée, un nouveau répertoire de captures).
+     */
+    val dossiersNouveaux: Set<String> = emptySet(),
 ) {
     /**
      * Ce que devient l'état une fois une synchronisation menée à son terme.

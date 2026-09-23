@@ -13,12 +13,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
-import fr.izquierdo.phototheque.synchro.TravailSynchro
+import fr.izquierdo.phototheque.medias.Depot
+import fr.izquierdo.phototheque.synchro.Arbre
 import fr.izquierdo.phototheque.ui.Ecran
 import fr.izquierdo.phototheque.ui.EcranAccueil
 import fr.izquierdo.phototheque.ui.EcranAppairage
 import fr.izquierdo.phototheque.ui.EcranAvancement
 import fr.izquierdo.phototheque.ui.EcranDetail
+import fr.izquierdo.phototheque.ui.EcranDossiers
 import fr.izquierdo.phototheque.ui.EcranReglages
 import fr.izquierdo.phototheque.ui.ModeleAccueil
 import fr.izquierdo.phototheque.ui.Navigation
@@ -62,6 +64,10 @@ class MainActivity : ComponentActivity() {
                 val etat by modele.etat.collectAsStateWithLifecycle()
                 val avancement by modele.avancement.collectAsStateWithLifecycle()
                 val reglages by modele.reglages.collectAsStateWithLifecycle()
+                // Un Depot local, distinct de celui de ModeleAccueil (privé) :
+                // seul l'écran des dossiers en a besoin, pour l'aperçu à la
+                // demande — ModeleAccueil n'a rien d'autre à en faire.
+                val depot = remember { Depot(applicationContext) }
                 // rememberSaveable et non remember : l'écran affiché retombait
                 // sur l'accueil à chaque rotation (issue #24).
                 var demande by rememberSaveable { mutableStateOf(Ecran.ACCUEIL) }
@@ -95,7 +101,7 @@ class MainActivity : ComponentActivity() {
                         })
                     Ecran.ACCUEIL ->
                         if (avancement != null) EcranAvancement(
-                            avancement!!, surInterrompre = modele::interrompre)
+                            avancement!!, reglages, surInterrompre = modele::interrompre)
                         else EcranAccueil(etat, reglages, System.currentTimeMillis(),
                             surSynchroniser = modele::synchroniser,
                             // Le travail peut etre EN ATTENTE d'un reseau : aucun
@@ -104,13 +110,18 @@ class MainActivity : ComponentActivity() {
                             surInterrompre = modele::interrompre,
                             surVoirDetail = { demande = Ecran.DETAIL },
                             surReglages = { demande = Ecran.REGLAGES })
-                    Ecran.DETAIL -> EcranDetail(etat, TravailSynchro.DOSSIERS_SAUVEGARDES)
+                    Ecran.DETAIL -> EcranDetail(etat, reglages)
                     Ecran.REGLAGES -> EcranReglages(
                         surDossiers = { demande = Ecran.DOSSIERS },
                         surSauvegarde = { demande = Ecran.SAUVEGARDE },
                         surAppareil = { demande = Ecran.APPAREIL })
-                    // Écrits aux tâches 5, 8 et 11.
-                    Ecran.DOSSIERS, Ecran.SAUVEGARDE, Ecran.APPAREIL -> EcranReglages(
+                    Ecran.DOSSIERS -> EcranDossiers(
+                        racine = Arbre.construire(etat.dossiersVus ?: emptyMap()),
+                        reglages = reglages,
+                        depot = depot,
+                        surCoche = modele::changerCoche)
+                    // Écrits aux tâches 8 et 11.
+                    Ecran.SAUVEGARDE, Ecran.APPAREIL -> EcranReglages(
                         surDossiers = {}, surSauvegarde = {}, surAppareil = {})
                 }
             }
