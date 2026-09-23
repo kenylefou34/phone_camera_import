@@ -75,8 +75,18 @@ class MainActivity : ComponentActivity() {
                         qrInvalide = etat.qrInvalide,
                         revoque = etat.revoque,
                         surScanner = {
-                            scanner.launch(ScanOptions().setPrompt(
-                                "Scannez le QR affiché sur la page du serveur"))
+                            scanner.launch(
+                                ScanOptions()
+                                    .setPrompt("Scannez le QR affiché sur la page du serveur")
+                                    // Sans ceci, zxing verrouille sa camera en
+                                    // PAYSAGE : `orientationLocked` vaut true par
+                                    // defaut et l'activite de capture est declaree
+                                    // en paysage dans la bibliotheque. Il fallait
+                                    // donc tourner le telephone pour scanner un QR
+                                    // affiche a l'ecran d'un ordinateur — signale
+                                    // par le mainteneur au premier appairage reel,
+                                    // le 23/09.
+                                    .setOrientationLocked(false))
                         })
                     avancement != null -> EcranAvancement(
                         avancement!!, surInterrompre = modele::interrompre)
