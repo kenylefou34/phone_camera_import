@@ -47,11 +47,18 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
         // l'application et la referme.
         rafraichirPermissions()
         // Reprogramme le travail périodique à chaque démarrage, pas seulement
-        // au moment où l'utilisateur coche : une application réinstallée, ou
-        // dont les données ont été effacées côté WorkManager, doit retrouver
-        // une automatique déjà cochée dans les réglages sans que rien ne
-        // l'ait redemandé. `ExistingPeriodicWorkPolicy.KEEP` rend cet appel
-        // sans effet quand le travail existe déjà.
+        // au moment où l'utilisateur coche. PAS pour survivre à une
+        // réinstallation : celle-ci efface les préférences ET la base
+        // WorkManager ensemble, donc `_reglages.value.auto` reviendrait de
+        // toute façon à `false` — ce garde-fou n'y servirait à rien. La
+        // vraie raison est plus étroite : le système ou le fabricant du
+        // téléphone peut effacer la base de WorkManager SEULE (nettoyage
+        // agressif de batterie, mise à jour du composant) sans toucher aux
+        // préférences de l'application. Sans cet appel, un utilisateur qui a
+        // coché l'automatique verrait alors le réglage rester affiché comme
+        // actif tout en n'étant plus programmé nulle part — une automatique
+        // qui s'est éteinte sans le dire. `ExistingPeriodicWorkPolicy.KEEP`
+        // rend cet appel sans effet quand le travail existe déjà.
         TravailSynchro.planifier(getApplication(), _reglages.value.auto)
 
         viewModelScope.launch {
@@ -241,10 +248,14 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
      * date de fin (`Reglages.enAuto`) : c'est à l'écran de le dire au moment
      * où on coche.
      *
-     * Seul point d'appel de [TravailSynchro.planifier] : c'est ici, et nulle
-     * part ailleurs, que la case cochée à l'écran se traduit en travail
-     * périodique programmé ou déprogrammé — un deuxième chemin risquerait de
-     * les faire diverger.
+     * [TravailSynchro.planifier] n'est appelé qu'à deux endroits dans tout
+     * le modèle de vue, et ce sont les deux seuls qui doivent exister :
+     * ici, à chaque bascule de la case par l'utilisateur — c'est le SEUL
+     * endroit où un changement de `reglages.auto` se traduit en travail
+     * programmé ou déprogrammé, pour qu'un deuxième chemin ne puisse jamais
+     * les faire diverger — et dans `init`, une fois au démarrage, pour
+     * retrouver un réglage déjà coché si la base de WorkManager a été vidée
+     * sans que les préférences le soient (voir son commentaire).
      */
     fun changerAuto(actif: Boolean) {
         val r = magasin.lire()

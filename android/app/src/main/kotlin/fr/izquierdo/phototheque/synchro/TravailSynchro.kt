@@ -14,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
@@ -70,6 +71,15 @@ class TravailSynchro(
 ) : CoroutineWorker(context, parametres) {
 
     override suspend fun doWork(): Result {
+        // Le verrou AVANT tout le reste, y compris les remises à zéro qui
+        // suivent : la file manuelle (« synchro ») et la file automatique
+        // (« synchro-auto ») peuvent démarrer en même temps (voir
+        // VerrouSynchro), et tout ce qui suit touche un état partagé par
+        // TOUTE exécution. Si une autre exécution tient déjà le verrou, elle
+        // publie déjà son propre avancement : on ressort sans rien toucher,
+        // ce n'est donc pas un silence, seulement une exécution de trop.
+        if (!VerrouSynchro.tenter()) return Result.success()
+
         // `_derniereIssue` est un StateFlow de companion object, donc de la
         // duree de vie du processus : sans cette remise a zero, un nouveau
         // collecteur (ecran recree, nouvelle synchro) rejouerait l'issue de
@@ -279,6 +289,10 @@ class TravailSynchro(
             // qu'a `_avancement`, pour ne pas ecraser l'issue qu'une branche
             // vient de publier.
             _avancement.value = null
+            // Symétrique du `tenter()` du début : on n'atteint ce `finally`
+            // que si on a bien pris le verrou (le repli `!VerrouSynchro.tenter()`
+            // ressort avant), donc le libérer ici est toujours correct.
+            VerrouSynchro.liberer()
         }
     }
 
@@ -338,11 +352,23 @@ class TravailSynchro(
          *  l'interface et lu depuis un fil d'E/S. */
         @Volatile private var arretDemande = false
 
+        /**
+         * Annule LES DEUX files, pas seulement la manuelle.
+         *
+         * Sans ça, le bouton « Interrompre » serait muet sur une
+         * synchronisation automatique — précisément le cas où l'utilisateur
+         * voudra le plus s'en servir, puisqu'elle a démarré sans qu'il l'ait
+         * demandée. `arretDemande` est un seul drapeau, lu par les deux
+         * files quelle que soit celle qui tourne : il n'y a donc rien à
+         * distinguer ici.
+         */
         fun interrompre(context: Context) {
             // Pose AVANT l'annulation : c'est ce drapeau, et non `isStopped`,
             // qui distingue un arret demande d'une coupure subie.
             arretDemande = true
-            WorkManager.getInstance(context).cancelUniqueWork(NOM)
+            val gestionnaire = WorkManager.getInstance(context)
+            gestionnaire.cancelUniqueWork(NOM)
+            gestionnaire.cancelUniqueWork(NOM_PERIODIQUE)
         }
 
         /**
@@ -391,6 +417,11 @@ class TravailSynchro(
          *  retour de son appui. Voir EtatTravail pour la raison des trois
          *  etats actifs.
          *
+         *  Combine LES DEUX files : sans ça, l'écran annoncerait « rien en
+         *  cours » pendant qu'une synchronisation automatique tourne, alors
+         *  que `VerrouSynchro` en empêche déjà une seconde — le silence
+         *  exact que ce sous-projet interdit ailleurs.
+         *
          *  `runAttemptCount` vaut 0 tant qu'aucune execution n'a eu lieu :
          *  c'est le seul signal qui separe « jamais demarre, on attend la
          *  contrainte » de « deja tente, on attend le delai de reprise ». Si
@@ -398,8 +429,12 @@ class TravailSynchro(
          *  contrainte perdue, le pire serait d'annoncer une nouvelle
          *  tentative, ce qui reste VRAI — aucune des deux phrases ne peut
          *  devenir fausse. */
-        fun etatTravail(context: Context): Flow<EtatTravail> =
-            WorkManager.getInstance(context).getWorkInfosForUniqueWorkFlow(NOM)
+        fun etatTravail(context: Context): Flow<EtatTravail> {
+            val gestionnaire = WorkManager.getInstance(context)
+            return combine(
+                gestionnaire.getWorkInfosForUniqueWorkFlow(NOM),
+                gestionnaire.getWorkInfosForUniqueWorkFlow(NOM_PERIODIQUE),
+            ) { manuel, automatique -> manuel + automatique }
                 .map { infos ->
                     when {
                         infos.any { it.state == WorkInfo.State.RUNNING } ->
@@ -410,5 +445,6 @@ class TravailSynchro(
                         else -> EtatTravail.INACTIF
                     }
                 }
+        }
     }
 }
