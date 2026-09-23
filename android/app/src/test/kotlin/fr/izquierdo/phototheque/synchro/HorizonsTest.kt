@@ -155,4 +155,39 @@ class HorizonsTest {
         assertEquals(2000.0, resultat.horizons["DCIM/Camera"]!!, 0.0)
         assertTrue(resultat.arretes.isEmpty())
     }
+
+    @Test fun un_horizon_ne_recule_jamais() {
+        // Le téléphone a tout jusqu'en septembre 2026. Une fenêtre 2019-2020 est
+        // posée pour rattraper du vieux. Sans cette règle, le commit envoie
+        // « fin 2020 » et le serveur ÉCRASE la mémoire de 2026 : la nuit suivante,
+        // six ans de médias sont reproposés. Rien n'est perdu ni renvoyé deux
+        // fois, mais le téléphone relit tout, à chaque fois.
+        val nouveaux = mapOf("DCIM/Camera" to 1_609_459_200.0)   // 01/01/2021
+        val connus = mapOf("DCIM/Camera" to 1_789_000_000.0)     // 2026
+
+        assertEquals(mapOf("DCIM/Camera" to 1_789_000_000.0),
+                     Horizons.monotone(nouveaux, connus))
+    }
+
+    @Test fun un_horizon_avance_normalement_quand_il_progresse() {
+        val nouveaux = mapOf("DCIM/Camera" to 1_789_000_000.0)
+        val connus = mapOf("DCIM/Camera" to 1_609_459_200.0)
+
+        assertEquals(mapOf("DCIM/Camera" to 1_789_000_000.0),
+                     Horizons.monotone(nouveaux, connus))
+    }
+
+    @Test fun un_dossier_sans_horizon_connu_garde_sa_valeur_neuve() {
+        // Premier passage sur un dossier qu'on vient de cocher : il n'y a pas de
+        // plancher à respecter, et en inventer un sauterait des médias.
+        assertEquals(mapOf("Pictures/Messages" to 42.0),
+                     Horizons.monotone(mapOf("Pictures/Messages" to 42.0), emptyMap()))
+    }
+
+    @Test fun un_dossier_connu_mais_absent_du_lot_n_est_pas_reenvoye() {
+        // On ne transmet QUE ce que ce paquet a touché : renvoyer les autres
+        // ferait écrire au serveur des horizons qu'aucun envoi ne justifie.
+        assertEquals(emptyMap<String, Double>(),
+                     Horizons.monotone(emptyMap(), mapOf("DCIM/Camera" to 1.0)))
+    }
 }

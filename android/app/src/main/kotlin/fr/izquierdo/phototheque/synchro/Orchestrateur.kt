@@ -182,7 +182,10 @@ class Orchestrateur(
             publier(Phase.RANGEMENT)
             val resultat = Horizons.calculer(envois, arretes)
             arretes = resultat.arretes
-            val bilanPaquet = serveur.commit(reponse.session, resultat.horizons)
+            // Borne par ce que le serveur connaît déjà : un horizon ne doit
+            // jamais reculer tout seul (Horizons.monotone).
+            val aTransmettre = Horizons.monotone(resultat.horizons, etat.dossiers)
+            val bilanPaquet = serveur.commit(reponse.session, aTransmettre)
             // Le serveur n'ecrit AUCUN horizon quand son tri a echoue, et il a
             // DETRUIT le fichier fautif (app.py : le nettoyage de la session
             // s'execute avant le test sur `errors`). Si un paquet suivant

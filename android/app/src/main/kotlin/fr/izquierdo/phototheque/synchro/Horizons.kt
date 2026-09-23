@@ -69,4 +69,26 @@ object Horizons {
         }
         return ResultatHorizons(horizons, arretes)
     }
+
+    /**
+     * Les horizons à transmettre, bornés par ceux que le serveur connaît déjà.
+     *
+     * L'horizon signifie « tout ce qui est plus récent que cette date a été
+     * proposé ». Reproposer du plus ancien ne le rend pas faux : il ne doit donc
+     * JAMAIS reculer tout seul.
+     *
+     * Sans cette borne, une fenêtre de rattrapage 2019-2020 posée sur un téléphone
+     * déjà synchronisé jusqu'en septembre 2026 ferait écrire « fin 2020 » au
+     * serveur — `set_horizon` (`phototheque/devices.py:189`) écrit tel quel ce
+     * qu'on lui envoie, et la boucle de commit ne borne que par le haut. La
+     * mémoire de 2026 serait effacée et six ans de médias reproposés chaque nuit.
+     *
+     * Seuls les dossiers présents dans [nouveaux] ressortent : transmettre les
+     * autres ferait écrire au serveur des horizons qu'aucun envoi ne justifie.
+     */
+    fun monotone(
+        nouveaux: Map<String, Double>,
+        connus: Map<String, Double>,
+    ): Map<String, Double> =
+        nouveaux.mapValues { (dossier, valeur) -> maxOf(valeur, connus[dossier] ?: valeur) }
 }
