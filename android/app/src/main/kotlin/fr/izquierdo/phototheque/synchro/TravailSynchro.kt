@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.util.concurrent.TimeUnit
 
@@ -40,22 +39,6 @@ data class IssueSynchro(
     // fiable à dire ici - autant ne rien annoncer que d'annoncer à tort.
     val dossiersNouveaux: Set<String> = emptySet(),
 )
-
-/**
- * Ce que WorkManager sait du travail de synchronisation.
- *
- * Les trois états actifs sont séparés parce que l'écran doit en dire trois
- * choses différentes, et qu'une seule phrase pour tous serait fausse deux fois
- * sur trois :
- * - EN_ATTENTE : rien ne tourne, la contrainte réseau n'est pas satisfaite ;
- * - NOUVELLE_TENTATIVE : rien ne tourne non plus, mais une exécution a DÉJÀ eu
- *   lieu et a demandé à être reprise. Dire « en attente d'un réseau » ici
- *   serait faux — le cas le plus fréquent est une permission retirée, dont le
- *   bandeau dit déjà, et correctement, qu'il faut aller dans les réglages ;
- * - EN_COURS : le travail s'exécute, mais tant qu'il n'a rien publié l'accueil
- *   reste le seul écran visible.
- */
-enum class EtatTravail { INACTIF, EN_ATTENTE, NOUVELLE_TENTATIVE, EN_COURS }
 
 /**
  * La synchronisation, exécutée par Android et non par l'écran.
@@ -377,6 +360,15 @@ class TravailSynchro(
          * demandée. `arretDemande` est un seul drapeau, lu par les deux
          * files quelle que soit celle qui tourne : il n'y a donc rien à
          * distinguer ici.
+         *
+         * Et REPROGRAMME l'automatique derrière. `cancelUniqueWork` ne
+         * suspend pas la passe en cours : il **détruit la chaîne
+         * périodique**. Sans cette dernière ligne, un appui sur
+         * « Interrompre » déprogrammerait la sauvegarde automatique pour
+         * toujours, pendant que l'interrupteur des réglages continuerait
+         * d'afficher « actif » — la panne muette que ce sous-projet existe
+         * pour supprimer, exactement celle que `enregistrerAppairage` évite
+         * déjà avec le même appel.
          */
         fun interrompre(context: Context) {
             // Pose AVANT l'annulation : c'est ce drapeau, et non `isStopped`,
@@ -385,6 +377,10 @@ class TravailSynchro(
             val gestionnaire = WorkManager.getInstance(context)
             gestionnaire.cancelUniqueWork(NOM)
             gestionnaire.cancelUniqueWork(NOM_PERIODIQUE)
+            // Relu des préférences, et non d'un état en mémoire : ce code
+            // tourne aussi depuis le bouton de la NOTIFICATION, application
+            // fermée, où aucun modèle de vue n'existe.
+            planifier(context, MagasinReglages(context).lire().auto, apresUnArret = true)
         }
 
         /**
@@ -406,7 +402,7 @@ class TravailSynchro(
          * dizaines de gigaoctets, et l'utilisateur ne s'attend pas à les voir
          * partir sur son forfait.
          */
-        fun planifier(context: Context, actif: Boolean) {
+        fun planifier(context: Context, actif: Boolean, apresUnArret: Boolean = false) {
             val gestionnaire = WorkManager.getInstance(context)
             if (!actif) {
                 gestionnaire.cancelUniqueWork(NOM_PERIODIQUE)
@@ -419,6 +415,16 @@ class TravailSynchro(
                     .build())
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,
                                     WorkRequest.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
+                // Un travail périodique NEUF part dès que ses contraintes sont
+                // satisfaites, sans attendre sa première période. Replanifier
+                // juste après un arrêt demandé (voir `interrompre`)
+                // relancerait donc aussitôt la synchronisation qu'on vient
+                // d'arrêter : le téléphone est en charge sur le WiFi de la
+                // maison, c'est-à-dire exactement la situation où ce bouton
+                // sert. D'où ce délai, et seulement dans ce cas-là : cocher
+                // l'interrupteur, lui, doit pouvoir donner une première passe
+                // dans la foulée.
+                .apply { if (apresUnArret) setInitialDelay(6, TimeUnit.HOURS) }
                 .build()
             // KEEP : reprogrammer à chaque ouverture de l'écran remettrait le
             // compteur à zéro, et la passe n'aurait jamais lieu sur un
@@ -433,34 +439,23 @@ class TravailSynchro(
          *  retour de son appui. Voir EtatTravail pour la raison des trois
          *  etats actifs.
          *
-         *  Combine LES DEUX files : sans ça, l'écran annoncerait « rien en
-         *  cours » pendant qu'une synchronisation automatique tourne, alors
-         *  que `VerrouSynchro` en empêche déjà une seconde — le silence
-         *  exact que ce sous-projet interdit ailleurs.
-         *
-         *  `runAttemptCount` vaut 0 tant qu'aucune execution n'a eu lieu :
-         *  c'est le seul signal qui separe « jamais demarre, on attend la
-         *  contrainte » de « deja tente, on attend le delai de reprise ». Si
-         *  WorkManager l'incrementait aussi en replanifiant apres une
-         *  contrainte perdue, le pire serait d'annoncer une nouvelle
-         *  tentative, ce qui reste VRAI — aucune des deux phrases ne peut
-         *  devenir fausse. */
+         *  Suit LES DEUX files, mais ne les traite pas pareil : voir
+         *  [EtatTravail.combiner], qui porte la regle et les tests. Tout ce
+         *  qui reste ici est la traduction d'un `WorkInfo` en trois valeurs —
+         *  la seule part que rien ne peut verifier sur la JVM. */
         fun etatTravail(context: Context): Flow<EtatTravail> {
             val gestionnaire = WorkManager.getInstance(context)
             return combine(
                 gestionnaire.getWorkInfosForUniqueWorkFlow(NOM),
                 gestionnaire.getWorkInfosForUniqueWorkFlow(NOM_PERIODIQUE),
-            ) { manuel, automatique -> manuel + automatique }
-                .map { infos ->
-                    when {
-                        infos.any { it.state == WorkInfo.State.RUNNING } ->
-                            EtatTravail.EN_COURS
-                        infos.any { !it.state.isFinished && it.runAttemptCount > 0 } ->
-                            EtatTravail.NOUVELLE_TENTATIVE
-                        infos.any { !it.state.isFinished } -> EtatTravail.EN_ATTENTE
-                        else -> EtatTravail.INACTIF
-                    }
-                }
+            ) { manuel, automatique ->
+                EtatTravail.combiner(manuel.map { it.suivi() }, automatique.map { it.suivi() })
+            }
         }
+
+        private fun WorkInfo.suivi() = SuiviTravail(
+            enCours = state == WorkInfo.State.RUNNING,
+            termine = state.isFinished,
+            tentatives = runAttemptCount)
     }
 }
