@@ -1,5 +1,6 @@
 package fr.izquierdo.phototheque.synchro
 
+import fr.izquierdo.phototheque.ui.Reglages
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -75,5 +76,38 @@ class ChoixTest {
         // dossier entièrement pris alors qu'il ne l'est qu'à moitié.
         assertEquals(Coche.PARTIELLE,
                      Choix.etat(parent, setOf("Pictures/WhatsApp"), emptySet()))
+    }
+
+    // --- dossiersASauvegarder : la synchro lit les reglages, pas une constante ---
+
+    @Test fun les_dossiers_synchronises_viennent_des_reglages_et_non_de_la_constante() {
+        val reglages = Reglages(dossiersSeuls = setOf("Pictures/Messages"))
+
+        val choisis = Choix.dossiersASauvegarder(
+            reglages, tous = setOf("Pictures/Messages", "DCIM/Camera"))
+
+        assertEquals(setOf("Pictures/Messages"), choisis)
+    }
+
+    @Test fun des_reglages_vierges_sauvegardent_les_trois_dossiers_historiques() {
+        // Une mise à jour ne doit RIEN changer tant que l'utilisateur n'a pas
+        // ouvert l'écran.
+        val choisis = Choix.dossiersASauvegarder(
+            Reglages.DEFAUT,
+            tous = setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp", "Download"))
+
+        assertEquals(setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp"), choisis)
+    }
+
+    @Test fun une_coche_recursive_des_reglages_embarque_bien_la_descendance() {
+        // Ce test attrape l'interversion des deux ensembles : avec
+        // `dossiersSeuls` et `dossiersRecursifs` échangés, seul « Pictures »
+        // sortirait. Aucun autre test ne le voit, parce qu'aucun autre jeu de
+        // données ne contient de sous-dossier d'un dossier sélectionné.
+        val choisis = Choix.dossiersASauvegarder(
+            Reglages(dossiersRecursifs = setOf("Pictures")),
+            tous = setOf("Pictures", "Pictures/WhatsApp", "DCIM/Camera"))
+
+        assertEquals(setOf("Pictures", "Pictures/WhatsApp"), choisis)
     }
 }

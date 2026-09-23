@@ -238,21 +238,17 @@ class TravailSynchro(
     private fun Bilan.pourLEcran(): Bilan = copy(interrompu = interrompu && arretDemande)
 
     companion object {
-        /** Lot 1 : dossiers en dur. Reste la valeur par défaut de
-         *  [Reglages.DEFAUT] et l'argument de `EcranDetail`. */
-        val DOSSIERS_SAUVEGARDES =
-            setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp")
-
         /**
-         * Les dossiers à proposer au serveur, d'après ce que l'utilisateur a coché.
+         * Lot 1 : dossiers en dur, devenus la valeur par défaut d'un réglage.
          *
-         * Fonction séparée, et pure, pour être vérifiable sur la JVM : c'est le point
-         * où le lot 1 décidait à la place de l'utilisateur, et sa régression serait
-         * muette — la synchronisation réussirait en ne sauvegardant pas les bons
-         * dossiers.
+         * Miroir de [Reglages.DEFAUT] et non une recopie : les trois chemins ne
+         * sont écrits qu'UNE fois, dans `Reglages.kt`. Un commentaire qui
+         * affirmerait le lien sans que le code le garantisse mentirait dès que
+         * l'un des deux changerait sans l'autre. Reste l'argument de
+         * `EcranDetail`.
          */
-        fun dossiersASauvegarder(reglages: Reglages, tous: Set<String>): Set<String> =
-            Choix.resoudre(tous, reglages.dossiersSeuls, reglages.dossiersRecursifs)
+        val DOSSIERS_SAUVEGARDES: Set<String>
+            get() = Reglages.DEFAUT.dossiersSeuls
 
         private const val NOM = "synchro"
 

@@ -1,5 +1,7 @@
 package fr.izquierdo.phototheque.synchro
 
+import fr.izquierdo.phototheque.ui.Reglages
+
 /** Ce qu'affiche la case d'une ligne de l'arborescence. */
 enum class Coche {
     AUCUNE,
@@ -25,6 +27,19 @@ object Choix {
         tous.filterTo(mutableSetOf()) { dossier ->
             dossier in seuls || recursifs.any { sousArbre(dossier, it) }
         }
+
+    /**
+     * Les dossiers à proposer au serveur, d'après ce que l'utilisateur a coché.
+     *
+     * Fonction séparée, et pure, pour être vérifiable sur la JVM : c'est le point
+     * où le lot 1 décidait à la place de l'utilisateur, et sa régression serait
+     * muette — la synchronisation réussirait en ne sauvegardant pas les bons
+     * dossiers. Vit ici, et non dans `TravailSynchro` (un `CoroutineWorker`
+     * Android), pour que l'appel depuis `Orchestrateur` ne fasse pas dépendre
+     * le cœur pur de la synchro d'une classe Android.
+     */
+    fun dossiersASauvegarder(reglages: Reglages, tous: Set<String>): Set<String> =
+        resoudre(tous, reglages.dossiersSeuls, reglages.dossiersRecursifs)
 
     /**
      * Vrai si [dossier] est [racine] ou se trouve dessous.

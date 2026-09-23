@@ -63,7 +63,7 @@ class Orchestrateur(
         val etat = serveur.horizon()
         val depuis = etat.depuis?.let { jourVersSecondes(it) }
         val tous = source.lister()
-        val dossiersChoisis = TravailSynchro.dossiersASauvegarder(
+        val dossiersChoisis = Choix.dossiersASauvegarder(
             reglages, tous.map { it.dossier }.toSet())
         val candidats = Selection.candidats(tous, dossiersChoisis, etat.dossiers, depuis)
         val lots = Paquets.decouper(candidats, taillePaquet)
