@@ -45,10 +45,16 @@ object Fenetre {
         LocalDate.parse(jour).plusDays(1)
             .atStartOfDay(ZoneOffset.ofHours(-12)).toEpochSecond().toDouble()
 
-    /** Vrai si [media] est strictement plus ancien que le début de la
-     *  fenêtre. Partagé par [dansLaFenetre] et [avantLaFenetre] pour qu'ils
-     *  ne puissent pas diverger. */
-    private fun avantDebut(media: Media, debut: String?): Boolean =
+    /**
+     * Vrai si [media] est strictement plus ancien que le début de la fenêtre.
+     *
+     * Partagé par [dansLaFenetre], [avantLaFenetre] et `Orchestrateur` pour
+     * qu'ils ne puissent pas diverger : l'orchestrateur doit savoir si c'est
+     * la borne BASSE, et non la haute, qui a écarté un média — les deux ne se
+     * valent pas du tout du point de vue de l'horizon (voir son commentaire
+     * sur les dossiers gelés).
+     */
+    fun avantLeDebut(media: Media, debut: String?): Boolean =
         debut != null && media.instant < debutDuJour(debut)
 
     /** Vrai si [media] est à ou après la fin (exclusive) de la fenêtre.
@@ -58,7 +64,7 @@ object Fenetre {
         fin != null && media.instant >= finDuJour(fin)
 
     fun dansLaFenetre(media: Media, debut: String?, fin: String?): Boolean =
-        !avantDebut(media, debut) && !apresFin(media, fin)
+        !avantLeDebut(media, debut) && !apresFin(media, fin)
 
     /**
      * Les médias antérieurs au début de la fenêtre. Normal : ce sont les
@@ -70,7 +76,7 @@ object Fenetre {
      * médias volontairement laissés de côté.
      */
     fun avantLaFenetre(medias: List<Media>, debut: String?): Int =
-        medias.count { avantDebut(it, debut) }
+        medias.count { avantLeDebut(it, debut) }
 
     /**
      * Les médias POSTÉRIEURS à la fin de la fenêtre. C'est le compte qui

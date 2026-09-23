@@ -386,6 +386,54 @@ class OrchestrateurTest {
                      serveur.commits.last().getValue("DCIM/Camera"), 0.001)
     }
 
+    @Test fun la_borne_basse_de_la_fenetre_gele_l_horizon_du_dossier_ampute() {
+        // LE test qui protege les photos contre la fenetre de dates.
+        //
+        // Le dossier est DEJA connu du serveur, horizon a la mi-decembre 2020.
+        // L'utilisateur remonte sa date de debut au 01/01/2021 (geste prevu
+        // par la spec §4.1). `Selection.candidats` prend soin de partir de
+        // l'horizon -- il ne remonte JAMAIS un plancher -- donc le media du
+        // 21/12/2020 est bien candidat ; c'est la borne basse de la fenetre
+        // qui l'ecarte ensuite.
+        //
+        // Si l'horizon avancait quand meme sur le media de mai 2021, la
+        // tranche [horizon, debut[ passerait DESSOUS : le serveur ne la
+        // reproposerait plus jamais, meme apres avoir rebaisse la date. Des
+        // photos perdues, en silence.
+        val gap = Media(1, "DCIM/Camera", "decembre.jpg", 10, 1_608_500_000.0)
+        val dedans = Media(2, "DCIM/Camera", "mai.jpg", 10, 1_620_000_000.0)
+        val serveur = FauxServeur(horizons = mapOf("DCIM/Camera" to 1_608_000_000.0))
+
+        val bilan = Orchestrateur(FausseSource(listOf(gap, dedans)), serveur).synchroniser(
+            Reglages(dossiersSeuls = setOf("DCIM/Camera"),
+                     debutJour = "2021-01-01", debutApplique = "2021-01-01"))
+
+        // Le media de la fenetre part bien : geler l'horizon ne doit pas
+        // arreter la sauvegarde elle-meme.
+        assertEquals(1, bilan.envoyes)
+        assertTrue("un horizon transmis ici fait passer la tranche ecartee " +
+                   "sous l'horizon : perte definitive et silencieuse",
+                   serveur.commits.none { it.containsKey("DCIM/Camera") })
+    }
+
+    @Test fun la_borne_HAUTE_de_la_fenetre_ne_gele_rien() {
+        // Le pendant du test precedent. Geler sur la borne haute serait tout
+        // aussi faux : un horizon calcule sur les seuls medias envoyes ne peut
+        // pas depasser la date de fin, il n'y a donc aucune tranche a
+        // proteger. Geler quand meme figerait l'horizon de tout rattrapage
+        // ferme par une date de fin -- c'est-a-dire de tous.
+        val dedans = Media(1, "DCIM/Camera", "juin.jpg", 10, 1_622_500_000.0)
+        val apres = Media(2, "DCIM/Camera", "aout.jpg", 10, 1_630_000_000.0)
+        val serveur = FauxServeur()
+
+        Orchestrateur(FausseSource(listOf(dedans, apres)), serveur).synchroniser(
+            Reglages(dossiersSeuls = setOf("DCIM/Camera"),
+                     debutJour = "2021-01-01", debutApplique = "2021-01-01",
+                     finJour = "2021-07-01"))
+
+        assertEquals(mapOf("DCIM/Camera" to 1_622_500_000.0), serveur.horizonsEnvoyes)
+    }
+
     @Test fun la_date_de_debut_sert_de_plancher_meme_sans_ordre_de_reprise_actif() {
         // Rôle DISTINCT de l'ordre de reprise ponctuel (Selection.plancherReprise) :
         // la date de début est aussi le plancher PERMANENT des dossiers sans
@@ -401,6 +449,15 @@ class OrchestrateurTest {
                      debutJour = "2020-01-01", debutApplique = "2020-01-01"))
 
         assertEquals(1, bilan.envoyes)
+        // C'est CETTE assertion qui rend le test discriminant, pas le compte
+        // d'envois : supprimer le role de plancher laisserait de toute facon
+        // le media de 1970 dehors -- la borne basse de la fenetre l'ecarterait
+        // a elle seule -- et le compte resterait a 1. Mais il deviendrait un
+        // media ECARTE PAR LE BAS, ce qui gele le dossier (voir
+        // `la_borne_basse_de_la_fenetre_gele_l_horizon_du_dossier_ampute`) :
+        // plus aucun horizon ne serait transmis, et l'horizon de ce dossier
+        // n'avancerait plus jamais.
+        assertEquals(mapOf("DCIM/Camera" to 2_000_000_000.0), serveur.horizonsEnvoyes)
     }
 
     @Test fun un_media_illisible_fait_quand_meme_progresser_la_barre() {

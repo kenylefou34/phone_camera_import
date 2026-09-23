@@ -78,14 +78,17 @@ class Orchestrateur(
         val plancherReprise =
             if (reglages.repriseADemander()) reglages.debutJour?.let { Fenetre.debutDuJour(it) }
             else null
-        val candidats = Selection.candidats(
+        val avantFenetre = Selection.candidats(
             tous, dossiersChoisis, etat.dossiers, depuis, plancherReprise)
-            // La fenêtre choisie à l'écran (tâche 8) : un filtre EN PLUS du
-            // plancher par horizon ci-dessus, pour un rattrapage CIBLÉ — elle
-            // peut donc restreindre un dossier déjà connu, ce que le plancher
-            // seul ne fait jamais (§4.1 de la spec : « une fenêtre, lancée à
-            // la main »).
-            .filter { Fenetre.dansLaFenetre(it, reglages.debutJour, reglages.finJour) }
+        // La fenêtre choisie à l'écran (tâche 8) : un filtre EN PLUS du
+        // plancher par horizon ci-dessus, pour un rattrapage CIBLÉ — elle
+        // peut donc restreindre un dossier déjà connu, ce que le plancher
+        // seul ne fait jamais (§4.1 de la spec : « une fenêtre, lancée à
+        // la main »). Ce qu'elle écarte par le BAS impose un gel : voir
+        // `arretes` plus bas.
+        val candidats = avantFenetre.filter {
+            Fenetre.dansLaFenetre(it, reglages.debutJour, reglages.finJour)
+        }
         val lots = Paquets.decouper(candidats, taillePaquet)
 
         val octetsTotal = candidats.sumOf { it.taille }
@@ -99,7 +102,28 @@ class Orchestrateur(
         // L'ensemble des dossiers geles traverse TOUS les paquets. Le remettre
         // a zero a chaque paquet ferait avancer l'horizon par-dessus un
         // fichier en echec du paquet precedent : perte definitive.
-        var arretes = emptySet<String>()
+        //
+        // Il ne part PAS vide : un dossier dont la borne BASSE de la fenêtre
+        // vient d'écarter un média est gelé d'entrée. Le piège, sinon —
+        // l'horizon se poserait sur le dernier média ENVOYÉ, donc au-dessus de
+        // la tranche que la fenêtre vient d'écarter, et le serveur ne
+        // reproposerait plus jamais cette tranche-là, même une fois la date de
+        // début redescendue. Des photos perdues sans qu'aucun compteur ne
+        // bouge. C'est exactement le piège de `docs/CONTRAT-APP.md` §5.
+        //
+        // Le gel a un prix — l'horizon de ce dossier n'avance plus tant que la
+        // fenêtre lui coupe quelque chose par le bas, donc tout est réempreinté
+        // à chaque passe — et c'est le prix assumé : c'est lui qui garde la
+        // tranche reproposable le jour où la date de début redescend,
+        // exactement ce que l'écran « Quand sauvegarder » promet à
+        // l'utilisateur (« ne seront pas repris tant que vous ne baissez pas
+        // la date de début »).
+        //
+        // La borne HAUTE, elle, n'a besoin d'aucun filet : un horizon calculé
+        // sur les seuls médias envoyés ne peut pas dépasser la date de fin.
+        var arretes: Set<String> = avantFenetre
+            .filter { Fenetre.avantLeDebut(it, reglages.debutJour) }
+            .mapTo(mutableSetOf()) { it.dossier }
         var bilanServeur = emptyMap<String, Double>()
         var paquetsValides = 0
 
