@@ -74,7 +74,10 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   notification, reprise automatique après coupure subie, délais HTTP explicites.
   **144 tests** côté app, 264 côté serveur. Icône et icône de notification
   dédiées. Plan : `docs/superpowers/plans/2026-09-21-app-android-lot1bis.md`.
-  **Jamais essayé sur un téléphone** — voir la section REPRISE.
+  **A tourné sur le téléphone du mainteneur le 2026-09-23** : APK installé, QR
+  scanné, une sauvegarde réelle menée. C'est cet usage qui a produit les sept
+  retours dont est né le lot 2. Sa **recette formelle**, elle, n'a jamais été
+  déroulée — voir la section REPRISE.
 - ✅ **APK téléchargeable depuis la page d'admin** : `./deploy/envoyer-apk.sh`
   le dépose sur le NUC (empreinte recalculée à l'arrivée, mise en place atomique),
   route `/apk` derrière le mot de passe. Mode d'emploi complet et rejouable depuis
@@ -94,17 +97,19 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   l'accueil par « Réglages » — mode d'emploi et recette de validation :
   `docs/APPLICATION-ANDROID.md` §8-§9. **220 tests** côté app (144 au lot
   1 bis), **301** côté serveur (264 au lot 1 bis).
-  **Jamais essayé sur un téléphone, ni lui ni le lot 1 bis dont il dépend** —
-  voir la section REPRISE.
+  **Écrit et relu, jamais exécuté sur un appareil** — voir la section REPRISE.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
 ## ⚠️ REPRISE — première chose à faire
 
-**La recette manuelle sur un vrai téléphone.** Le lot 1 bis ET le lot 2 sont
-maintenant tous les deux **écrits**, relus tâche par tâche par des agents
-neufs, et corrigés ; **rien n'a jamais tourné sur un appareil, ni l'un ni
-l'autre**. Le lot 2 s'appuie entièrement sur les mécanismes du lot 1 bis
+**La recette manuelle sur un vrai téléphone.** Le lot 1 bis a bien tourné une
+fois, le 23/09 — installation, appairage, une sauvegarde réelle — et ce sont
+les manques constatés ce jour-là qui ont produit le lot 2. Mais **aucune
+recette formelle n'a jamais été déroulée**, et **le lot 2 n'a jamais été
+exécuté du tout** : il a été écrit, relu tâche par tâche par des agents neufs,
+et corrigé, rien de plus. Le lot 2 s'appuie entièrement sur les mécanismes du
+lot 1 bis
 (service de premier plan, `WorkManager`, paquets) : les éprouver séparément
 n'a plus grand sens. La recette à suivre est désormais celle du lot 2 —
 **`docs/APPLICATION-ANDROID.md` §9** — qui exerce les deux à la fois.
@@ -153,10 +158,9 @@ abandonnées) et #31 (galerie).
 
 ## Feuille de route (issues GitHub)
 Prochaine étape : **la recette manuelle sur un téléphone** (voir REPRISE) —
-lot 1 bis et lot 2 sont écrits et attendent tous les deux leur première
-exécution réelle. **#29** lot 1 bis (fait, à éprouver), **#12** l'application
-elle-même (reste ouverte pour la même raison — jamais éprouvée sur un
-appareil), puis **#30** journal serveur + purge des sessions abandonnées,
+le lot 2 attend sa première exécution réelle, et le lot 1 bis sa première
+recette formelle. **#29** lot 1 bis (fait, à éprouver), **#12** l'application
+elle-même (reste ouverte pour la même raison), puis **#30** journal serveur + purge des sessions abandonnées,
 **#31** galerie de consultation (phase 2).
 
 **#16 est CORRIGÉE** (23/09) : le serveur ne détruit plus les médias qu'il n'a
