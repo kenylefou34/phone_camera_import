@@ -6,8 +6,10 @@ import fr.izquierdo.phototheque.appairage.Coffre
 import fr.izquierdo.phototheque.medias.Depot
 import fr.izquierdo.phototheque.reseau.Fabrique
 import fr.izquierdo.phototheque.reseau.ServeurRevoqueException
+import fr.izquierdo.phototheque.ui.MagasinReglages
 import fr.izquierdo.phototheque.ui.Memoire
 import fr.izquierdo.phototheque.ui.EtatSynchro
+import fr.izquierdo.phototheque.ui.Reglages
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -97,6 +99,7 @@ class TravailSynchro(
         try {
             val charge = Coffre(contexte).charge() ?: return Result.success()
             val depot = Depot(contexte)
+            val reglages = MagasinReglages(contexte).lire()
 
             setForeground(ServiceSynchro.information(contexte, Avancement()))
 
@@ -149,7 +152,7 @@ class TravailSynchro(
                             setForegroundAsync(ServiceSynchro.information(contexte, vu))
                         }
                     },
-                ).synchroniser(DOSSIERS_SAUVEGARDES, interrompu = { isStopped })
+                ).synchroniser(reglages, interrompu = { isStopped })
                  // DANS le bloc, donc execute avant que `withContext` ne
                  // relaie l'annulation : c'est la seule facon de garder le
                  // travail deja accompli quand la synchro est coupee.
@@ -235,9 +238,21 @@ class TravailSynchro(
     private fun Bilan.pourLEcran(): Bilan = copy(interrompu = interrompu && arretDemande)
 
     companion object {
-        /** Lot 1 : dossiers en dur. L'écran de choix arrive au lot 2. */
+        /** Lot 1 : dossiers en dur. Reste la valeur par défaut de
+         *  [Reglages.DEFAUT] et l'argument de `EcranDetail`. */
         val DOSSIERS_SAUVEGARDES =
             setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp")
+
+        /**
+         * Les dossiers à proposer au serveur, d'après ce que l'utilisateur a coché.
+         *
+         * Fonction séparée, et pure, pour être vérifiable sur la JVM : c'est le point
+         * où le lot 1 décidait à la place de l'utilisateur, et sa régression serait
+         * muette — la synchronisation réussirait en ne sauvegardant pas les bons
+         * dossiers.
+         */
+        fun dossiersASauvegarder(reglages: Reglages, tous: Set<String>): Set<String> =
+            Choix.resoudre(tous, reglages.dossiersSeuls, reglages.dossiersRecursifs)
 
         private const val NOM = "synchro"
 

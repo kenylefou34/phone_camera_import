@@ -2,6 +2,7 @@ package fr.izquierdo.phototheque.synchro
 
 import fr.izquierdo.phototheque.medias.Media
 import fr.izquierdo.phototheque.reseau.*
+import fr.izquierdo.phototheque.ui.Reglages
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -62,7 +63,7 @@ class OrchestrateurTest {
     @Test fun cas_nominal_tout_est_envoye_et_l_horizon_avance() {
         val serveur = FauxServeur()
         val bilan = Orchestrateur(FausseSource(listOf(media(100.0), media(200.0))), serveur)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertEquals(2, bilan.envoyes)
         assertEquals(mapOf("DCIM/Camera" to 200.0), serveur.horizonsEnvoyes)
     }
@@ -74,7 +75,7 @@ class OrchestrateurTest {
         // et laisserait passer un transfert abime.
         val serveur = FauxServeur()
         Orchestrateur(FausseSource(listOf(media(100.0))), serveur)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         val attendue = fr.izquierdo.phototheque.medias.Empreintes
             .sha256("contenu".byteInputStream())
         assertEquals(listOf(attendue), serveur.empreintesRecues)
@@ -85,7 +86,7 @@ class OrchestrateurTest {
             ResultatEnvoi.OK, ResultatEnvoi.ECHEC, ResultatEnvoi.OK))
         val bilan = Orchestrateur(
             FausseSource(listOf(media(100.0), media(200.0), media(300.0))), serveur)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertEquals(mapOf("DCIM/Camera" to 100.0), serveur.horizonsEnvoyes)
         assertEquals(1, bilan.echecs)
     }
@@ -95,14 +96,14 @@ class OrchestrateurTest {
         // depot temporaire du NUC, sans que rien ne les range.
         val serveur = FauxServeur(resultats = mutableListOf(ResultatEnvoi.ECHEC))
         Orchestrateur(FausseSource(listOf(media(100.0))), serveur)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertTrue(serveur.commitAppele)
     }
 
     @Test fun une_extension_refusee_ne_compte_pas_comme_un_echec() {
         val serveur = FauxServeur(resultats = mutableListOf(ResultatEnvoi.EXTENSION_REFUSEE))
         val bilan = Orchestrateur(FausseSource(listOf(media(100.0, "a.webm"))), serveur)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertEquals(0, bilan.echecs)
         assertEquals(1, bilan.refuses)
         assertEquals(mapOf("DCIM/Camera" to 100.0), serveur.horizonsEnvoyes)
@@ -112,7 +113,7 @@ class OrchestrateurTest {
         val serveur = FauxServeur(resultats = mutableListOf(ResultatEnvoi.REVOQUE))
         val bilan = Orchestrateur(
             FausseSource(listOf(media(100.0), media(200.0))), serveur)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertTrue(bilan.revoque)
         assertEquals(0, bilan.envoyes)
     }
@@ -122,7 +123,7 @@ class OrchestrateurTest {
         // quand meme pour faire avancer l'horizon.
         val serveur = FauxServeur(reclame = { emptyList() })
         val bilan = Orchestrateur(FausseSource(listOf(media(100.0))), serveur)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertEquals(0, bilan.envoyes)
         assertTrue(serveur.commitAppele)
         assertEquals(mapOf("DCIM/Camera" to 100.0), serveur.horizonsEnvoyes)
@@ -143,7 +144,8 @@ class OrchestrateurTest {
         }
         val serveur = FauxServeur()
 
-        val bilan = Orchestrateur(source, serveur).synchroniser(setOf("DCIM/Camera"))
+        val bilan = Orchestrateur(source, serveur)
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
 
         assertTrue("le commit doit avoir lieu malgre le media illisible", serveur.commitAppele)
         assertEquals(1, bilan.envoyes)
@@ -168,7 +170,7 @@ class OrchestrateurTest {
         }
         val serveur = FauxServeur()
 
-        Orchestrateur(source, serveur).synchroniser(setOf("DCIM/Camera"))
+        Orchestrateur(source, serveur).synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
 
         assertTrue("le commit doit avoir lieu", serveur.commitAppele)
         assertFalse(
@@ -189,7 +191,7 @@ class OrchestrateurTest {
         }
         val serveur = FauxServeur()
         val bilan = Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertEquals(2, serveur.commits.size)
         assertEquals(3, bilan.envoyes)
     }
@@ -205,7 +207,7 @@ class OrchestrateurTest {
         }
         val serveur = FauxServeur(echouerSur = setOf("DCIM/Camera/m1.jpg"))
         val bilan = Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertTrue("aucun commit ne doit porter d'horizon pour ce dossier",
             serveur.commits.none { it.containsKey("DCIM/Camera") })
         // Un dossier gele n'interrompt PAS le reste : sans cette assertion, un
@@ -233,7 +235,7 @@ class OrchestrateurTest {
             mapOf("sorted" to 1.0, "errors" to 0.0),
         ))
         Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         // Sans cette assertion, un code qui s'arreterait au premier paquet
         // passerait le test suivant sans rien prouver.
         assertEquals("deux paquets, donc deux commits", 2, serveur.commits.size)
@@ -255,7 +257,7 @@ class OrchestrateurTest {
         }
         val serveur = FauxServeur()
         Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertEquals(2, serveur.commits.size)
         assertEquals(mapOf("DCIM/Camera" to 2000.0), serveur.commits[1])
     }
@@ -267,7 +269,7 @@ class OrchestrateurTest {
         )
         val serveur = FauxServeur(echouerSur = setOf("DCIM/Camera/m1.jpg"))
         Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
-            .synchroniser(setOf("DCIM/Camera", "Pictures/WhatsApp"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera", "Pictures/WhatsApp")))
         assertTrue(serveur.commits.any { it.containsKey("Pictures/WhatsApp") })
     }
 
@@ -285,7 +287,7 @@ class OrchestrateurTest {
         val serveur = FauxServeur()
         var appels = 0
         val bilan = Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
-            .synchroniser(setOf("DCIM/Camera"), interrompu = { appels++ >= 3 })
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")), interrompu = { appels++ >= 3 })
         assertTrue(bilan.interrompu)
         // Exactement 1 : `isNotEmpty` passerait aussi si le paquet abandonne
         // avait ete commite lui aussi, ce que la spec interdit.
@@ -299,7 +301,7 @@ class OrchestrateurTest {
         val serveur = FauxServeur()
         var appels = 0
         Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
-            .synchroniser(setOf("DCIM/Camera"), interrompu = { appels++ >= 3 })
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")), interrompu = { appels++ >= 3 })
         assertTrue(serveur.abandons.isNotEmpty())
     }
 
@@ -309,7 +311,7 @@ class OrchestrateurTest {
         val vus = mutableListOf<Avancement>()
         Orchestrateur(FausseSource(medias), FauxServeur(), taillePaquet = 1000,
                       surAvancement = { vus += it })
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertTrue("une phase d'analyse doit etre publiee",
                    vus.any { it.phase == Phase.ANALYSE })
         assertTrue("la destination prevue doit apparaitre",
@@ -323,7 +325,7 @@ class OrchestrateurTest {
         val vus = mutableListOf<Avancement>()
         Orchestrateur(FausseSource(medias), FauxServeur(), taillePaquet = 1000,
                       surAvancement = { vus += it })
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertEquals(1800L, vus.last().octetsTotal)
         // `octetsTotal` est fige au debut et ne bouge jamais : sans cette
         // assertion sur `octetsFaits`, le test passerait meme si la
@@ -345,7 +347,7 @@ class OrchestrateurTest {
         }
         val serveur = FauxServeur(resultats = mutableListOf(ResultatEnvoi.REVOQUE))
         val bilan = Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertTrue(bilan.revoque)
         assertFalse("une revocation n'est pas une interruption utilisateur",
                     bilan.interrompu)
@@ -364,7 +366,7 @@ class OrchestrateurTest {
             mapOf("sorted" to 1.0, "errors" to 0.0),
         ))
         val bilan = Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertEquals(1.0, bilan.bilanServeur["errors"])
     }
 
@@ -385,7 +387,7 @@ class OrchestrateurTest {
         val vus = mutableListOf<Avancement>()
         Orchestrateur(source, FauxServeur(), taillePaquet = 1000,
                       surAvancement = { vus += it })
-            .synchroniser(setOf("DCIM/Camera"))
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertEquals(1200L, vus.last().octetsFaits)
     }
 }

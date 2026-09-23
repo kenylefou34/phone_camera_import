@@ -3,6 +3,7 @@ package fr.izquierdo.phototheque.synchro
 import fr.izquierdo.phototheque.medias.Empreintes
 import fr.izquierdo.phototheque.medias.Media
 import fr.izquierdo.phototheque.reseau.*
+import fr.izquierdo.phototheque.ui.Reglages
 import java.io.InputStream
 
 interface SourceMedias {
@@ -56,12 +57,14 @@ class Orchestrateur(
     private val surAvancement: (Avancement) -> Unit = {},
 ) {
     fun synchroniser(
-        dossiersChoisis: Set<String>,
+        reglages: Reglages,
         interrompu: () -> Boolean = { false },
     ): Bilan {
         val etat = serveur.horizon()
         val depuis = etat.depuis?.let { jourVersSecondes(it) }
         val tous = source.lister()
+        val dossiersChoisis = TravailSynchro.dossiersASauvegarder(
+            reglages, tous.map { it.dossier }.toSet())
         val candidats = Selection.candidats(tous, dossiersChoisis, etat.dossiers, depuis)
         val lots = Paquets.decouper(candidats, taillePaquet)
 
