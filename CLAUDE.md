@@ -123,13 +123,16 @@ puis le lot 2 (choix des dossiers dans l'app). Trois issues ouvertes le 21/09 :
 **#29** lot 1 bis (fait, à éprouver), **#30** journal serveur + purge des
 sessions abandonnées, **#31** galerie de consultation (phase 2).
 
-**#32 est la plus importante des trois ouvertes ensuite** : le serveur
-**détruit** les médias qu'il n'a pas su ranger, parce que `sessions.cleanup()`
-s'exécute *avant* le test sur `errors`. L'application contourne en gelant
-l'horizon de tout le paquet, mais c'est une ceinture — le fichier, lui, est
-perdu. **#33** porte les deux limites reportées au lot 2 (interruption non
-immédiate et écran figé pendant l'envoi d'un gros fichier), **#34** les
-constats mineurs différés du lot 1 bis. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #27
+**#16 est la plus importante de toutes** : le serveur **détruit** les médias
+qu'il n'a pas su ranger, parce que `sessions.cleanup()` s'exécute *avant* le
+test sur `errors`. Avec le découpage en paquets du lot 1 bis, un paquet propre
+faisait avancer l'horizon par-dessus le média détruit — perte définitive.
+L'application contourne en gelant l'horizon de tout le paquet, mais c'est une
+ceinture : le fichier, lui, est perdu. *(#32, ouverte le 21/09, en était un
+doublon ouvert sans avoir relu #16 ; fusionnée et fermée le 23/09.)*
+**#33** porte les deux limites reportées au lot 2 — interruption non immédiate
+et écran figé pendant l'envoi d'un gros fichier — avec l'approche technique
+retenue en commentaire. **#34** les constats mineurs différés du lot 1 bis. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #27
 (`gh issue list`). Notamment : #4 doublons existants, #5 floues/rafales,
 #6 re-datation, #7 sauvegarde Famille.
 
@@ -142,11 +145,13 @@ toujours **sans le moindre compteur** — l'utilisateur ne peut pas savoir. Le s
 portée depuis son signalement est le court-circuit temporel sur le nom
 d'utilisateur, devenu un secret partiel depuis `identifiants.sh`.
 
-Le travail de #2, #3, #10, #14, #15, #19 et #21 est **fait** ; #12 est écrit mais pas éprouvé (#8, #9 et #11 sont fermées), mais
-ces quatre-là **apparaissent encore ouvertes sur GitHub** : leurs commits portent
-bien `closes #N`, or GitHub ne ferme une issue qu'à la fusion dans la branche par
-défaut. Elles se fermeront toutes seules quand **PR #13 (`dev` → `main`)** sera
-fusionnée — ce qui reste à faire, de préférence après le déploiement ci-dessus.
+**PR #13 (`dev` → `main`) a été fusionnée** : les issues qui portaient un
+`closes #N` se sont fermées toutes seules (#2, #3, #10, #14, #15, #19, #21).
+#12 reste ouverte, l'application n'ayant jamais été éprouvée sur un appareil.
+
+**Pas de nouvelle PR avant la recette** : tout le lot 1 bis reste sur `dev`
+tant que rien n'est validé sur un vrai téléphone. C'est tout l'intérêt de
+l'avoir gardé là.
 
 ## NUC (machine cible)
 - `ssh izquierdo@192.168.1.21` (clé configurée, hôte `IZQUIERDO-NUC`, Ubuntu 26.04,
@@ -195,6 +200,15 @@ fusionnée — ce qui reste à faire, de préférence après le déploiement ci-
   lignes de **démarrage** (`Registered nosave memory`), ce ne sont pas des
   veilles ; et un grep large sur `disconnect|deauthenticat` donne 744 lignes de
   bruit là où le noyau n'en a que quelques-unes de réelles (filtrer sur `wlo2:`).
+- **Ping qui répond mais AUCUN port ouvert ≠ le `?` réseau du 21/09.**
+  Constaté le 2026-09-23 : `.21` répondait au ping en 5-15 ms, mais les ports
+  22 (ssh), 8787 (photo), 32400 (Plex) et 80/443 refusaient tous la connexion,
+  et mDNS ne résolvait plus. Plex tournant indépendamment, ce n'était donc pas
+  le service photo mais la machine entière — ou l'adresse réattribuée à un
+  autre appareil par le DHCP. À distinguer du `CONNECTED_SITE` du 21/09, où le
+  LAN fonctionnait parfaitement. Diagnostic en une ligne :
+  `for p in 22 8787 32400; do timeout 2 bash -c "cat </dev/null >/dev/tcp/192.168.1.21/$p" && echo "$p ouvert" || echo "$p ferme"; done`
+  Si Plex est fermé lui aussi, le problème n'est pas dans ce projet.
 - **`eno1` (ethernet du NUC) n'a aucun câble** (`cat /sys/class/net/eno1/carrier`
   = 0) : le WiFi est l'unique chemin vers le serveur photo. Un câble le rendrait
   insensible aux aléas radio — action physique, à la main du mainteneur.
