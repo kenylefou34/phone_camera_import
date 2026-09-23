@@ -132,3 +132,102 @@ version_depuis_gradle() {
     code=${code%%$'\n'*}
     echo "${nom:-inconnue} ${code:-0}"
 }
+
+# ---------------------------------------------------------------------------
+# Trouver le NUC sur le reseau
+#
+# Son adresse n'est PAS stable : elle a change deux fois en deux jours
+# (.21 -> .31 -> ailleurs), parce que la box lui donne un bail DHCP ordinaire.
+# Chaque bascule cassait tous les scripts, qui ecrivaient 192.168.1.21 en dur.
+#
+# L'application Android, elle, ne s'en apercoit pas : elle cherche le serveur
+# en mDNS d'abord et ne retombe sur l'URL du QR qu'en secours. Les scripts font
+# desormais pareil.
+# ---------------------------------------------------------------------------
+
+premiere_adresse() {
+    # Affiche la premiere adresse IPv4 d'une sortie de `getent hosts`.
+    #
+    # IPv4 et non IPv6 : `getent` peut rendre les deux, et une adresse
+    # lien-local IPv6 (fe80::...) exige un suffixe d'interface que ni ssh ni
+    # scp ne recoivent ici. On saute donc tout ce qui contient un deux-points.
+    #
+    # Aucun pipe : une here-string, pas un pipeline (voir la regle en tete de
+    # fichier).
+    local sortie=$1 ligne adresse
+    while IFS= read -r ligne; do
+        [ -z "$ligne" ] && continue
+        adresse=${ligne%% *}
+        case "$adresse" in
+            *:*) continue ;;
+            *.*) echo "$adresse"; return 0 ;;
+        esac
+    done <<< "$sortie"
+    return 1
+}
+
+port_ouvert() {
+    # Vrai si quelque chose repond sur ce port.
+    #   $1 hote, $2 port, $3 delai par essai (2 s), $4 nombre d'essais (1)
+    #
+    # Le code de sortie EST la decision : pas de pipeline, pas de grep.
+    #
+    # Sonder plutot que se fier a la seule resolution : le 23/09, `.21`
+    # repondait au ping mais aucun port n'ecoutait — l'adresse etait tenue par
+    # un autre appareil. Un cache mDNS perime produit le meme piege.
+    #
+    # PLUSIEURS essais parce que le lien du NUC BAT : mesure le 23/09,
+    # ~20 s joignable puis ~35 s injoignable, en boucle. Une sonde unique est
+    # alors un tirage a pile ou face, et le script renoncerait sur un creux.
+    local hote=$1 port=$2 delai=${3:-2} essais=${4:-1} n=0
+    while [ "$n" -lt "$essais" ]; do
+        if timeout "$delai" bash -c "cat < /dev/null > /dev/tcp/$hote/$port" 2>/dev/null; then
+            return 0
+        fi
+        n=$((n + 1))
+        [ "$n" -lt "$essais" ] && sleep 3
+    done
+    return 1
+}
+
+adresse_nuc() {
+    # Affiche l'adresse a utiliser pour joindre le NUC, ou rend 1.
+    #   $1 nom mDNS, $2 adresse de repli, $3 port (22), $4 essais par candidat (1)
+    #
+    # mDNS d'abord : c'est la seule chose qui suive la machine quand la box lui
+    # change son bail. Le repli sert quand Avahi est muet.
+    #
+    # Chaque candidat est SONDE avant d'etre retenu : une resolution qui
+    # aboutit ne prouve pas que la machine repond.
+    #
+    # Ecrit son raisonnement sur la sortie d'erreur, pour que l'appelant ne
+    # rapporte pas « mDNS ne repond pas » quand le mDNS a parfaitement resolu
+    # et que c'est la sonde qui est tombee sur un creux — le message etait faux
+    # le 23/09 et envoyait chercher au mauvais endroit.
+    local nom=$1 repli=$2 port=${3:-22} essais=${4:-1}
+    local sortie adresse
+
+    sortie=$(getent hosts "$nom" 2>/dev/null) || sortie=""
+    adresse=$(premiere_adresse "$sortie") || adresse=""
+
+    if [ -z "$adresse" ]; then
+        echo "  $nom ne resout pas (Avahi muet ?)" >&2
+    else
+        echo "  $nom resout en $adresse" >&2
+        if port_ouvert "$adresse" "$port" 2 "$essais"; then
+            echo "$adresse"
+            return 0
+        fi
+        echo "  ...mais $adresse:$port ne repond pas" >&2
+    fi
+
+    if [ -n "$repli" ] && [ "$repli" != "$adresse" ]; then
+        echo "  essai du repli $repli" >&2
+        if port_ouvert "$repli" "$port" 2 "$essais"; then
+            echo "$repli"
+            return 0
+        fi
+    fi
+
+    return 1
+}

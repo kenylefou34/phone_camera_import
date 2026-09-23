@@ -126,11 +126,26 @@ Le script :
 **Le service n'a pas besoin d'être redémarré** : il relit le fichier à chaque
 requête.
 
-Envoyer vers une autre machine :
+**Il trouve le NUC tout seul.** L'adresse n'est plus écrite en dur : le script
+résout `IZQUIERDO-NUC.local` en mDNS — comme le fait l'application — puis
+**sonde** l'adresse obtenue avant de la retenir, parce qu'une résolution qui
+aboutit ne prouve pas que la machine répond. À défaut, il retombe sur
+`192.168.1.21`.
+
+Huit essais espacés le séparent d'un abandon : le lien WiFi du NUC bat
+(mesuré le 23/09 : environ 20 s joignable puis 35 s injoignable), et un essai
+unique renoncerait sur un creux alors que la machine est allumée.
+
+Trois surcharges, selon le besoin :
 
 ```bash
-NUC=izquierdo@192.168.1.30 ./deploy/envoyer-apk.sh
+NUC=izquierdo@192.168.1.30 ./deploy/envoyer-apk.sh   # forcer une machine
+NUC_HOTE=autre-nuc.local   ./deploy/envoyer-apk.sh   # autre nom mDNS
+NUC_REPLI=192.168.1.42     ./deploy/envoyer-apk.sh   # autre repli
 ```
+
+Si le script annonce que le nom **résout** mais que le port ne répond pas,
+c'est le lien radio qui lâche, pas un problème de nom — voir `CLAUDE.md`.
 
 Vérifier sur place :
 

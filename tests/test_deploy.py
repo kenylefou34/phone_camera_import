@@ -848,3 +848,137 @@ def test_le_script_d_envoi_refuse_un_argument_inconnu():
     r = subprocess.run(["bash", str(envoi), "--nimporte-quoi"],
                        capture_output=True, text=True)
     assert r.returncode == 2 and "inconnu" in r.stderr
+
+
+# ------------------------------------------- trouver le NUC sur le reseau
+
+def test_premiere_adresse_prend_l_ipv4(tmp_path):
+    code, sortie = appeler("premiere_adresse", "192.168.1.21   nuc.local")
+    assert code == 0 and sortie == "192.168.1.21"
+
+
+def test_premiere_adresse_saute_l_ipv6(tmp_path):
+    """getent rend souvent l'IPv6 en premier.
+
+    Une adresse lien-local IPv6 exige un suffixe d'interface que ni ssh ni scp
+    ne reçoivent ici : la retenir ferait échouer le transfert avec un message
+    incompréhensible.
+    """
+    code, sortie = appeler(
+        "premiere_adresse", "fe80::1   nuc.local\n192.168.1.21   nuc.local")
+    assert code == 0 and sortie == "192.168.1.21"
+
+
+def test_premiere_adresse_sans_resolution_rend_1():
+    """Aucune adresse : l'appelant doit pouvoir le distinguer d'une réussite."""
+    code, sortie = appeler("premiere_adresse", "")
+    assert code == 1 and sortie == ""
+
+
+def test_premiere_adresse_ipv6_seule_rend_1():
+    code, _ = appeler("premiere_adresse", "fe80::1   nuc.local")
+    assert code == 1
+
+
+def test_port_ouvert_faux_sur_un_port_ferme():
+    """Le port 1 n'écoute nulle part."""
+    code, _ = appeler("port_ouvert", "127.0.0.1", "1", "1")
+    assert code != 0
+
+
+def test_port_ouvert_vrai_sur_un_port_qui_ecoute():
+    import socket
+    serveur = socket.socket()
+    serveur.bind(("127.0.0.1", 0))
+    serveur.listen(1)
+    port = serveur.getsockname()[1]
+    try:
+        code, _ = appeler("port_ouvert", "127.0.0.1", str(port), "2")
+        assert code == 0
+    finally:
+        serveur.close()
+
+
+def test_adresse_nuc_retient_ce_que_le_mdns_resout_si_ca_repond():
+    """`127.0.0.1` tient lieu de nom mDNS : il « résout » et le port répond.
+
+    Pas `localhost` : sur cette machine il ne résout qu'en `::1`, et
+    `premiere_adresse` écarte volontairement l'IPv6 — une adresse lien-local
+    exigerait un suffixe d'interface que ssh ne reçoit pas ici.
+    """
+    import socket
+    serveur = socket.socket()
+    serveur.bind(("127.0.0.1", 0))
+    serveur.listen(1)
+    port = serveur.getsockname()[1]
+    try:
+        code, sortie = appeler("adresse_nuc", "127.0.0.1", "", str(port))
+        assert code == 0 and sortie.splitlines()[-1] == "127.0.0.1"
+    finally:
+        serveur.close()
+
+
+def test_adresse_nuc_bascule_sur_le_repli_quand_le_nom_ne_repond_pas():
+    """Le nom résout mais rien n'écoute : le repli doit prendre le relais.
+
+    C'est le cas du 23/09 : `.21` répondait au ping et rien n'y écoutait,
+    l'adresse ayant été reprise par un autre appareil.
+    """
+    import socket
+    serveur = socket.socket()
+    serveur.bind(("127.0.0.1", 0))
+    serveur.listen(1)
+    port = serveur.getsockname()[1]
+    try:
+        # « nom-qui-nexiste-pas » ne résout pas -> repli sur 127.0.0.1
+        code, sortie = appeler(
+            "adresse_nuc", "nom-qui-nexiste-pas.invalid", "127.0.0.1", str(port))
+        assert code == 0 and sortie.splitlines()[-1] == "127.0.0.1"
+    finally:
+        serveur.close()
+
+
+def test_adresse_nuc_echoue_quand_rien_ne_repond():
+    """Ni le nom ni le repli : il faut rendre 1, pas une adresse au hasard.
+
+    Sans ça, le script enverrait l'APK dans le vide et signalerait une
+    réussite.
+    """
+    code, sortie = appeler(
+        "adresse_nuc", "nom-qui-nexiste-pas.invalid", "127.0.0.1", "1")
+    assert code == 1
+    assert "127.0.0.1" not in sortie.splitlines()[-1:] or sortie == ""
+
+
+def test_le_script_d_envoi_reste_sain():
+    envoi = LIB.parent / "envoyer-apk.sh"
+    r = subprocess.run(["bash", "-n", str(envoi)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_adresse_nuc_SONDE_ce_que_le_mdns_resout_avant_de_le_retenir():
+    """Le nom résout, mais rien n'écoute à cette adresse : il faut replier.
+
+    C'est le cas vécu le 23/09 : `IZQUIERDO-NUC.local` résolvait parfaitement
+    en `192.168.1.21`, et le port ne répondait pas — le lien radio battait.
+    Faire confiance à la résolution seule enverrait l'APK dans le vide en
+    annonçant une réussite.
+
+    Ce test existe parce que la mutation « retirer la sonde » ne faisait
+    tomber AUCUN test : les autres passent par un nom qui ne résout pas du
+    tout, et n'exercent donc jamais cette branche.
+    """
+    import socket
+    serveur = socket.socket()
+    serveur.bind(("127.0.0.1", 0))
+    serveur.listen(1)
+    port = serveur.getsockname()[1]
+    try:
+        # 127.0.0.2 « resout » (adresse litterale) mais rien n'y ecoute ;
+        # 127.0.0.1 est le repli, et lui repond.
+        code, sortie = appeler(
+            "adresse_nuc", "127.0.0.2", "127.0.0.1", str(port))
+        assert code == 0
+        assert sortie.splitlines()[-1] == "127.0.0.1"
+    finally:
+        serveur.close()

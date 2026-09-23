@@ -200,15 +200,30 @@ l'avoir gardé là.
   lignes de **démarrage** (`Registered nosave memory`), ce ne sont pas des
   veilles ; et un grep large sur `disconnect|deauthenticat` donne 744 lignes de
   bruit là où le noyau n'en a que quelques-unes de réelles (filtrer sur `wlo2:`).
-- **Ping qui répond mais AUCUN port ouvert ≠ le `?` réseau du 21/09.**
-  Constaté le 2026-09-23 : `.21` répondait au ping en 5-15 ms, mais les ports
-  22 (ssh), 8787 (photo), 32400 (Plex) et 80/443 refusaient tous la connexion,
-  et mDNS ne résolvait plus. Plex tournant indépendamment, ce n'était donc pas
-  le service photo mais la machine entière — ou l'adresse réattribuée à un
-  autre appareil par le DHCP. À distinguer du `CONNECTED_SITE` du 21/09, où le
-  LAN fonctionnait parfaitement. Diagnostic en une ligne :
-  `for p in 22 8787 32400; do timeout 2 bash -c "cat </dev/null >/dev/tcp/192.168.1.21/$p" && echo "$p ouvert" || echo "$p ferme"; done`
-  Si Plex est fermé lui aussi, le problème n'est pas dans ce projet.
+- **⚠️ Le lien WiFi du NUC BAT (2026-09-23).** Mesuré sur 40 s :
+  **~20 s joignable, ~35 s injoignable, en boucle.**
+  ```
+  13:25:15 ouvert   13:25:33 ferme   13:25:46 ferme   13:26:09 ouvert
+  13:25:21 ouvert   13:25:39 ferme   13:25:52 ferme
+  ```
+  La machine est allumée et **n'a pas redémarré** (`uptime` = 2 j 4 h), mDNS
+  résout correctement `IZQUIERDO-NUC.local` → `192.168.1.21` : ce n'est ni un
+  problème d'adresse, ni un service tombé. **C'est le lien radio.**
+  Ne pas confondre avec deux symptômes voisins déjà vus : le `?` réseau du
+  21/09 (`CONNECTED_SITE`, LAN parfait) et une réattribution d'adresse DHCP.
+  Le test qui tranche — sonder plusieurs fois, pas une :
+  `for i in $(seq 5); do timeout 2 bash -c "cat </dev/null >/dev/tcp/192.168.1.21/22" && echo ouvert || echo ferme; sleep 4; done`
+  Alterné = le lien bat. Toujours fermé = autre chose.
+  **La correction est physique : brancher un câble ethernet.** `eno1` n'a
+  jamais eu de câble, le WiFi est l'unique chemin, et la dégradation est
+  documentée depuis le 19/09 (3 bascules en 16 jours → 6 le 19/09 → 11 le
+  20/09 → bloqué le 21/09 → battement le 23/09). Tant que ça dure, **une
+  synchro de plusieurs Go et la recette sont hors de portée**.
+- **Les scripts cherchent le NUC en mDNS**, ils n'écrivent plus son adresse en
+  dur : `adresse_nuc()` dans `deploy/lib.sh` résout `IZQUIERDO-NUC.local`,
+  **sonde** l'adresse obtenue (résoudre ne prouve pas que la machine répond),
+  et retombe sur `192.168.1.21`. Huit essais espacés, pour traverser un creux
+  de battement. Surcharges : `NUC=user@ip`, `NUC_HOTE`, `NUC_REPLI`.
 - **`eno1` (ethernet du NUC) n'a aucun câble** (`cat /sys/class/net/eno1/carrier`
   = 0) : le WiFi est l'unique chemin vers le serveur photo. Un câble le rendrait
   insensible aux aléas radio — action physique, à la main du mainteneur.

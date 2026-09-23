@@ -21,7 +21,14 @@ source "$RACINE/deploy/lib.sh"
 
 # ----------------------------------------------------------------- réglages
 
-NUC="${NUC:-izquierdo@192.168.1.21}"
+# L'adresse du NUC n'est PAS stable : elle a change deux fois en deux jours
+# (.21 -> .31 -> ailleurs), parce que la box lui donne un bail DHCP ordinaire.
+# On la CHERCHE en mDNS, comme le fait l'application Android, plutot que de
+# l'ecrire en dur. NUC reste surchargeable pour forcer une machine precise.
+NUC_HOTE="${NUC_HOTE:-IZQUIERDO-NUC.local}"
+NUC_REPLI="${NUC_REPLI:-192.168.1.21}"
+NUC_UTILISATEUR="${NUC_UTILISATEUR:-izquierdo}"
+NUC="${NUC:-}"
 # Doit correspondre à DATA_DIR / APK_FILE de phototheque/config.py. Si l'un
 # des deux change, l'autre doit suivre — c'est le seul couplage de ce script.
 DESTINATION="${DESTINATION:-.local/share/phototheque}"
@@ -40,6 +47,39 @@ for argument in "$@"; do
 done
 
 dire() { printf '\n\033[1m%s\033[0m\n' "$*"; }
+
+# ------------------------------------------------------- trouver le serveur
+
+# AVANT de compiler : echouer tout de suite si le NUC n'est pas la, plutot
+# qu'apres deux minutes de Gradle.
+if [ -z "$NUC" ]; then
+    dire "Recherche du NUC"
+    # HUIT essais par candidat, soit une quarantaine de secondes : le lien du
+    # NUC bat — mesure le 23/09, environ 20 s joignable puis 35 s injoignable,
+    # en boucle. Moins d'essais et le script renoncerait systematiquement sur
+    # un creux, alors que la machine est parfaitement allumee.
+    # adresse_nuc explique son raisonnement sur la sortie d'erreur.
+    if adresse=$(adresse_nuc "$NUC_HOTE" "$NUC_REPLI" 22 8); then
+        NUC="$NUC_UTILISATEUR@$adresse"
+        printf '  retenu : %s\n' "$adresse"
+    else
+        cat >&2 <<AIDE
+
+Le NUC est introuvable — voir le detail ci-dessus.
+
+Son WiFi est l'UNIQUE chemin vers lui : la carte ethernet n'a pas de cable.
+Et le 23/09 ce lien BATTAIT — environ 20 s joignable puis 35 s injoignable,
+en boucle. Si le detail ci-dessus montre que le nom resout mais que le port ne
+repond pas, c'est ce symptome-la : la machine est allumee, c'est le lien radio
+qui lache. Un cable ethernet y met fin definitivement.
+
+Pour forcer une adresse connue :
+  NUC=izquierdo@192.168.1.42 ./deploy/envoyer-apk.sh
+
+AIDE
+        exit 1
+    fi
+fi
 
 # ------------------------------------------------------------- compilation
 
