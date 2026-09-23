@@ -34,9 +34,7 @@ object Arbre {
             }
             courant.medias += nombre
         }
-        val rootFolders = racine.enfants.values
-        val allowCollapseRoot = rootFolders.size == 1
-        return rootFolders.map { figer(it, "", allowCollapseRoot) }.sortedBy { it.libelle }
+        return racine.enfants.values.map { figer(it, "") }.sortedBy { it.libelle }
     }
 
     private class Brouillon(val segment: String) {
@@ -44,22 +42,20 @@ object Arbre {
         var medias = 0
     }
 
-    private fun figer(depart: Brouillon, prefixe: String, allowCollapseRoot: Boolean): Noeud {
+    private fun figer(depart: Brouillon, prefixe: String): Noeud {
         var noeud = depart
         var libelle = depart.segment
         var chemin = if (prefixe.isEmpty()) depart.segment else "$prefixe/${depart.segment}"
         // Repli : un dossier SANS média et à enfant UNIQUE n'apprend rien et
         // coûte un appui. Les deux conditions comptent — un dossier qui
         // contient des médias doit rester cochable pour lui-même.
-        // Au niveau racine, on ne replie que s'il n'y a qu'un seul dossier racine.
-        val canCollapse = prefixe.isNotEmpty() || allowCollapseRoot
-        while (canCollapse && noeud.medias == 0 && noeud.enfants.size == 1) {
+        while (noeud.medias == 0 && noeud.enfants.size == 1) {
             val unique = noeud.enfants.values.first()
             libelle += "/${unique.segment}"
             chemin += "/${unique.segment}"
             noeud = unique
         }
-        val enfants = noeud.enfants.values.map { figer(it, chemin, true) }.sortedBy { it.libelle }
+        val enfants = noeud.enfants.values.map { figer(it, chemin) }.sortedBy { it.libelle }
         return Noeud(
             chemin = chemin,
             libelle = libelle,
