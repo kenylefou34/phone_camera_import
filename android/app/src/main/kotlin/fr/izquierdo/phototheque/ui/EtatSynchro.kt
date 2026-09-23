@@ -97,8 +97,23 @@ data class EtatSynchro(
     )
 
     companion object {
-        /** Au-delà, l'accueil passe en avertissement. */
+        /** Au-delà, l'accueil passe en avertissement (mode manuel). */
         const val SEUIL_ALERTE_JOURS = 7L
+
+        /** Au-delà, l'accueil passe en avertissement quand l'automatique est actif. */
+        const val SEUIL_ALERTE_AUTO_JOURS = 3L
+
+        /**
+         * Le seuil qui s'applique.
+         *
+         * En automatique, la passe a lieu chaque nuit au branchement du
+         * téléphone : trois jours de silence sont déjà une anomalie. En
+         * manuel, sept jours sans geste volontaire n'ont rien d'étonnant.
+         * Garder sept dans les deux cas laisserait une panne d'automatique
+         * invisible une semaine entière.
+         */
+        fun seuilAlerteJours(auto: Boolean): Long =
+            if (auto) SEUIL_ALERTE_AUTO_JOURS else SEUIL_ALERTE_JOURS
 
         /** Jours entiers depuis la dernière synchro RÉUSSIE, null si jamais. */
         fun joursDepuis(maintenantMs: Long, derniereReussiteMs: Long?): Long? =

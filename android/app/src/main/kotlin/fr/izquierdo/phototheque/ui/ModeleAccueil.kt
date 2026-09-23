@@ -46,6 +46,13 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
         // qu'après une synchronisation les rendait invisibles à qui ouvre
         // l'application et la referme.
         rafraichirPermissions()
+        // Reprogramme le travail périodique à chaque démarrage, pas seulement
+        // au moment où l'utilisateur coche : une application réinstallée, ou
+        // dont les données ont été effacées côté WorkManager, doit retrouver
+        // une automatique déjà cochée dans les réglages sans que rien ne
+        // l'ait redemandé. `ExistingPeriodicWorkPolicy.KEEP` rend cet appel
+        // sans effet quand le travail existe déjà.
+        TravailSynchro.planifier(getApplication(), _reglages.value.auto)
 
         viewModelScope.launch {
             TravailSynchro.derniereIssue.collect { issue ->
@@ -233,11 +240,17 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
      * Bascule l'automatique et persiste aussitôt. Passer à `true` efface la
      * date de fin (`Reglages.enAuto`) : c'est à l'écran de le dire au moment
      * où on coche.
+     *
+     * Seul point d'appel de [TravailSynchro.planifier] : c'est ici, et nulle
+     * part ailleurs, que la case cochée à l'écran se traduit en travail
+     * périodique programmé ou déprogrammé — un deuxième chemin risquerait de
+     * les faire diverger.
      */
     fun changerAuto(actif: Boolean) {
         val r = magasin.lire()
         val nouveau = if (actif) r.enAuto() else r.copy(auto = false)
         _reglages.value = nouveau
         magasin.ecrire(nouveau)
+        TravailSynchro.planifier(getApplication(), actif)
     }
 }

@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
+import java.util.concurrent.TimeUnit
 
 /**
  * Ce qu'une synchronisation laisse derriere elle, pour que l'ecran puisse le
@@ -297,6 +298,11 @@ class TravailSynchro(
     companion object {
         private const val NOM = "synchro"
 
+        // Nom distinct de NOM : le travail périodique (planifier) et le
+        // travail unique (lancer) ne doivent jamais se marcher dessus - deux
+        // noms identiques feraient qu'annuler l'un annulerait aussi l'autre.
+        private const val NOM_PERIODIQUE = "synchro-auto"
+
         /** Au-dela, on arrete de relancer : un media illisible ou une
          *  permission retiree ne se reglent jamais tout seuls, et sans ce
          *  plafond WorkManager boucle indefiniment (delai double jusqu'a
@@ -337,6 +343,46 @@ class TravailSynchro(
             // qui distingue un arret demande d'une coupure subie.
             arretDemande = true
             WorkManager.getInstance(context).cancelUniqueWork(NOM)
+        }
+
+        /**
+         * Programme, ou déprogramme, la sauvegarde automatique.
+         *
+         * Six heures n'est PAS un réveil à heure fixe : c'est « au plus une
+         * fois par tranche de six heures, dès que les conditions sont
+         * réunies ». Android regroupe ces réveils (mode Doze), le délai peut
+         * donc glisser à sept ou huit heures si le téléphone dort — jamais
+         * se déclencher plus tôt. En pratique, avec ces deux contraintes,
+         * cela donne une passe par nuit, au branchement du téléphone à la
+         * maison.
+         *
+         * `setRequiresCharging(true)` n'est pas un luxe : un gros rattrapage
+         * lit des dizaines de milliers d'empreintes, c'est du calcul, et le
+         * faire sur batterie en pleine journée viderait le téléphone.
+         *
+         * `UNMETERED` et non `CONNECTED` : le rattrapage peut représenter des
+         * dizaines de gigaoctets, et l'utilisateur ne s'attend pas à les voir
+         * partir sur son forfait.
+         */
+        fun planifier(context: Context, actif: Boolean) {
+            val gestionnaire = WorkManager.getInstance(context)
+            if (!actif) {
+                gestionnaire.cancelUniqueWork(NOM_PERIODIQUE)
+                return
+            }
+            val demande = PeriodicWorkRequestBuilder<TravailSynchro>(6, TimeUnit.HOURS)
+                .setConstraints(Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.UNMETERED)
+                    .setRequiresCharging(true)
+                    .build())
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,
+                                    WorkRequest.MIN_BACKOFF_MILLIS, TimeUnit.MILLISECONDS)
+                .build()
+            // KEEP : reprogrammer à chaque ouverture de l'écran remettrait le
+            // compteur à zéro, et la passe n'aurait jamais lieu sur un
+            // téléphone qu'on ouvre souvent.
+            gestionnaire.enqueueUniquePeriodicWork(
+                NOM_PERIODIQUE, ExistingPeriodicWorkPolicy.KEEP, demande)
         }
 
         /** Etat du travail, derive de WorkManager et non d'un drapeau pose a

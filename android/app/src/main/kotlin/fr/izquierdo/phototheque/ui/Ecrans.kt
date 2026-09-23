@@ -17,8 +17,10 @@ fun EcranAccueil(etat: EtatSynchro, reglages: Reglages, maintenantMs: Long,
                  surSynchroniser: () -> Unit, surInterrompre: () -> Unit,
                  surVoirDetail: () -> Unit, surReglages: () -> Unit) {
     val jours = EtatSynchro.joursDepuis(maintenantMs, etat.derniereReussiteMs)
-    // Tâche 9 : le seuil descend à 3 jours quand l'automatique est actif.
-    val alerte = jours == null || jours >= EtatSynchro.SEUIL_ALERTE_JOURS
+    // Le seuil descend à 3 jours quand l'automatique est actif : trois nuits
+    // sans passe automatique sont déjà une anomalie, là où sept jours sans
+    // geste volontaire n'ont rien d'étonnant.
+    val alerte = jours == null || jours >= EtatSynchro.seuilAlerteJours(reglages.auto)
 
     Column(Modifier.fillMaxSize().padding(24.dp),
            horizontalAlignment = Alignment.CenterHorizontally,

@@ -29,6 +29,15 @@ class EtatSynchroTest {
         assertEquals(7L, EtatSynchro.SEUIL_ALERTE_JOURS)
     }
 
+    @Test fun le_seuil_d_alerte_descend_a_trois_jours_en_automatique() {
+        // Sept jours sans geste volontaire n'ont rien d'anormal ; trois nuits
+        // sans passe automatique, si. Sans ce seuil, l'automatique devient un
+        // silence qu'on prend pour un succès - le piège de la date de fin
+        // oubliée, sous un autre habit.
+        assertEquals(3L, EtatSynchro.seuilAlerteJours(auto = true))
+        assertEquals(7L, EtatSynchro.seuilAlerteJours(auto = false))
+    }
+
     @Test fun un_appareil_non_appaire_et_un_qr_invalide_sont_deux_etats_distincts() {
         // Sans cette distinction, l'ecran d'appairage ne saurait pas s'il doit
         // afficher un message d'erreur ou seulement l'invitation a scanner.
