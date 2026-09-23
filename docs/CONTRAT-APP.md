@@ -80,7 +80,11 @@ remplace cette validation, pas qui s'y ajoute.
 
 ---
 
-## 4. Les quatre appels
+## 4. Les appels
+
+Quatre appels forment le cycle ordinaire d'une synchronisation (§4.1 à §4.4).
+Un cinquième, §4.5, sert à s'en retirer — en dehors de ce cycle, appelé au
+plus une fois, jamais à chaque synchronisation.
 
 ### 4.1 `GET /sync/horizon` — depuis quand remonter
 
@@ -117,6 +121,17 @@ Et après une première synchro réussie :
 
 **Règle pour un dossier donné :** s'il figure dans `dossiers`, remonter les
 médias **plus récents** que ce timestamp. Sinon, utiliser `depuis`.
+
+> ⚠️ **`depuis` repart à la date DU JOUR à CHAQUE appairage**
+> (`Devices.pair()`, `phototheque/devices.py:94`), même quand personne ne
+> touche au formulaire de `/pair` — pas à l'historique complet, et pas à la
+> valeur choisie lors d'un appairage précédent du même téléphone. Un
+> réappairage (après un désappairage — §4.5 —, un changement de serveur, une
+> réinstallation) repart donc de zéro : les médias plus anciens que le jour du
+> réappairage ne remontent pas tout seuls. Poser une date de début côté
+> application
+> (`docs/superpowers/specs/2026-09-23-app-android-lot2-design.md` §4.3) est le
+> seul moyen de les reprendre.
 
 ### 4.2 `POST /sync/plan` — que te faut-il ?
 
@@ -288,6 +303,40 @@ et l'anti-doublon écartera sans les transférer ceux qui étaient déjà rangé
 > mis en œuvre dans `Orchestrateur.kt` (section rangement) et verrouillé par
 > `un_rangement_rate_par_le_serveur_gele_le_dossier_pour_les_suivants`.
 
+### 4.5 `POST /sync/desappairer` — se retirer soi-même
+
+**Requête :** pas de corps JSON, seulement l'en-tête d'authentification
+habituel.
+
+**Réponse (200) :**
+
+```json
+{ "retire": true }
+```
+
+Ajoutée pour le désappairage depuis le téléphone (lot 2) : la seule route de
+révocation qui existait, `POST /devices/{id}/revoke`, est derrière
+`require_admin` — un mot de passe que le téléphone ne détient pas, seulement
+un jeton d'appareil. Cette route-ci se protège par le jeton d'appareil
+habituel (`require_device`) : un appel avec un jeton absent, invalide ou déjà
+révoqué reçoit le `401` ordinaire (section 7) avant même d'atteindre la route.
+`retire` ne vaudrait `false` que dans une course très étroite — l'appareil
+révoqué par l'administration entre la vérification du jeton et la suppression
+elle-même — ce n'est pas un cas à gérer côté application.
+
+Elle appelle `Devices.revoke()`, qui supprime désormais **aussi les horizons**
+de l'appareil (la table `horizons` n'a ni clé étrangère ni
+`ON DELETE CASCADE` ; sans cette seconde requête ils restaient orphelins pour
+toujours).
+
+> ⚠️ **La règle qui compte, côté application : l'état local s'efface QUOI QU'IL
+> ARRIVE, sans attendre cette réponse.** Au moment précis où l'on désappaire
+> pour se dépanner — certificat du NUC changé, serveur injoignable — cet appel
+> échouera le plus souvent, et c'est attendu : le serveur est prévenu **au
+> mieux**, jamais bloquant. Voir
+> `docs/superpowers/specs/2026-09-23-app-android-lot2-design.md` §6 pour la
+> conception complète.
+
 ---
 
 ## 5. ⚠️ Le piège le plus dangereux : l'horizon
@@ -313,6 +362,18 @@ Deux corollaires :
 - un horizon qui **avance trop** est définitif et silencieux.
 
 Dans le doute, avancer moins.
+
+**Depuis le lot 2, l'application ajoute sa propre garde-fou : elle ne
+transmet jamais un horizon inférieur à celui qu'elle vient de lire.** Avant de
+construire son `commit`, elle a déjà lu `GET /sync/horizon` (§4.1) ; pour
+chaque dossier, elle transmet `max(nouvel horizon calculé, horizon connu)`.
+**Le serveur, lui, ne change pas : il continue d'enregistrer tel quel** ce
+qu'on lui envoie, sans le comparer à rien — c'est une discipline purement
+côté application, pas un nouveau contrat. Elle empêche un rattrapage ciblé
+(une fenêtre de dates fermée sur du vieux) d'écraser la mémoire d'un dossier
+déjà à jour ; voir
+`docs/superpowers/specs/2026-09-23-app-android-lot2-design.md` §4.3–4.4 pour
+le scénario que ça évite et le détail du calcul.
 
 ---
 

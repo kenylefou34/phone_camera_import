@@ -240,7 +240,197 @@ Le QR contient l'adresse du serveur, un jeton d'appareil **et l'empreinte du
 certificat**. L'application n'acceptera plus que ce certificat-là : c'est ce
 qui rend le HTTPS auto-signé réellement sûr ici.
 
-## 8. Vérifier que ça marche
+## 8. Les réglages : dossiers, dates, automatique, désappairage
+
+Le lot 2 ajoute trois écrans, atteints depuis l'accueil par un bouton
+**Réglages**, puis un bouton par écran. Le bouton retour du système ramène de
+chacun d'eux à Réglages, et de Réglages à l'accueil.
+
+| Écran | Depuis Réglages | Ce qu'il montre |
+|---|---|---|
+| **Dossiers** | « Dossiers à sauvegarder » | l'arborescence des dossiers du téléphone, balayée depuis MediaStore **à l'ouverture de l'écran** (pas depuis la dernière synchro — voir la recette, étape 1). Une case par ligne, trois choix au dépli : « Ce dossier seulement », « Ce dossier et ses sous-dossiers », « Ne pas sauvegarder ». Case à moitié pleine si seule une partie de la descendance est cochée. Les chaînes de dossiers vides à enfant unique (ex. `Android/media/com.whatsapp/…`) sont repliées sur une seule ligne. Bouton « voir » pour un aperçu à la demande, sans vignette sur la liste elle-même. |
+| **Sauvegarde** (« Quand sauvegarder ») | « Quand sauvegarder » | les deux bornes de la fenêtre de dates, l'interrupteur « Sauvegarder automatiquement » (efface et grise la borne de fin, en le disant), et deux compteurs distincts : médias antérieurs à la date de début (neutre) et médias postérieurs à la date de fin (avertissement — le signal d'une borne oubliée). |
+| **Appareil** (« Cet appareil ») | « Cet appareil » | l'état de l'appairage et le bouton « Désappairer ce téléphone », avec une confirmation qui annonce ce que le prochain appairage relira réellement (voir plus bas). |
+
+### Baisser la date de début : l'ordre de reprise
+
+Baisser la date « Depuis » propose de nouveau, **une seule fois**, les médias
+plus anciens que l'horizon déjà connu de chaque dossier coché — sans jamais
+faire reculer ce que le serveur retient (la monotonie de l'horizon, voir
+[`CONTRAT-APP.md`](CONTRAT-APP.md) §5). Relancer une deuxième fois sans avoir
+rechangé la date ne repropose rien : c'est la preuve que la reprise ne
+s'applique qu'une fois.
+
+### Le désappairage : ce que dit la confirmation
+
+Désappairer efface l'état local **inconditionnellement**, même si le serveur
+est injoignable — c'est justement le cas d'usage (certificat changé, NUC
+injoignable). Le serveur est prévenu **au mieux** ; son échec est signalé à
+l'écran, jamais bloquant.
+
+**Après un réappairage, le serveur repart de la date du jour** : il pose
+`horizon_initial` à la date du jour à **chaque** appairage
+(`phototheque/devices.py:94`), jamais à l'historique complet, même pour un
+réappairage du même téléphone. C'est pourquoi la confirmation de désappairage
+annonce explicitement ce qui sera relu au prochain appairage : si une date de
+début est déjà posée dans « Quand sauvegarder » (elle survit au
+désappairage — ce n'est pas un réglage lié à un serveur), c'est elle qui
+commande ; sinon, il faudra la poser après coup pour retrouver les médias plus
+anciens que le jour du réappairage.
+
+### Ce que « toutes les 6 h » veut vraiment dire
+
+La sauvegarde automatique n'est **pas un réveil à heure fixe** :
+
+- au plus une fois par tranche de 6 h, et seulement quand les conditions sont
+  réunies (WiFi non facturé **et** téléphone en charge) ;
+- Android **regroupe** ces réveils (mode Doze) : le délai peut glisser à 7 ou
+  8 h si le téléphone dort, **jamais se déclencher plus tôt** ;
+- sans réseau non facturé ou sans charge, l'échéance passe sans rien faire —
+  ce n'est pas un échec, juste un tour sauté ;
+- « Synchroniser maintenant » reste disponible à tout moment et ignore ces
+  contraintes.
+
+**En pratique : une passe par nuit, au branchement du téléphone à la maison.**
+Le compteur « dernière sauvegarde » de l'accueil reste affiché même en
+automatique — c'est lui qui révèle un automatique qui tournerait dans le vide
+(WiFi de la maison jamais retrouvé, par exemple).
+
+`ExistingPeriodicWorkPolicy.KEEP` fait qu'ouvrir cet écran ne reprogramme
+**pas** le travail périodique s'il existe déjà : le reprogrammer à chaque
+ouverture remettrait le compteur des 6 h à zéro, et la passe n'aurait jamais
+lieu sur un téléphone qu'on ouvre souvent. Un réappairage, en revanche,
+reprogramme réellement le travail si l'automatique était coché — sinon
+l'interrupteur resterait affiché actif sans plus rien planifier (voir la
+recette, étape 14).
+
+## 9. Recette de validation sur un vrai téléphone
+
+**Rien de ce qui suit n'est couvert par un test automatique.** Le projet n'a
+aucun test d'instrumentation Android : `WorkManager`, le service de premier
+plan, les notifications, Compose et `VerrouSynchro` ne sont vérifiés que par
+lecture. C'est cette recette qui en tient lieu — à dérouler telle quelle, dans
+cet ordre, qui suit un usage réel plutôt que la liste des fonctions à tester.
+
+**Point de départ :** l'application installée (§6) et appairée (§7), **avant**
+la toute première synchronisation.
+
+**Deux limites restent ASSUMÉES** (issue #33, héritées du lot 1 bis) : ne pas
+les prendre pour des régressions de cette recette.
+- Interrompre pendant l'envoi d'une grosse vidéo n'arrête pas ce
+  téléversement-là ; seuls les fichiers suivants s'arrêtent.
+- L'écran reste figé pendant l'envoi d'une grosse vidéo.
+
+1. **Ouvrir Réglages → Dossiers avant toute synchronisation.** L'écran doit se
+   remplir tout seul, pas rester vide.
+   *Pourquoi :* cet écran balaie MediaStore lui-même à l'ouverture — il ne
+   dépend plus de `dossiersVus`, qui vaut `null` tant qu'aucune synchro n'a
+   jamais eu lieu. Un test JVM ne peut pas vérifier ce balayage : il n'a pas
+   de MediaStore.
+
+2. **Cocher `Android` en « ce dossier et ses sous-dossiers ».** Vérifier que
+   la chaîne `Android/media/com.whatsapp/…` apparaît **repliée sur une seule
+   ligne**, avec un compte de médias non nul.
+   *Pourquoi :* le repli des chaînes sans média à enfant unique n'est prouvé
+   par les tests que sur des chemins fabriqués ; seul un vrai téléphone
+   WhatsApp a la profondeur de dossiers qui justifie ce repli.
+
+3. **Cocher `Pictures` en « ce dossier et ses sous-dossiers », puis entrer
+   dedans.** Les sous-dossiers doivent apparaître **cochés**, et leur ligne
+   doit **nommer le parent responsable** (« Pris par « Pictures »… ») plutôt
+   que d'offrir les trois choix habituels.
+   *Pourquoi :* décocher un dossier hérité ne ferait rien — l'écran doit le
+   dire en clair au lieu de proposer un choix qui ne changerait rien.
+
+4. **Vérifier qu'un dossier dont un seul enfant est coché affiche la case à
+   moitié pleine**, et non pleine ni vide.
+   *Pourquoi :* `TriStateCheckbox` est un rendu Compose, invisible à un test
+   JVM ; seul `Choix.etat` (la valeur `PARTIELLE`) l'est.
+
+5. **Appuyer sur « voir » sur un dossier avec des médias directs.** Une grille
+   d'aperçu doit s'ouvrir. Vérifier aussi qu'aucun bouton « voir » n'apparaît
+   sur un dossier sans média direct (seulement des sous-dossiers).
+   *Pourquoi :* le décodage de vignettes est une opération Android réelle,
+   hors de portée de la JVM.
+
+6. **Vérifier qu'aucune alerte rouge « Introuvables » n'apparaît** pour une
+   coche récursive normale (ex. `Pictures` coché récursif, dont le seul
+   contenu réel vient de `Pictures/WhatsApp`).
+   *Pourquoi :* c'est exactement le faux positif que `Choix.introuvables`
+   existe pour éliminer — une coche récursive qui fonctionne parfaitement ne
+   doit jamais être signalée comme en échec.
+
+7. **Dans Réglages → Sauvegarde, poser une date de fin dans le passé.**
+   Vérifier que l'écran annonce séparément les médias **antérieurs** à la
+   date de début (message neutre) et **postérieurs** à la date de fin
+   (avertissement).
+   *Pourquoi :* mélanger les deux noierait le seul signal qui compte — une
+   date de fin oubliée — sous le nombre, bien plus grand en pratique, des
+   vieux médias volontairement laissés de côté.
+
+8. **Inverser les deux dates** (début après fin). Vérifier que le message dit
+   l'inversion **sans prétendre que rien ne sera sauvegardé**.
+   *Pourquoi :* les ancrages de fenêtre sont volontairement asymétriques
+   (UTC+14 pour le début, UTC-12 + 1 jour pour la fin), donc une inversion
+   d'un seul jour laisse encore passer une bonne partie d'une journée —
+   promettre « aucun média » serait parfois faux.
+
+9. **Poser une date de début ancienne (ex. 2019) et lancer.** Vérifier que des
+   médias anciens sont proposés — c'est l'ordre de reprise. **Laisser finir,
+   relancer immédiatement** : vérifier que **rien n'est reproposé** la
+   deuxième fois.
+   *Pourquoi :* c'est le cœur du lot 2, exercé pour de vrai avec un
+   `CoroutineWorker`, MediaStore et un aller-retour réseau réels — les tests
+   JVM ne vérifient que les fonctions pures avec des réglages fabriqués.
+
+10. **Cocher « Sauvegarder automatiquement ».** Vérifier que la date de fin
+    disparaît, que l'application le **dit**, et que le champ reste **visible,
+    grisé** (pas caché).
+    *Pourquoi :* le grisage (opacité réduite) est un détail de rendu Compose ;
+    sans le champ sous les yeux, impossible de voir *pourquoi* la borne a
+    disparu.
+
+11. **Brancher le téléphone sur le WiFi de la maison, le laisser en charge une
+    nuit.** Vérifier au matin que « dernière sauvegarde » s'est mise à jour
+    **sans intervention**.
+    *Pourquoi :* c'est `PeriodicWorkRequest` et le mode Doze pour de vrai —
+    rien dans ce projet ne peut simuler le planificateur d'Android.
+
+12. **Pendant que l'automatique tourne (ou juste après l'avoir déclenché),
+    lancer une synchro manuelle.** Vérifier qu'un **seul** avancement est
+    affiché (pas deux qui se mélangent), et que le bouton « Interrompre »
+    arrête bien celle qui tourne.
+    *Pourquoi :* `VerrouSynchro` n'est exercé par **aucun test** — c'est la
+    seule protection entre deux `WorkManager` réels (la file manuelle et la
+    file automatique) qui pourraient démarrer ensemble.
+
+13. **Couper le WiFi, puis désappairer depuis Réglages → Appareil.** Vérifier
+    que l'application revient à l'écran de scan **malgré le serveur
+    injoignable**, et qu'elle **dit** que le serveur n'a pas pu être prévenu.
+    *Pourquoi :* c'est le cas d'usage réel du désappairage (certificat changé,
+    NUC injoignable) — un vrai échec réseau, pas un mensonge de test.
+
+14. **Réappairer.** Vérifier que les dossiers cochés ont **survécu** au
+    désappairage, et — si l'automatique était coché avant de désappairer —
+    qu'il est **réellement reprogrammé** (pas seulement réaffiché coché).
+    *Pourquoi :* les réglages persistent volontairement (ils ne sont pas liés
+    à un serveur), mais la reprogrammation de `WorkManager` est un appel de
+    code neuf, sans test d'instrumentation pour le confirmer.
+
+15. **Après ce réappairage, vérifier que l'accueil n'affiche PAS « sauvegardé
+    il y a N heures ».** Le compteur doit avoir été effacé.
+    *Pourquoi :* une ancienne réussite ne dit plus rien du nouveau serveur —
+    l'afficher serait une fausse réassurance, pire qu'une fausse alerte
+    puisqu'elle éteint le seul filet du projet contre les pannes muettes.
+
+**Si c'est la toute première fois que l'application tourne sur un appareil**,
+la recette du lot 1 bis (tâche 10 de
+[`superpowers/plans/2026-09-21-app-android-lot1bis.md`](superpowers/plans/2026-09-21-app-android-lot1bis.md),
+18 étapes) reste la référence la plus détaillée pour ce que celle-ci ne
+redemande pas explicitement : le contenu exact de la notification, la reprise
+après une coupure subie, le bouton d'arrêt de la notification elle-même.
+
+## 10. Vérifier que ça marche
 
 Sur le téléphone, après une synchro :
 
@@ -265,7 +455,7 @@ ssh izquierdo@192.168.1.21 'watch -n5 "du -sh /media/izquierdo/Famille/incoming;
 Les fichiers atterrissent d'abord dans `incoming/<session>/`. Ils ne sont
 rangés qu'au **`commit`**, à la toute fin.
 
-## 9. Dépannage
+## 11. Dépannage
 
 ### « La sauvegarde a échoué » alors que tout est arrivé
 
@@ -310,9 +500,10 @@ Corrigé par le lot 1 bis.
 
 `Movies/WhatsApp` n'existe pas sur tous les téléphones : WhatsApp récent range
 sous `Android/media/com.whatsapp/…`, que MediaStore ne présente pas sous ce
-nom. L'écran **« Voir le détail »** le dit en rouge. Au lot 1, les trois
-dossiers suivis sont codés en dur dans `ModeleAccueil.kt` ; le choix dans
-l'application arrive au lot 2.
+nom. L'écran **« Voir le détail »** le dit en rouge. Depuis le lot 2, le choix
+n'est plus figé : ouvrir **Réglages → Dossiers**, cocher `Android` en « ce
+dossier et ses sous-dossiers » (§8) prend cette chaîne, repliée sur une seule
+ligne.
 
 ### « Serveur introuvable — vous n'êtes probablement pas chez vous »
 
@@ -348,7 +539,7 @@ journalctl -b -1 | grep "NetworkManager state is now"
 L'APK n'a jamais été envoyé, ou l'envoi a échoué. Relancer
 `./deploy/envoyer-apk.sh` depuis le poste de développement.
 
-## 10. Où est quoi
+## 12. Où est quoi
 
 | Chemin | Contenu |
 |---|---|

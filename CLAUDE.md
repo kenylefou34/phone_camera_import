@@ -79,15 +79,35 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   le dépose sur le NUC (empreinte recalculée à l'arrivée, mise en place atomique),
   route `/apk` derrière le mot de passe. Mode d'emploi complet et rejouable depuis
   zéro : **`docs/APPLICATION-ANDROID.md`**.
+- ✅ **Lot 2 de l'app ÉCRIT** (conception `docs/superpowers/specs/2026-09-23-app-android-lot2-design.md`,
+  plan `docs/superpowers/plans/2026-09-23-app-android-lot2.md`) : choix des
+  dossiers par arborescence (repli des chaînes sans média à enfant unique,
+  coche à trois états + case à moitié pleine, aperçu à la demande, filet des
+  dossiers entrés par récursivité), fenêtre de dates pilotée depuis le
+  téléphone (ordre de reprise à usage unique, comptes avant/après la fenêtre
+  tenus séparés), synchronisation automatique (`PeriodicWorkRequest` 6 h,
+  WiFi non facturé + en charge, `VerrouSynchro` contre une synchro manuelle
+  simultanée), désappairage depuis le téléphone (effacement local
+  inconditionnel, route serveur `POST /sync/desappairer`, horizon de synchro
+  rendu monotone côté application — voir `docs/CONTRAT-APP.md` §4.5 et §5).
+  Trois nouveaux écrans (Dossiers, Sauvegarde, Appareil), atteints depuis
+  l'accueil par « Réglages » — mode d'emploi et recette de validation :
+  `docs/APPLICATION-ANDROID.md` §8-§9. **220 tests** côté app (144 au lot
+  1 bis), **301** côté serveur (264 au lot 1 bis).
+  **Jamais essayé sur un téléphone, ni lui ni le lot 1 bis dont il dépend** —
+  voir la section REPRISE.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
 ## ⚠️ REPRISE — première chose à faire
 
-**La recette du lot 1 bis sur un vrai téléphone** — tâche 10 du plan
-`docs/superpowers/plans/2026-09-21-app-android-lot1bis.md`. Tout le code est
-écrit, relu tâche par tâche par des agents neufs, et corrigé ; **rien n'a
-jamais tourné sur un appareil**.
+**La recette manuelle sur un vrai téléphone.** Le lot 1 bis ET le lot 2 sont
+maintenant tous les deux **écrits**, relus tâche par tâche par des agents
+neufs, et corrigés ; **rien n'a jamais tourné sur un appareil, ni l'un ni
+l'autre**. Le lot 2 s'appuie entièrement sur les mécanismes du lot 1 bis
+(service de premier plan, `WorkManager`, paquets) : les éprouver séparément
+n'a plus grand sens. La recette à suivre est désormais celle du lot 2 —
+**`docs/APPLICATION-ANDROID.md` §9** — qui exerce les deux à la fois.
 
 ```bash
 cd ~/dev/phone_camera_import && ./deploy/envoyer-apk.sh
@@ -96,35 +116,48 @@ cd ~/dev/phone_camera_import && ./deploy/envoyer-apk.sh
 
 **Pourquoi cette recette pèse lourd :** il n'existe dans ce projet **aucun test
 d'instrumentation Android**. `WorkManager`, le service de premier plan, les
-notifications, le `BroadcastReceiver` et tout Compose ne sont couverts par
-**rien** d'automatique. Les 144 tests ne disent rien de ces chemins-là ; les
-relectures les ont jugés par la lecture, pas par l'exécution.
+notifications, le `BroadcastReceiver`, tout Compose et `VerrouSynchro` ne sont
+couverts par **rien** d'automatique. Les 220 tests côté app ne disent rien de
+ces chemins-là ; les relectures les ont jugés par la lecture, pas par
+l'exécution.
 
-La recette fait **18 étapes** et chacune existe pour une raison précise — la
-suivre telle quelle plutôt que d'improviser.
+La recette (`docs/APPLICATION-ANDROID.md` §9) fait **15 étapes** et chacune
+existe pour une raison précise — la suivre telle quelle plutôt que
+d'improviser. Si c'est la toute première fois que l'application tourne sur un
+appareil, la recette d'origine du lot 1 bis (tâche 10 de
+`docs/superpowers/plans/2026-09-21-app-android-lot1bis.md`, 18 étapes) reste
+la référence la plus détaillée pour ce que celle du lot 2 ne redemande pas
+explicitement : le contenu exact de la notification, la reprise après une
+coupure subie, le bouton d'arrêt de la notification elle-même.
 
-**Deux limites sont ASSUMÉES et documentées dans la recette** (étapes 9 et 10),
-pour ne pas conclure à un défaut : interrompre pendant l'envoi d'une grosse
-vidéo n'arrête pas le téléversement en cours, et l'écran reste figé pendant ce
-temps. Les deux sont reportées au lot 2.
+**Deux limites restent ASSUMÉES** (issue #33, héritées du lot 1 bis), à ne pas
+prendre pour des régressions : interrompre pendant l'envoi d'une grosse vidéo
+n'arrête pas le téléversement en cours, et l'écran reste figé pendant ce
+temps.
 
 **Ce qu'aucun test ne peut trancher, par ordre d'importance :** qu'un arrêt
 demandé affiche le compte réel et non trois zéros ; qu'une permission retirée
 donne « Nouvelle tentative programmée » et jamais « En attente d'un réseau » ;
 qu'une révocation suivie d'un réappairage ne laisse pas revenir le bandeau
-« révoqué » ; que le bouton de la notification arrête sans rouvrir l'app.
+« révoqué » ; que le bouton de la notification arrête sans rouvrir l'app ;
+**(lot 2)** qu'une synchro manuelle lancée pendant que l'automatique tourne
+n'affiche qu'un seul avancement et que « Interrompre » arrête la bonne —
+`VerrouSynchro` n'est exercé par aucun test ; **(lot 2)** qu'un réappairage
+reprogramme RÉELLEMENT l'automatique (`WorkManager`, pas seulement
+l'interrupteur affiché coché) ; **(lot 2)** que « dernière sauvegarde »
+disparaît bien de l'accueil après un réappairage plutôt que d'afficher une
+ancienne réussite qui ne dit plus rien du nouveau serveur.
 
-**Après la recette** : le lot 2, dont la **conception est écrite et validée**
-(`docs/superpowers/specs/2026-09-23-app-android-lot2-design.md`, 23/09) —
-choix des dossiers par arborescence, fenêtre de dates pilotée depuis le
-téléphone, synchro automatique, désappairage. Puis les issues #30 (journal
-serveur + purge des sessions) et #31 (galerie).
+**Après la recette** : les issues #30 (journal serveur + purge des sessions
+abandonnées) et #31 (galerie).
 
 ## Feuille de route (issues GitHub)
-Prochaine étape : **la recette du lot 1 bis sur un téléphone** (voir REPRISE),
-puis le lot 2 (choix des dossiers dans l'app). Trois issues ouvertes le 21/09 :
-**#29** lot 1 bis (fait, à éprouver), **#30** journal serveur + purge des
-sessions abandonnées, **#31** galerie de consultation (phase 2).
+Prochaine étape : **la recette manuelle sur un téléphone** (voir REPRISE) —
+lot 1 bis et lot 2 sont écrits et attendent tous les deux leur première
+exécution réelle. **#29** lot 1 bis (fait, à éprouver), **#12** l'application
+elle-même (reste ouverte pour la même raison — jamais éprouvée sur un
+appareil), puis **#30** journal serveur + purge des sessions abandonnées,
+**#31** galerie de consultation (phase 2).
 
 **#16 est CORRIGÉE** (23/09) : le serveur ne détruit plus les médias qu'il n'a
 pas su ranger. Ils partent en quarantaine sous `INCOMING_DIR/_echecs/<chemin
@@ -264,6 +297,29 @@ l'avoir gardé là.
   aussi le bouton muet tant qu'un travail est en attente : l'écran doit dériver
   son état de `WorkManager` (`getWorkInfosForUniqueWorkFlow`) et non d'un
   drapeau posé à la main, sinon il reste « en cours » pour toujours.
+- **`ExistingWorkPolicy.KEEP` (et `ExistingPeriodicWorkPolicy.KEEP`) ne
+  protègent chacune qu'À L'INTÉRIEUR de leur propre nom unique** (lot 2) : la
+  file manuelle (« synchro ») et la file automatique (« synchro-auto »)
+  peuvent très bien démarrer en même temps, alors que `TravailSynchro` garde
+  son avancement, sa dernière issue et son drapeau d'arrêt dans le
+  `companion object` de la classe — partagés par TOUTE exécution, quelle que
+  soit la file qui l'a déclenchée. D'où `VerrouSynchro` (exclusion mutuelle
+  par `AtomicBoolean.compareAndSet`, sans préemption), qu'**aucun test
+  n'exerce** — seule la recette manuelle (`docs/APPLICATION-ANDROID.md` §9,
+  étape 12) le fait.
+- **`ExistingPeriodicWorkPolicy.KEEP` ne reprogramme pas** : reprogrammer à
+  chaque ouverture d'écran remettrait le compteur des 6 h à zéro, et la passe
+  automatique n'aurait jamais lieu sur un téléphone qu'on ouvre souvent. Un
+  réappairage, lui, doit reprogrammer pour de vrai si l'automatique était
+  coché — un désappairage l'avait déprogrammé sans toucher au réglage
+  affiché.
+- **Les bornes de la fenêtre de dates sont asymétriques par construction**
+  (UTC+14 pour le début, UTC-12 + 1 jour pour la fin) : le téléphone ignore le
+  fuseau dans lequel une photo a été prise, et le principe retenu est
+  « reproposer plutôt que sauter ». Réutiliser la borne basse pour construire
+  la borne haute arrêterait la fenêtre à midi UTC le jour choisi — ~14 h à
+  Paris — et ferait disparaître en silence toutes les photos de l'après-midi
+  et de la soirée du dernier jour.
 
 **Pièges du serveur**
 - **FastAPI publie `/docs`, `/redoc` et `/openapi.json` sans authentification.**
@@ -283,14 +339,18 @@ l'avoir gardé là.
 - L'**horizon est décidé par l'application**, pas par le serveur. Un horizon
   avancé au-delà d'un fichier jamais envoyé le perd définitivement et en
   silence. Détaillé dans `docs/CONTRAT-APP.md`, section 5.
-- `Devices.revoke()` supprime la ligne `devices` mais **pas ses horizons** :
-  pas de clé étrangère, et `PRAGMA foreign_keys` jamais activé (SQLite le
-  laisse inactif par défaut). Fuite lente, sans conséquence de correction
-  (l'identifiant d'appareil est un uuid4 tiré à chaque appairage). À corriger
-  avec le désappairage du lot 2.
-- Le téléphone **ne peut pas se retirer lui-même** : la seule route de
-  révocation, `POST /devices/{id}/revoke`, est derrière `require_admin`, et il
-  n'a qu'un jeton d'appareil.
+- **Corrigé par le lot 2** : `Devices.revoke()` supprimait la ligne `devices`
+  mais pas ses horizons (pas de clé étrangère, `PRAGMA foreign_keys` jamais
+  activé — SQLite le laisse inactif par défaut). Elle exécute désormais aussi
+  `DELETE FROM horizons WHERE appareil=?`. Et le téléphone **peut** maintenant
+  se retirer lui-même par `POST /sync/desappairer` (`require_device`, pas
+  `require_admin`) — voir `docs/CONTRAT-APP.md` §4.5.
+- **Le serveur pose `horizon_initial = date.today()` à CHAQUE appairage**
+  (`Devices.pair()`, `phototheque/devices.py:94`), même quand personne ne
+  touche au formulaire de `/pair`, et même pour un réappairage du même
+  téléphone. Un réappairage ne relit donc PAS l'historique complet : il
+  faut reposer une date de début côté application pour reprendre les médias
+  plus anciens que le jour du réappairage — voir `docs/CONTRAT-APP.md` §4.1.
 
 **Tests**
 - Simuler une machine d'origine : `TestClient(app, client=("192.168.1.50", 1))`.
@@ -301,6 +361,15 @@ l'avoir gardé là.
   **par mutation** : casser volontairement le code et vérifier que c'est bien ce
   test-là qui tombe. Plusieurs faux verts ont été attrapés ainsi le 18/09
   (script absent → code 127, propriétés déjà vraies avant correctif).
+- **Un test qui construit ses données avec la fonction qu'il teste est
+  auto-cohérent et vide de sens.** Rencontré à la tâche 8 du lot 2 (fenêtre de
+  dates) : un test qui fabriquait son instant attendu avec la même fonction
+  d'ancrage que le code testé (`jourVersSecondes`, réutilisée pour les deux
+  bornes) ne pouvait pas voir que la borne haute, calculée comme la borne
+  basse + 24 h, arrêtait en réalité la fenêtre à ~14 h à Paris et perdait en
+  silence toutes les photos de l'après-midi du dernier jour. Le correctif :
+  construire les instants attendus **hors de** la fonction testée, sur des
+  fuseaux réels (Paris, Tokyo, Los Angeles).
 
 **Outillage (ça a déjà coûté une demi-heure chacun)**
 - **`pgrep -f "motif"` se trouve lui-même** : la ligne de commande du shell qui

@@ -196,28 +196,29 @@ silencieuse.
 
 ### 4.3 Ce que veut dire baisser la date de début
 
-**La date de début est un ordre, pas un plancher.** La baisser **réécrit
-l'horizon** de tous les dossiers cochés à cette date, immédiatement. L'horizon
-reste ensuite l'unique source de vérité, et remonte seul.
+**La date de début est un ordre, pas un plancher.** La baisser fixe, pour la
+synchronisation qui suit et pour elle seule, un plancher de **sélection** à
+cette date : `Selection.candidats` propose de nouveau tout ce qui se trouve
+entre cette date et l'horizon déjà connu de chaque dossier coché, comme si ce
+dossier n'avait jamais été synchronisé. Ce n'est **pas** une réécriture de
+l'horizon serveur — celui-ci reste entièrement gouverné par la monotonie
+(§4.4), qui l'empêche de reculer.
 
 C'est ce qui permet à la date de remplacer le désappairage comme moyen de tout
 reprendre (§6). La lecture concurrente — « plancher permanent », plancher réel
-= `max(date, horizon)` — a été écartée : l'horizon commanderait toujours, et
-baisser la date ne reproposerait jamais rien.
+= `max(date, horizon)` **en permanence** — a été écartée : l'horizon
+commanderait toujours, et baisser la date ne reproposerait jamais rien.
 
-**Son coût, annoncé et non découvert.** Une fenêtre **fermée** laisse l'horizon
-à la fin de la fenêtre : la sauvegarde suivante **relit** tout depuis cette
-date. Quelques minutes de lecture, zéro transfert (l'anti-doublon du serveur
-écarte les empreintes connues). L'application l'annonce au moment où la date de
-fin est posée :
-
-> « Après ce rattrapage, la prochaine sauvegarde relira vos médias depuis le
-> 31/12/2020 (≈ 9 min). »
-
-Un remède local existe (mémoriser le plus haut instant jamais proposé, par
-dossier, et restaurer l'horizon après un rattrapage fermé). Il ajoute un état
-et un mode de panne ; **il n'est pas construit avant d'avoir la preuve que la
-relecture gêne à l'usage**.
+**Son coût a disparu avec la monotonie de la tâche 6 (§4.4).** L'horizon
+transmis à chaque `commit` est `max(horizon calculé sur ce paquet, horizon
+déjà connu du serveur)`, ce dernier lu une seule fois au début de la
+synchronisation. Un rattrapage 2019–2020 sur un dossier déjà remonté à
+septembre 2026 calcule donc un horizon de fin 2020 sur ce paquet, le compare à
+septembre 2026, et transmet `max(2020, 2026) = 2026` : la mémoire de septembre
+2026 survit intacte au rattrapage. Rien n'est relu ensuite — la sauvegarde
+suivante repart exactement là où elle en était avant le rattrapage, pas de la
+fin de la fenêtre fermée. L'ordre de reprise se réduit ainsi à un plancher de
+**sélection**, ponctuel, sans jamais toucher à ce que le serveur retient.
 
 ### 4.4 L'horizon devient monotone — côté application
 
