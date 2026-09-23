@@ -68,7 +68,7 @@ class Orchestrateur(
         // réglage posé par l'utilisateur doit l'emporter sur une valeur
         // d'appairage qu'il ne voit jamais. Rôle DISTINCT de `plancherReprise`
         // plus bas, qui n'abaisse que ponctuellement.
-        val depuis = (reglages.debutJour ?: etat.depuis)?.let { jourVersSecondes(it) }
+        val depuis = (reglages.debutJour ?: etat.depuis)?.let { Fenetre.debutDuJour(it) }
         val tous = source.lister()
         val dossiersChoisis = Choix.dossiersASauvegarder(
             reglages, tous.map { it.dossier }.toSet())
@@ -76,10 +76,16 @@ class Orchestrateur(
         // ne redevient vrai qu'après un nouveau changement de la date de
         // début (voir Reglages.repriseADemander).
         val plancherReprise =
-            if (reglages.repriseADemander()) reglages.debutJour?.let { jourVersSecondes(it) }
+            if (reglages.repriseADemander()) reglages.debutJour?.let { Fenetre.debutDuJour(it) }
             else null
         val candidats = Selection.candidats(
             tous, dossiersChoisis, etat.dossiers, depuis, plancherReprise)
+            // La fenêtre choisie à l'écran (tâche 8) : un filtre EN PLUS du
+            // plancher par horizon ci-dessus, pour un rattrapage CIBLÉ — elle
+            // peut donc restreindre un dossier déjà connu, ce que le plancher
+            // seul ne fait jamais (§4.1 de la spec : « une fenêtre, lancée à
+            // la main »).
+            .filter { Fenetre.dansLaFenetre(it, reglages.debutJour, reglages.finJour) }
         val lots = Paquets.decouper(candidats, taillePaquet)
 
         val octetsTotal = candidats.sumOf { it.taille }
@@ -228,22 +234,4 @@ class Orchestrateur(
         publier(Phase.RANGEMENT)
         return Bilan(envoyes, refuses, echecs, revoque, bilanServeur, arrete)
     }
-
-    /**
-     * « 2026-09-01 » → secondes. Le champ `depuis` du contrat est une DATE ISO
-     * nue, sans fuseau : il faut donc choisir a quel instant elle commence.
-     *
-     * On l'ancre a UTC+14, c'est-a-dire l'instant le plus PRECOCE auquel cette
-     * date calendaire commence ou que ce soit sur Terre. Interpreter la date
-     * dans le fuseau courant du telephone paraitrait plus naturel, mais un
-     * changement de fuseau entre l'appairage et la synchro decalerait le
-     * plancher — et vers l'ouest il reculerait trop tard, sautant en silence
-     * des medias autour de la date d'appairage. Le sens choisi ici ne peut que
-     * reproposer quelques heures de trop, que l'anti-doublon ecarte sans les
-     * transferer.
-     */
-    private fun jourVersSecondes(jour: String): Double =
-        java.time.LocalDate.parse(jour)
-            .atStartOfDay(java.time.ZoneOffset.ofHours(14))
-            .toEpochSecond().toDouble()
 }

@@ -205,4 +205,39 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
         _reglages.value = nouveau
         magasin.ecrire(nouveau)
     }
+
+    /**
+     * Change la date de début et persiste aussitôt. `null` l'efface (retour
+     * au plancher de l'appairage).
+     *
+     * Relit `magasin.lire()`, comme `changerCoche` : voir sa doc pour la
+     * raison (ne pas écraser `dossiersConnus`/`debutApplique`, écrits par le
+     * travail de fond, avec une valeur périmée).
+     */
+    fun changerDebut(jour: String?) {
+        val r = magasin.lire()
+        val nouveau = r.copy(debutJour = jour)
+        _reglages.value = nouveau
+        magasin.ecrire(nouveau)
+    }
+
+    /** Change la date de fin et persiste aussitôt. `null` l'efface. */
+    fun changerFin(jour: String?) {
+        val r = magasin.lire()
+        val nouveau = r.copy(finJour = jour)
+        _reglages.value = nouveau
+        magasin.ecrire(nouveau)
+    }
+
+    /**
+     * Bascule l'automatique et persiste aussitôt. Passer à `true` efface la
+     * date de fin (`Reglages.enAuto`) : c'est à l'écran de le dire au moment
+     * où on coche.
+     */
+    fun changerAuto(actif: Boolean) {
+        val r = magasin.lire()
+        val nouveau = if (actif) r.enAuto() else r.copy(auto = false)
+        _reglages.value = nouveau
+        magasin.ecrire(nouveau)
+    }
 }

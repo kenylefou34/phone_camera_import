@@ -21,6 +21,7 @@ import fr.izquierdo.phototheque.ui.EcranAvancement
 import fr.izquierdo.phototheque.ui.EcranDetail
 import fr.izquierdo.phototheque.ui.EcranDossiers
 import fr.izquierdo.phototheque.ui.EcranReglages
+import fr.izquierdo.phototheque.ui.EcranSauvegarde
 import fr.izquierdo.phototheque.ui.ModeleAccueil
 import fr.izquierdo.phototheque.ui.Navigation
 
@@ -119,8 +120,14 @@ class MainActivity : ComponentActivity() {
                         reglages = reglages,
                         depot = depot,
                         surCoche = modele::changerCoche)
-                    // Écrits aux tâches 8 et 11.
-                    Ecran.SAUVEGARDE, Ecran.APPAREIL -> EcranReglages(
+                    Ecran.SAUVEGARDE -> EcranSauvegarde(
+                        reglages = reglages,
+                        depot = depot,
+                        surChangerDebut = modele::changerDebut,
+                        surChangerFin = modele::changerFin,
+                        surChangerAuto = modele::changerAuto)
+                    // Écrit à la tâche 11.
+                    Ecran.APPAREIL -> EcranReglages(
                         surDossiers = {}, surSauvegarde = {}, surAppareil = {})
                 }
             }
