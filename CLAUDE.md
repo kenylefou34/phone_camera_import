@@ -117,7 +117,8 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   Plus : zéro dossier coché ne compte plus comme une réussite (et se voit sur
   l'accueil), « Ne pas sauvegarder » sur un dossier à moitié coché décoche
   enfin sa descendance, **remonter** la date de début ne déclenche plus de
-  reprise complète, et trois commentaires faux corrigés. Rapport complet :
+  reprise complète, et trois commentaires faux corrigés. Rapport détaillé
+  (non versionné, local à cette machine) :
   `.superpowers/sdd/2026-09-23-app-android-lot2/correction-finale-report.md`.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
