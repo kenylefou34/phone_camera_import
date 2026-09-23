@@ -17,6 +17,7 @@ import fr.izquierdo.phototheque.medias.Depot
 import fr.izquierdo.phototheque.ui.Ecran
 import fr.izquierdo.phototheque.ui.EcranAccueil
 import fr.izquierdo.phototheque.ui.EcranAppairage
+import fr.izquierdo.phototheque.ui.EcranAppareil
 import fr.izquierdo.phototheque.ui.EcranAvancement
 import fr.izquierdo.phototheque.ui.EcranDetail
 import fr.izquierdo.phototheque.ui.EcranDossiers
@@ -85,6 +86,7 @@ class MainActivity : ComponentActivity() {
                     Ecran.APPAIRAGE -> EcranAppairage(
                         qrInvalide = etat.qrInvalide,
                         revoque = etat.revoque,
+                        desappairementNonPrevenu = etat.desappairementNonPrevenu,
                         surScanner = {
                             scanner.launch(
                                 ScanOptions()
@@ -126,9 +128,10 @@ class MainActivity : ComponentActivity() {
                         surChangerDebut = modele::changerDebut,
                         surChangerFin = modele::changerFin,
                         surChangerAuto = modele::changerAuto)
-                    // Écrit à la tâche 11.
-                    Ecran.APPAREIL -> EcranReglages(
-                        surDossiers = {}, surSauvegarde = {}, surAppareil = {})
+                    Ecran.APPAREIL -> EcranAppareil(
+                        reglages = reglages,
+                        depot = depot,
+                        surDesappairer = modele::desappairer)
                 }
             }
         }

@@ -5,9 +5,13 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import fr.izquierdo.phototheque.appairage.Coffre
 import fr.izquierdo.phototheque.medias.Depot
+import fr.izquierdo.phototheque.reseau.ClientServeur
+import fr.izquierdo.phototheque.reseau.Fabrique
 import fr.izquierdo.phototheque.synchro.Coche
+import fr.izquierdo.phototheque.synchro.Desappairage
 import fr.izquierdo.phototheque.synchro.EtatTravail
 import fr.izquierdo.phototheque.synchro.TravailSynchro
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -190,7 +194,10 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
             return false
         }
         coffre.enregistrer(charge)
-        _etat.value = _etat.value.copy(appaire = true, qrInvalide = false, revoque = false)
+        // desappairementNonPrevenu remis à faux : sa bannière parlait de
+        // l'ANCIEN serveur, elle n'a plus rien à dire sur celui-ci.
+        _etat.value = _etat.value.copy(appaire = true, qrInvalide = false, revoque = false,
+                                       desappairementNonPrevenu = false)
         return true
     }
 
@@ -263,5 +270,44 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
         _reglages.value = nouveau
         magasin.ecrire(nouveau)
         TravailSynchro.planifier(getApplication(), actif)
+    }
+
+    /**
+     * Désappaire ce téléphone : coupe le lien avec le serveur courant.
+     *
+     * Ce n'est PAS le moyen de tout reprendre — la date de début fait ce
+     * travail, sans rescanner de QR et de façon réversible. Son vrai métier
+     * est de se dépanner et de changer de serveur : voir [Desappairage] pour
+     * la raison qui impose un effacement local INCONDITIONNEL.
+     *
+     * Construit ici son propre [ClientServeur] plutôt que de passer par
+     * [Fabrique.serveur] : celui-ci rend l'interface `Serveur`, taillée pour
+     * `Orchestrateur`, qui n'expose pas `desappairer()` — et exige une charge
+     * non nulle que `coffre.charge()` ne garantit pas. Le prix assumé est
+     * l'absence de redécouverte mDNS ici : au moment précis où l'on
+     * désappaire, le serveur est de toute façon injoignable par définition
+     * (voir [Desappairage]), et cet appel reste « au mieux ».
+     */
+    fun desappairer() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val resultat = Desappairage.executer(
+                prevenirServeur = {
+                    coffre.charge()?.let { charge ->
+                        val http = Fabrique.client(charge)
+                        ClientServeur(charge.url, charge.token, http, Fabrique.clientCourt(http))
+                            .desappairer()
+                    } ?: false
+                },
+                effacerLocal = {
+                    coffre.oublier()
+                    // Les réglages restent : ils ne sont pas liés à un
+                    // serveur, et les perdre obligerait à tout recocher pour
+                    // un simple changement de NUC.
+                    TravailSynchro.planifier(getApplication(), actif = false)
+                })
+            _etat.value = _etat.value.copy(
+                appaire = false, revoque = false,
+                desappairementNonPrevenu = !resultat.serveurPrevenu)
+        }
     }
 }

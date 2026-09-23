@@ -10,6 +10,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -257,6 +258,53 @@ class ClientServeurTest {
         val c = ClientServeur(serveur.url("/").toString().trimEnd('/'), "jeton",
                               OkHttpClient())
         c.abandonner("a".repeat(32))      // ne doit pas lever
+        serveur.shutdown()
+    }
+
+    @Test fun desappairer_previent_le_serveur_avec_le_bon_jeton() {
+        val serveur = MockWebServer()
+        serveur.enqueue(MockResponse().setBody("""{"retire":true}"""))
+        serveur.start()
+        val c = ClientServeur(serveur.url("/").toString().trimEnd('/'), "jeton",
+                              OkHttpClient())
+        assertTrue(c.desappairer())
+        val requete = serveur.takeRequest()
+        assertEquals("/sync/desappairer", requete.path)
+        assertEquals("POST", requete.method)
+        assertEquals("Bearer jeton", requete.getHeader("Authorization"))
+        serveur.shutdown()
+    }
+
+    @Test fun desappairer_rend_faux_quand_le_serveur_repond_retire_false() {
+        val serveur = MockWebServer()
+        serveur.enqueue(MockResponse().setBody("""{"retire":false}"""))
+        serveur.start()
+        val c = ClientServeur(serveur.url("/").toString().trimEnd('/'), "jeton",
+                              OkHttpClient())
+        assertFalse(c.desappairer())
+        serveur.shutdown()
+    }
+
+    @Test fun desappairer_rend_faux_sur_un_401() {
+        // Un jeton déjà révoqué côté serveur ne doit pas faire lever : c'est
+        // un refus ordinaire, pas un cas à traiter à part.
+        val serveur = MockWebServer()
+        serveur.enqueue(MockResponse().setResponseCode(401).setBody(
+            """{"detail":"jeton invalide"}"""))
+        serveur.start()
+        val c = ClientServeur(serveur.url("/").toString().trimEnd('/'), "jeton",
+                              OkHttpClient())
+        assertFalse(c.desappairer())
+        serveur.shutdown()
+    }
+
+    @Test fun desappairer_rend_faux_quand_le_reseau_est_coupe() {
+        val serveur = MockWebServer()
+        serveur.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+        serveur.start()
+        val c = ClientServeur(serveur.url("/").toString().trimEnd('/'), "jeton",
+                              OkHttpClient())
+        assertFalse(c.desappairer())      // ne doit pas lever
         serveur.shutdown()
     }
 }

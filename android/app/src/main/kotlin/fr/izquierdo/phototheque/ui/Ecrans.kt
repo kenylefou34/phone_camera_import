@@ -227,7 +227,12 @@ fun EcranAvancement(avancement: Avancement, reglages: Reglages, surInterrompre: 
 }
 
 @Composable
-fun EcranAppairage(qrInvalide: Boolean, revoque: Boolean, surScanner: () -> Unit) {
+fun EcranAppairage(
+    qrInvalide: Boolean,
+    revoque: Boolean,
+    desappairementNonPrevenu: Boolean,
+    surScanner: () -> Unit,
+) {
     Column(Modifier.fillMaxSize().padding(24.dp),
            horizontalAlignment = Alignment.CenterHorizontally,
            verticalArrangement = Arrangement.Center) {
@@ -240,6 +245,13 @@ fun EcranAppairage(qrInvalide: Boolean, revoque: Boolean, surScanner: () -> Unit
         if (qrInvalide) Bandeau(
             "Ce n'est pas un QR de photothèque. Vérifiez que vous scannez bien " +
             "celui de la page d'appairage du serveur.")
+        // Suite d'un désappairage (écran « Cet appareil ») dont le serveur
+        // n'a pas pu être prévenu — épinglage rompu, serveur réinstallé,
+        // machine changée. L'effacement local, lui, a déjà eu lieu : ce
+        // bandeau ne fait que dire ce qui reste à faire côté serveur.
+        if (desappairementNonPrevenu) Bandeau(
+            "Le serveur n'a pas pu être prévenu : l'appareil restera dans la " +
+            "liste d'administration jusqu'à ce que vous l'y révoquiez.")
         Spacer(Modifier.height(24.dp))
         Button(onClick = surScanner) { Text("Scanner le QR") }
     }

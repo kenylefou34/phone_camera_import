@@ -216,4 +216,24 @@ class ClientServeur(
             // Volontairement muet : voir la documentation ci-dessus.
         }
     }
+
+    /**
+     * Demande au serveur de retirer cet appareil. Rend faux sur tout refus.
+     *
+     * Délai court et assumé : on ne fait pas attendre l'utilisateur devant un
+     * serveur qu'on ne joindra pas. Ni `verifierCode` ni
+     * `ServeurRevoqueException` ici : un 401 sur CET appel n'a rien
+     * d'exceptionnel — on désappaire justement parce que le jeton ne vaudra
+     * plus rien — c'est un refus ordinaire parmi d'autres.
+     */
+    fun desappairer(): Boolean = try {
+        httpCourt.newCall(requete("/sync/desappairer").post("".toRequestBody()).build())
+            .execute().use { r ->
+                if (!r.isSuccessful) false
+                else Contrat.json
+                    .decodeFromString<ReponseDesappairage>(r.body!!.string()).retire
+            }
+    } catch (e: Exception) {
+        false
+    }
 }

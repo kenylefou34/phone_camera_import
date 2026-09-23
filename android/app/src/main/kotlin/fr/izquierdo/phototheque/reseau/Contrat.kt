@@ -55,3 +55,8 @@ data class RequeteCommit(val session: String, val horizons: Map<String, Double> 
 /** Corps de POST /sync/abandon (lot serveur, issue #30). */
 @Serializable
 data class RequeteAbandon(val session: String)
+
+/** Réponse de POST /sync/desappairer (lot 2, tâche 10) : vrai si l'appareil
+ *  a bien été retiré côté serveur. */
+@Serializable
+data class ReponseDesappairage(val retire: Boolean)

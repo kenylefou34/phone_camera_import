@@ -69,6 +69,16 @@ data class EtatSynchro(
      * application installée, un nouveau répertoire de captures).
      */
     val dossiersNouveaux: Set<String> = emptySet(),
+    /**
+     * Un désappairage vient d'avoir lieu SANS que le serveur ait pu être
+     * prévenu. L'effacement local, lui, a toujours eu lieu (voir
+     * `synchro.Desappairage`) : ce drapeau ne sert qu'à afficher, sur l'écran
+     * d'appairage qui suit immédiatement, que l'appareil reste visible dans
+     * la liste d'administration jusqu'à révocation manuelle. Remis à faux dès
+     * qu'un nouvel appairage réussit, pour ne pas survivre à un changement de
+     * serveur.
+     */
+    val desappairementNonPrevenu: Boolean = false,
 ) {
     /**
      * Ce que devient l'état une fois une synchronisation menée à son terme.
