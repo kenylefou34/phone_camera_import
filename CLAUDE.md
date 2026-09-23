@@ -114,8 +114,11 @@ donne « Nouvelle tentative programmée » et jamais « En attente d'un réseau 
 qu'une révocation suivie d'un réappairage ne laisse pas revenir le bandeau
 « révoqué » ; que le bouton de la notification arrête sans rouvrir l'app.
 
-**Après la recette** : le lot 2 (choix des dossiers dans l'app), puis les
-issues #30 (journal serveur + purge des sessions) et #31 (galerie).
+**Après la recette** : le lot 2, dont la **conception est écrite et validée**
+(`docs/superpowers/specs/2026-09-23-app-android-lot2-design.md`, 23/09) —
+choix des dossiers par arborescence, fenêtre de dates pilotée depuis le
+téléphone, synchro automatique, désappairage. Puis les issues #30 (journal
+serveur + purge des sessions) et #31 (galerie).
 
 ## Feuille de route (issues GitHub)
 Prochaine étape : **la recette du lot 1 bis sur un téléphone** (voir REPRISE),
@@ -123,13 +126,16 @@ puis le lot 2 (choix des dossiers dans l'app). Trois issues ouvertes le 21/09 :
 **#29** lot 1 bis (fait, à éprouver), **#30** journal serveur + purge des
 sessions abandonnées, **#31** galerie de consultation (phase 2).
 
-**#16 est la plus importante de toutes** : le serveur **détruit** les médias
-qu'il n'a pas su ranger, parce que `sessions.cleanup()` s'exécute *avant* le
-test sur `errors`. Avec le découpage en paquets du lot 1 bis, un paquet propre
-faisait avancer l'horizon par-dessus le média détruit — perte définitive.
-L'application contourne en gelant l'horizon de tout le paquet, mais c'est une
-ceinture : le fichier, lui, est perdu. *(#32, ouverte le 21/09, en était un
-doublon ouvert sans avoir relu #16 ; fusionnée et fermée le 23/09.)*
+**#16 est CORRIGÉE** (23/09) : le serveur ne détruit plus les médias qu'il n'a
+pas su ranger. Ils partent en quarantaine sous `INCOMING_DIR/_echecs/<chemin
+envoyé>`, visibles dans un bloc « Médias non rangés » de la page d'admin, et
+n'en sortent que par un bouton de purge **manuel** — aucune purge automatique,
+qui réintroduirait le défaut avec un délai. La boucle est bornée : un même
+contenu au même chemin n'occupe qu'une place, deux contenus différents sont
+tous deux conservés. Le gel d'horizon côté application **reste indispensable**
+(un média en quarantaine n'est pas dans la bibliothèque) ; `docs/CONTRAT-APP.md`
+§4.4 l'explique. *(#32, ouverte le 21/09, en était un doublon ; fermée le
+23/09.)*
 **#33** porte les deux limites reportées au lot 2 — interruption non immédiate
 et écran figé pendant l'envoi d'un gros fichier — avec l'approche technique
 retenue en commentaire. **#34** les constats mineurs différés du lot 1 bis. Améliorations/Phase 2 tracées en issues #2 à #10 et #14 à #27
@@ -277,6 +283,14 @@ l'avoir gardé là.
 - L'**horizon est décidé par l'application**, pas par le serveur. Un horizon
   avancé au-delà d'un fichier jamais envoyé le perd définitivement et en
   silence. Détaillé dans `docs/CONTRAT-APP.md`, section 5.
+- `Devices.revoke()` supprime la ligne `devices` mais **pas ses horizons** :
+  pas de clé étrangère, et `PRAGMA foreign_keys` jamais activé (SQLite le
+  laisse inactif par défaut). Fuite lente, sans conséquence de correction
+  (l'identifiant d'appareil est un uuid4 tiré à chaque appairage). À corriger
+  avec le désappairage du lot 2.
+- Le téléphone **ne peut pas se retirer lui-même** : la seule route de
+  révocation, `POST /devices/{id}/revoke`, est derrière `require_admin`, et il
+  n'a qu'un jeton d'appareil.
 
 **Tests**
 - Simuler une machine d'origine : `TestClient(app, client=("192.168.1.50", 1))`.
