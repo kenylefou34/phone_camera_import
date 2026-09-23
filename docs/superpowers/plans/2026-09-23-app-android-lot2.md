@@ -1583,36 +1583,24 @@ Remplacer `connus[dossier] ?: valeur` par `connus[dossier] ?: 0.0`. Relancer :
 plus petit) — ce n'est donc pas une mutation utile. Utiliser plutôt
 `connus[dossier] ?: Double.MAX_VALUE` : ce test-là doit tomber. Restaurer.
 
-Puis, dans `Orchestrateur`, remettre `resultat.horizons` à la place de
-`aTransmettre` et lancer **toute** la suite : un test d'`OrchestrateurTest` doit
-tomber. S'il n'en tombe aucun, **ajouter** ce test à `OrchestrateurTest` :
+### ⚠️ Le câblage dans `Orchestrateur` n'est PAS couvrable à cette tâche
 
-```kotlin
-@Test
-fun `un rattrapage ancien n'efface pas la memoire des synchros recentes`() {
-    // Bout en bout. Le serveur annonce un horizon de 2026 ; le lot ne contient
-    // que du 2021 ; le commit ne doit PAS faire redescendre l'horizon, sinon
-    // la nuit suivante repropose cinq ans de medias.
-    val vieux = Media(1, "DCIM/Camera", "a.jpg", 10, instant = 1_609_459_200.0)
-    val serveur = ServeurFactice(
-        horizonRendu = EtatHorizon(depuis = null,
-                                   dossiers = mapOf("DCIM/Camera" to 1_789_000_000.0)))
+Ne cherche pas à écrire un test bout-en-bout ici, et ne t'inquiète pas si
+remettre `resultat.horizons` à la place de `aTransmettre` ne fait tomber aucun
+test : **c'est attendu, et démontrable.**
 
-    Orchestrateur(SourceFactice(listOf(vieux)), serveur)
-        .synchroniser(Reglages(
-            dossiersSeuls = setOf("DCIM/Camera"),
-            // Plancher de reprise, sinon l'horizon de 2026 ecarterait le media
-            // de 2021 et il n'y aurait rien a commiter.
-            debutJour = "2020-01-01"))
+Le plancher de sélection d'un média vaut `horizons[dossier] ?: depuis`
+(`Selection.kt`). Un média retenu a donc toujours `instant >= horizon connu`, et
+l'horizon calculé par `Horizons.calculer` — la date du dernier fichier confirmé
+— est forcément supérieur ou égal à celui-là. `monotone` ne peut donc jamais
+mordre tant que rien ne permet de descendre **sous** l'horizon connu.
 
-    assertEquals(1_789_000_000.0,
-                 serveur.commits.last().getValue("DCIM/Camera"), 0.001)
-}
-```
+Ce qui le permet, c'est l'**ordre de reprise** de la tâche 7 (`plancherReprise`).
+C'est donc la tâche 7 qui porte le test bout-en-bout, et elle le fait.
 
-> Adapter les noms `ServeurFactice`, `SourceFactice` et `EtatHorizon` à ceux
-> réellement présents dans `OrchestrateurTest.kt` — ce fichier a déjà ses
-> doublures, ne pas en créer de nouvelles.
+À cette tâche, la couverture est celle des quatre tests unitaires de
+`Horizons.monotone` ci-dessus. Le câblage d'une seule ligne dans `Orchestrateur`
+est relu, pas exécuté — et c'est assumé.
 
 - [ ] **Étape 6 : commettre**
 
@@ -1815,6 +1803,35 @@ Restaurer.
 Remplacer `plancherReprise == null -> normal` par
 `plancherReprise == null -> plancherReprise`. Relancer :
 `sans ordre de reprise l'horizon commande toujours` doit tomber. Restaurer.
+
+**Et le test bout-en-bout de la monotonie, qui n'était pas écrivable à la tâche
+6.** C'est seulement maintenant qu'un média peut être retenu *sous* l'horizon
+connu, donc seulement maintenant que `Horizons.monotone` peut mordre. Ajouter à
+`OrchestrateurTest.kt` — les doublures `FauxServeur` et `FausseSource`, ainsi que
+l'aide `media(instant, nom)`, existent déjà dans ce fichier :
+
+```kotlin
+    @Test fun un_rattrapage_ancien_n_efface_pas_la_memoire_des_synchros_recentes() {
+        // Le serveur connait deja septembre 2026 ; le rattrapage ne contient
+        // que du 2021. Sans la monotonie (tache 6), le commit renverrait 2021
+        // et le serveur ECRASERAIT la memoire de 2026 : la nuit suivante,
+        // cinq ans de medias seraient reproposes, relus, et rejetes un par un
+        // par l'anti-doublon.
+        val vieux = media(1_609_459_200.0)                 // 01/01/2021
+        val serveur = FauxServeur(horizons = mapOf("DCIM/Camera" to 1_789_000_000.0))
+
+        Orchestrateur(FausseSource(listOf(vieux)), serveur).synchroniser(
+            Reglages(dossiersSeuls = setOf("DCIM/Camera"), debutJour = "2020-01-01"))
+
+        assertEquals(1_789_000_000.0,
+                     serveur.commits.last().getValue("DCIM/Camera"), 0.001)
+    }
+```
+
+Le valider par mutation : remettre `resultat.horizons` à la place de
+`aTransmettre` dans `Orchestrateur` (le câblage de la tâche 6). **Ce test doit
+tomber** — c'est lui, et lui seul, qui prouve que la monotonie est branchée.
+Restaurer.
 
 - [ ] **Étape 6 : commettre**
 
