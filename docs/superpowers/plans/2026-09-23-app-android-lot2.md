@@ -838,6 +838,18 @@ class NavigationTest {
     }
 
     @Test
+    @Test fun une_synchro_en_cours_ne_maintient_pas_un_appareil_revoque_sur_l_accueil() {
+        // Cet état est ATTEIGNABLE, contrairement à ce qu'on croirait : une
+        // révocation en pleine synchro fait appeler Coffre.oublier() par
+        // TravailSynchro (TravailSynchro.kt:163), donc `appaire` retombe à
+        // faux pendant que l'avancement n'est pas encore effacé. Si l'ordre
+        // des deux gardes s'inversait, l'application afficherait l'accueil
+        // d'un appareil qui n'a plus de jeton, au lieu de l'écran de scan.
+        // C'est ce test, et lui seul, qui verrouille cet ordre.
+        assertEquals(Ecran.APPAIRAGE,
+            Navigation.ecranAffiche(Ecran.ACCUEIL, appaire = false, synchroEnCours = true))
+    }
+
     fun `l'ecran demande est affiche quand rien ne s'y oppose`() {
         assertEquals(Ecran.DOSSIERS,
             Navigation.ecranAffiche(Ecran.DOSSIERS, appaire = true, synchroEnCours = false))
@@ -927,7 +939,13 @@ Attendu : SUCCÈS, 5 tests.
 
 Intervertir les deux premières branches de `ecranAffiche` (mettre
 `synchroEnCours -> Ecran.ACCUEIL` en premier). Relancer : seul
-`sans appairage aucun autre ecran n'est atteignable` doit tomber. Restaurer.
+`une_synchro_en_cours_ne_maintient_pas_un_appareil_revoque_sur_l_accueil`
+doit tomber. Restaurer.
+
+> Cette prédiction a été corrigée en cours d'exécution : elle désignait d'abord
+> le test qui boucle avec `synchroEnCours = false`, lequel ne peut donc **pas**
+> distinguer l'ordre des deux gardes. La mutation ne tuait aucun test — l'ordre
+> n'était pas vérifié. Le test ci-dessus a été ajouté pour ça.
 
 Remplacer `Ecran.APPAIRAGE, Ecran.ACCUEIL -> null` par
 `Ecran.APPAIRAGE, Ecran.ACCUEIL -> Ecran.ACCUEIL`. Relancer : seul

@@ -20,6 +20,18 @@ class NavigationTest {
             Navigation.ecranAffiche(Ecran.DOSSIERS, appaire = true, synchroEnCours = true))
     }
 
+    @Test fun une_synchro_en_cours_ne_maintient_pas_un_appareil_revoque_sur_l_accueil() {
+        // Cet état est ATTEIGNABLE, contrairement à ce qu'on croirait : une
+        // révocation en pleine synchro fait appeler Coffre.oublier() par
+        // TravailSynchro (TravailSynchro.kt:163), donc `appaire` retombe à
+        // faux pendant que l'avancement n'est pas encore effacé. Si l'ordre
+        // des deux gardes s'inversait, l'application afficherait l'accueil
+        // d'un appareil qui n'a plus de jeton, au lieu de l'écran de scan.
+        // C'est ce test, et lui seul, qui verrouille cet ordre.
+        assertEquals(Ecran.APPAIRAGE,
+            Navigation.ecranAffiche(Ecran.ACCUEIL, appaire = false, synchroEnCours = true))
+    }
+
     @Test fun l_ecran_demande_est_affiche_quand_rien_ne_s_y_oppose() {
         assertEquals(Ecran.DOSSIERS,
             Navigation.ecranAffiche(Ecran.DOSSIERS, appaire = true, synchroEnCours = false))
