@@ -1272,7 +1272,7 @@ def test_un_doublon_n_est_pas_mis_en_quarantaine(tmp_path, monkeypatch):
 def test_le_telephone_peut_se_desappairer_lui_meme(tmp_path, monkeypatch):
     """Le téléphone n'a qu'un jeton d'appareil, pas le mot de passe d'admin.
 
-    Sans cette route il ne PEUT PAS se retirer : la seule revocation existante
+    Sans cette route il ne PEUT PAS se retirer : la seule révocation existante
     est derrière require_admin. Et le jour où il en a besoin — certificat du
     NUC change — le TLS échoue avant le HTTP, aucun 401 n'arrive jamais,
     oublier() n'est pas déclenché et l'écran de scan est inatteignable une fois
