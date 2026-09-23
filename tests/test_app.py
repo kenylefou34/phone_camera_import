@@ -1267,3 +1267,30 @@ def test_un_doublon_n_est_pas_mis_en_quarantaine(tmp_path, monkeypatch):
     assert a.quarantaine.lister(a.config.INCOMING_DIR / a.quarantaine.DOSSIER) == []
     # Le doublon a bien été détruit avec la session : rien n'est dupliqué.
     assert not session.exists()
+
+
+def test_le_telephone_peut_se_desappairer_lui_meme(tmp_path, monkeypatch):
+    """Le téléphone n'a qu'un jeton d'appareil, pas le mot de passe d'admin.
+
+    Sans cette route il ne PEUT PAS se retirer : la seule revocation existante
+    est derrière require_admin. Et le jour où il en a besoin — certificat du
+    NUC change — le TLS échoue avant le HTTP, aucun 401 n'arrive jamais,
+    oublier() n'est pas déclenché et l'écran de scan est inatteignable une fois
+    appairé. L'application était bloquée définitivement.
+    """
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    a.devices().set_horizon(dev_id, "DCIM/Camera", 1726574400.0)
+
+    r = client.post("/sync/desappairer", headers=h)
+
+    assert r.status_code == 200
+    assert client.get("/status", headers=h).status_code == 401
+    assert a.devices().get_horizons(dev_id) == {}
+
+
+def test_le_desappairage_exige_un_jeton_d_appareil(tmp_path, monkeypatch):
+    """Sans jeton, personne ne fait déconnecter le téléphone de quelqu'un."""
+    a, client = _client(tmp_path, monkeypatch)
+    assert client.post("/sync/desappairer").status_code == 401

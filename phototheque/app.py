@@ -306,6 +306,25 @@ def sync_horizon(dev_id: str = Depends(require_device)) -> dict:
             "dossiers": store.get_horizons(dev_id)}
 
 
+@app.post("/sync/desappairer")
+def sync_desappairer(dev_id: str = Depends(require_device)) -> dict:
+    """Permet au téléphone de se retirer LUI-MÊME (lot 2).
+
+    La seule révocation existante, `POST /devices/{id}/revoke`, est derrière
+    `require_admin` : le téléphone ne détient qu'un jeton d'appareil et ne peut
+    pas l'appeler.
+
+    Le risque est mesuré : un jeton volé permettrait de révoquer le téléphone
+    légitime, qui se réappairerait. C'est un désagrément, à comparer à ce que
+    le même jeton volé permet déjà — déposer des médias.
+
+    L'application efface son état local QUOI QU'IL ARRIVE, sans attendre cette
+    réponse : au moment précis où l'on désappaire pour se dépanner, le serveur
+    est le plus souvent injoignable.
+    """
+    return {"retire": devices().revoke(dev_id)}
+
+
 # ---- surface d'admin, protégée par mot de passe (issue #10) ----
 @app.get("/devices")
 def list_devices(_: None = Depends(require_admin)) -> list:

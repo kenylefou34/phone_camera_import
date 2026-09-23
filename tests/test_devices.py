@@ -195,3 +195,22 @@ def test_migration_d_une_base_sans_horizons(tmp_path):
     assert st.get_horizon_initial("vieux") is None   # aucune limite retroactive
     assert st.get_horizons("vieux") == {}
     st.close()
+
+
+def test_revoquer_un_appareil_supprime_aussi_ses_horizons(tmp_path):
+    """La table horizons n'a ni clé étrangère ni ON DELETE CASCADE.
+
+    Et `PRAGMA foreign_keys` n'est jamais activé (SQLite le laisse inactif par
+    défaut) : sans suppression explicite, chaque révocation laisse ses lignes
+    d'horizon orphelines, définitivement. Sans conséquence de correction —
+    l'identifiant d'appareil est un uuid4 tiré à chaque appairage — mais c'est
+    une fuite qui ne se répare jamais, et ce lot en multiplie les lignes.
+    """
+    st = DeviceStore(tmp_path / "dev.db")
+    dev_id, _ = st.pair("Pixel")
+    st.set_horizon(dev_id, "DCIM/Camera", 1726574400.0)
+
+    assert st.revoke(dev_id) is True
+
+    assert st.get_horizons(dev_id) == {}
+    st.close()

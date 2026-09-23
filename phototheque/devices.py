@@ -161,8 +161,16 @@ class DeviceStore:
                 for (i, l, p, c) in rows]
 
     def revoke(self, device_id: str) -> bool:
+        """Retire un appareil ET ses horizons.
+
+        La table `horizons` n'a ni clé étrangère ni `ON DELETE CASCADE`, et
+        `PRAGMA foreign_keys` n'est jamais activé — SQLite le laisse inactif par
+        défaut. Sans cette seconde requête, chaque révocation laissait ses lignes
+        orphelines pour toujours.
+        """
         with self._lock:
             cur = self._cx.execute("DELETE FROM devices WHERE id=?", (device_id,))
+            self._cx.execute("DELETE FROM horizons WHERE appareil=?", (device_id,))
             self._cx.commit()
         return cur.rowcount > 0
 
