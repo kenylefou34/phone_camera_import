@@ -54,4 +54,51 @@ class SelectionTest {
         val r = Selection.candidats(medias, setOf("DCIM/Camera"), emptyMap(), null)
         assertEquals(listOf(100.0, 200.0, 300.0), r.map { it.instant })
     }
+
+    @Test fun un_ordre_de_reprise_passe_sous_l_horizon_connu() {
+        // Abaisser la date de début doit REPROPOSER les vieux médias. Sans ce
+        // plancher, `horizons[dossier] ?: depuis` fait toujours gagner
+        // l'horizon et la date de début ne peut rien reprendre du tout.
+        val vieux = Media(1, "DCIM/Camera", "a.jpg", 10, instant = 100.0)
+        val recent = Media(2, "DCIM/Camera", "b.jpg", 10, instant = 900.0)
+
+        val candidats = Selection.candidats(
+            medias = listOf(vieux, recent),
+            dossiersChoisis = setOf("DCIM/Camera"),
+            horizons = mapOf("DCIM/Camera" to 500.0),
+            depuisSecondes = null,
+            plancherReprise = 50.0)
+
+        assertEquals(listOf(vieux, recent), candidats)
+    }
+
+    @Test fun sans_ordre_de_reprise_l_horizon_commande_toujours() {
+        val vieux = Media(1, "DCIM/Camera", "a.jpg", 10, instant = 100.0)
+        val recent = Media(2, "DCIM/Camera", "b.jpg", 10, instant = 900.0)
+
+        val candidats = Selection.candidats(
+            medias = listOf(vieux, recent),
+            dossiersChoisis = setOf("DCIM/Camera"),
+            horizons = mapOf("DCIM/Camera" to 500.0),
+            depuisSecondes = null,
+            plancherReprise = null)
+
+        assertEquals(listOf(recent), candidats)
+    }
+
+    @Test fun un_ordre_de_reprise_plus_haut_que_l_horizon_ne_saute_aucun_media() {
+        // Reprendre « depuis 2020 » sur un dossier dont l'horizon est à 2019
+        // ne doit pas fermer la fenêtre 2019-2020 : la reprise ABAISSE le
+        // plancher, elle ne le remonte jamais.
+        val media = Media(1, "DCIM/Camera", "a.jpg", 10, instant = 300.0)
+
+        val candidats = Selection.candidats(
+            medias = listOf(media),
+            dossiersChoisis = setOf("DCIM/Camera"),
+            horizons = mapOf("DCIM/Camera" to 200.0),
+            depuisSecondes = null,
+            plancherReprise = 500.0)
+
+        assertEquals(listOf(media), candidats)
+    }
 }

@@ -174,15 +174,25 @@ class TravailSynchro(
             // une synchro arretee au bout de deux fichiers. Cette regle-la lit
             // le bilan BRUT : peu importe QUI a arrete, la synchro n'est pas
             // allee au bout.
-            if (!bilan.interrompu && EtatSynchro.estUneReussite(bilan, depot.accesRefuse())) {
+            //
+            // La même condition borne l'écriture de `debutApplique` plus bas :
+            // une reprise coupée en deux (interrompue, ou révoquée, ou dont le
+            // serveur a raté le rangement) doit se rejouer entièrement la
+            // prochaine fois, pas être considérée acquise.
+            val reussiteComplete =
+                !bilan.interrompu && EtatSynchro.estUneReussite(bilan, depot.accesRefuse())
+            if (reussiteComplete) {
                 Memoire(contexte).enregistrerReussite(System.currentTimeMillis())
             }
 
             // Les dossiers entrés par une coche récursive depuis la dernière
-            // synchronisation. Une seule lecture, un seul `copy`, une seule
-            // écriture : la tâche 7 ajoute une autre mise à jour au même
-            // endroit (`debutApplique`), et deux `ecrire()` bâtis chacun sur
-            // sa propre lecture s'écraseraient l'un l'autre selon l'ordre.
+            // synchronisation, et la date de début dont la reprise vient
+            // d'être menée à son terme (`debutApplique`, tâche 7). Une seule
+            // lecture, un seul `copy`, une seule écriture : deux `ecrire()`
+            // bâtis chacun sur sa propre lecture s'écraseraient l'un l'autre
+            // selon l'ordre — et perdre `debutApplique` reproposerait tous
+            // les vieux médias chaque nuit, exactement ce que ce champ existe
+            // pour empêcher.
             val vus = dossiersVus?.keys.orEmpty()
             val magasin = MagasinReglages(contexte)
             val avant = magasin.lire()
@@ -206,7 +216,21 @@ class TravailSynchro(
             // cette garde `dossiersConnus` repartirait à zéro — la prochaine
             // synchro, permission revenue, annoncerait alors TOUS les
             // dossiers récursifs comme nouveaux, à tort.
-            if (vus.isNotEmpty()) magasin.ecrire(avant.copy(dossiersConnus = vus))
+            //
+            // Les deux champs ont chacun leur propre condition (`vus` non
+            // vide pour l'un, synchro complète et réussie pour l'autre) : un
+            // paquet interrompu peut très bien avoir déjà publié des
+            // dossiers vus sans que la synchro soit allée à son terme, et
+            // écrire `debutApplique` dans ce cas-là ferait croire la reprise
+            // terminée alors qu'il reste de vieux médias sous l'horizon
+            // jamais reproposés.
+            if (vus.isNotEmpty() || reussiteComplete) {
+                magasin.ecrire(avant.copy(
+                    dossiersConnus = if (vus.isNotEmpty()) vus else avant.dossiersConnus,
+                    debutApplique = if (reussiteComplete) reglages.debutJour
+                                     else avant.debutApplique,
+                ))
+            }
 
             _derniereIssue.value = IssueSynchro(
                 bilan = bilan.pourLEcran(), revoque = bilan.revoque, dossiersVus = dossiersVus,

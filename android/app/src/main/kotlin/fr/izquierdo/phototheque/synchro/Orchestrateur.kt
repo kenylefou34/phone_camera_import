@@ -65,7 +65,14 @@ class Orchestrateur(
         val tous = source.lister()
         val dossiersChoisis = Choix.dossiersASauvegarder(
             reglages, tous.map { it.dossier }.toSet())
-        val candidats = Selection.candidats(tous, dossiersChoisis, etat.dossiers, depuis)
+        // Un ordre PONCTUEL, pas un plancher permanent : `repriseADemander`
+        // ne redevient vrai qu'après un nouveau changement de la date de
+        // début (voir Reglages.repriseADemander).
+        val plancherReprise =
+            if (reglages.repriseADemander()) reglages.debutJour?.let { jourVersSecondes(it) }
+            else null
+        val candidats = Selection.candidats(
+            tous, dossiersChoisis, etat.dossiers, depuis, plancherReprise)
         val lots = Paquets.decouper(candidats, taillePaquet)
 
         val octetsTotal = candidats.sumOf { it.taille }
@@ -183,7 +190,13 @@ class Orchestrateur(
             val resultat = Horizons.calculer(envois, arretes)
             arretes = resultat.arretes
             // Borne par ce que le serveur connaît déjà : un horizon ne doit
-            // jamais reculer tout seul (Horizons.monotone).
+            // jamais reculer tout seul (Horizons.monotone). `etat.dossiers`,
+            // lu une seule fois au DÉBUT de la synchronisation, suffit comme
+            // `connus` uniquement parce que `Selection.candidats` trie tous
+            // les candidats par instant croissant et que `Paquets.decouper`
+            // conserve cet ordre (voir Paquets.kt:24-25) : un paquet plus
+            // tardif ne peut donc jamais transmettre une date plus ancienne
+            // qu'un paquet précédent du même dossier.
             val aTransmettre = Horizons.monotone(resultat.horizons, etat.dossiers)
             val bilanPaquet = serveur.commit(reponse.session, aTransmettre)
             // Le serveur n'ecrit AUCUN horizon quand son tri a echoue, et il a

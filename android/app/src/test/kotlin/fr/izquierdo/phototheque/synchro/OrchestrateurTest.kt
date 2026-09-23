@@ -370,6 +370,22 @@ class OrchestrateurTest {
         assertEquals(1.0, bilan.bilanServeur["errors"])
     }
 
+    @Test fun un_rattrapage_ancien_n_efface_pas_la_memoire_des_synchros_recentes() {
+        // Le serveur connaît déjà septembre 2026 ; le rattrapage ne contient
+        // que du 2021. Sans la monotonie (tâche 6), le commit renverrait
+        // 2021 et le serveur ÉCRASERAIT la mémoire de 2026 : la nuit
+        // suivante, cinq ans de médias seraient reproposés, relus, et
+        // rejetés un par un par l'anti-doublon.
+        val vieux = media(1_609_459_200.0)                 // 01/01/2021
+        val serveur = FauxServeur(horizons = mapOf("DCIM/Camera" to 1_789_000_000.0))
+
+        Orchestrateur(FausseSource(listOf(vieux)), serveur).synchroniser(
+            Reglages(dossiersSeuls = setOf("DCIM/Camera"), debutJour = "2020-01-01"))
+
+        assertEquals(1_789_000_000.0,
+                     serveur.commits.last().getValue("DCIM/Camera"), 0.001)
+    }
+
     @Test fun un_media_illisible_fait_quand_meme_progresser_la_barre() {
         // Un echec d'ENVOI avance fichiersFaits/octetsFaits ; un echec de
         // LECTURE (media supprime entre le listing et l'envoi, cas banal sur

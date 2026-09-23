@@ -42,6 +42,13 @@ data class Reglages(
      */
     fun enAuto(): Reglages = copy(auto = true, finJour = null)
 
+    /**
+     * Vrai si la date de début a changé depuis la dernière reprise menée à
+     * son terme. C'est ce qui fait qu'abaisser la date repropose les vieux
+     * médias UNE FOIS et non chaque nuit.
+     */
+    fun repriseADemander(): Boolean = debutJour != null && debutJour != debutApplique
+
     fun versJson(): String = FORMAT.encodeToString(serializer(), this)
 
     companion object {
