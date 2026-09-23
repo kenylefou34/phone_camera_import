@@ -578,10 +578,12 @@ def test_un_tri_qui_leve_une_exception_ne_fait_pas_avancer_l_horizon(tmp_path, m
 
 
 def test_un_tri_avec_des_erreurs_ne_fait_pas_avancer_l_horizon(tmp_path, monkeypatch):
-    """Tri « réussi » mais un fichier a échoué : il a été supprimé avec la session.
+    """Tri « réussi » mais un fichier a échoué : l'horizon ne bouge pas.
 
-    Faire avancer l'horizon reviendrait à dire au téléphone « bien reçu »
-    pour un média qui n'existe plus nulle part. On préfère qu'il repropose.
+    Faire avancer l'horizon reviendrait à dire au téléphone « bien reçu » pour
+    un média que la bibliothèque n'a pas ; il ne le proposerait plus jamais.
+    Depuis l'issue #16 le fichier n'est plus détruit mais mis en quarantaine —
+    ça ne change rien ici : l'horizon doit rester immobile dans les deux cas.
     """
     import io
     from phototheque import ingest
@@ -594,10 +596,11 @@ def test_un_tri_avec_des_erreurs_ne_fait_pas_avancer_l_horizon(tmp_path, monkeyp
                 data={"session": session, "path": "DCIM/Camera/a.jpg"},
                 files={"file": ("a.jpg", io.BytesIO(b"abc"), "image/jpeg")})
 
-    monkeypatch.setattr(ingest, "sort_session", lambda *a, **kw: {
-        "sorted": 0, "duplicates": 0, "to_triage": 0, "skipped": 0, "errors": 1,
-        "photos": 0, "videos": 0, "whatsapp": 0, "octets_ranges": 0,
-        "par_source_date": {}, "par_annee_mois": {}})
+    # On part du bilan REEL et on n'y change que `errors` : un dictionnaire
+    # recopie a la main derive des que Report gagne une cle — c'est ce qui est
+    # arrive avec `echecs`, ajoute pour l'issue #16.
+    faux_bilan = dict(ingest.bilan_vide(), errors=1)
+    monkeypatch.setattr(ingest, "sort_session", lambda *a, **kw: faux_bilan)
 
     r = client.post("/sync/commit", headers=h, json={
         "session": session, "horizons": {"DCIM/Camera": 1726574400.0}})
@@ -1113,3 +1116,154 @@ def test_naviguer_sans_identifiants_ne_declenche_jamais_la_limitation(tmp_path, 
 
     # Le bon mot de passe doit toujours passer : rien n'a été décompté.
     assert client.get("/", headers=_entetes("admin", "le-bon-mot-de-passe")).status_code == 200
+
+
+def _envoyer(client, entetes, session, chemin, contenu):
+    """Téléverse un fichier dans une session déjà ouverte."""
+    return client.post("/sync/upload", headers=entetes,
+                       data={"session": session, "path": chemin},
+                       files={"file": (chemin.rsplit("/", 1)[-1],
+                                       io.BytesIO(contenu), "image/jpeg")})
+
+
+def test_le_commit_met_a_l_abri_le_fichier_qu_il_n_a_pas_su_ranger(tmp_path, monkeypatch):
+    """Issue #16 : le nettoyage de session DÉTRUISAIT les fichiers en échec.
+
+    L'horizon n'avançait pas, donc le téléphone reproposait le média — mais
+    cette garantie repose sur un tiers. Une application qui libère la place
+    après envoi, un DCIM vidé à la main, et l'unique copie restante avait
+    disparu, détruite par le serveur lui-même.
+    """
+    import mediasort.dates as d, mediasort.sorter as s
+    monkeypatch.setattr(d, "date_from_metadata", lambda p: datetime.date(2023, 5, 26))
+    vraie_copie = s.copy_and_hash
+    def copie_capricieuse(source, destination):
+        if source.name == "casse.jpg":
+            raise OSError(28, "No space left on device")
+        return vraie_copie(source, destination)
+    monkeypatch.setattr(s, "copy_and_hash", copie_capricieuse)
+
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel"); h = {"Authorization": f"Bearer {secret}"}
+    bon, casse = b"une photo qui passe", b"une photo qui casse"
+    plan = client.post("/sync/plan", headers=h, json={"files": [
+        {"path": "Pictures/bon.jpg", "size": len(bon),
+         "hash": hashlib.sha256(bon).hexdigest()},
+        {"path": "Pictures/casse.jpg", "size": len(casse),
+         "hash": hashlib.sha256(casse).hexdigest()}]})
+    session = plan.json()["session"]
+    assert _envoyer(client, h, session, "Pictures/bon.jpg", bon).status_code == 200
+    assert _envoyer(client, h, session, "Pictures/casse.jpg", casse).status_code == 200
+
+    r = client.post("/sync/commit", headers=h,
+                    json={"session": session, "horizons": {"Pictures": 1726574400.0}})
+
+    assert r.status_code == 200 and r.json()["errors"] == 1
+    # LE point de l'issue : le média existe encore quelque part sur le NUC.
+    abri = a.config.INCOMING_DIR / "_echecs"
+    survivants = a.quarantaine.lister(abri)
+    assert [e["fichier"] for e in survivants] == ["Pictures/casse.jpg"]
+    assert (abri / "Pictures/casse.jpg").read_bytes() == casse
+    assert "space" in survivants[0]["raison"]
+    # Le dossier de session, lui, est bien nettoyé : rien n'est dupliqué.
+    assert not (a.config.INCOMING_DIR / session).exists()
+    # Et le fichier correctement rangé est en bibliothèque, pas en quarantaine.
+    assert (tmp_path / "Photos" / "2023" / "05 MAI" / "bon.jpg").read_bytes() == bon
+    # L'horizon n'avance toujours pas : le téléphone reproposera le dossier.
+    assert a.devices().get_horizons(dev_id) == {}
+
+
+def test_admin_annonce_les_medias_non_ranges(tmp_path, monkeypatch):
+    """Un média en quarantaine doit se VOIR : nom, raison, et le compte."""
+    html = web.admin_html(
+        devices=[], disk={"total": 1, "utilise": 0, "libre": 1, "pourcentage_utilise": 0},
+        media={"photos": 0, "videos": 0},
+        echecs=[{"fichier": "Pictures/casse.jpg", "raison": "No space left on device",
+                 "date": "2026-09-23T18:00:00+02:00", "octets": 1234}])
+
+    assert "Pictures/casse.jpg" in html
+    assert "No space left on device" in html
+    assert "non rang" in html.lower()          # « Médias non rangés »
+
+
+def test_admin_ne_parle_pas_de_quarantaine_quand_il_n_y_en_a_pas(tmp_path):
+    """Marche normale : le bloc n'existe pas, il n'inquiète personne pour rien."""
+    html = web.admin_html(
+        devices=[], disk={"total": 1, "utilise": 0, "libre": 1, "pourcentage_utilise": 0},
+        media={"photos": 0, "videos": 0}, echecs=[])
+
+    assert "non rang" not in html.lower()
+
+
+def test_la_purge_des_echecs_exige_le_mot_de_passe(tmp_path, monkeypatch):
+    """Sans mot de passe, on ne peut pas faire supprimer des médias au serveur."""
+    _pose_mot_de_passe(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    assert client.post("/echecs/purge").status_code == 401
+
+
+def test_la_purge_des_echecs_vide_la_quarantaine(tmp_path, monkeypatch):
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    abri = a.config.INCOMING_DIR / "quarantaine_essai"
+    session = a.config.INCOMING_DIR / ("b" * 32)
+    session.mkdir(parents=True)
+    (session / "a.jpg").write_bytes(b"photo")
+    a.quarantaine.mettre_de_cote(
+        session, [{"fichier": "a.jpg", "raison": "disque plein"}],
+        a.config.INCOMING_DIR / a.quarantaine.DOSSIER)
+
+    r = client.post("/echecs/purge", headers=entetes)
+
+    assert r.status_code == 200
+    assert a.quarantaine.lister(a.config.INCOMING_DIR / a.quarantaine.DOSSIER) == []
+
+
+def test_la_page_d_admin_montre_les_medias_non_ranges(tmp_path, monkeypatch):
+    """Le bloc existe (testé plus haut) — encore faut-il que la page l'alimente.
+
+    Sans ce test, retirer l'appel à quarantaine.lister() au moment de construire
+    la page laissait TOUTE la suite verte : le média était bien sauvé sur le
+    disque, mais plus personne ne pouvait le savoir.
+    """
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    session = a.config.INCOMING_DIR / ("c" * 32)
+    (session / "Pictures").mkdir(parents=True)
+    (session / "Pictures" / "casse.jpg").write_bytes(b"photo")
+    a.quarantaine.mettre_de_cote(
+        session, [{"fichier": "Pictures/casse.jpg", "raison": "disque plein"}],
+        a.config.INCOMING_DIR / a.quarantaine.DOSSIER)
+
+    html = client.get("/", headers=entetes).text
+
+    assert "Pictures/casse.jpg" in html
+    assert "disque plein" in html
+
+
+def test_un_doublon_n_est_pas_mis_en_quarantaine(tmp_path, monkeypatch):
+    """La quarantaine ne retient QUE les échecs.
+
+    Ce qui reste dans le dossier de session après un tri contient aussi les
+    doublons et le bruit exclu : le trieur ne les efface pas, il les ignore.
+    Les mettre à l'abri remplirait le disque de médias déjà rangés — et ferait
+    croire à une avalanche de pannes.
+    """
+    import mediasort.dates as d
+    monkeypatch.setattr(d, "date_from_metadata", lambda p: datetime.date(2023, 5, 26))
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel"); h = {"Authorization": f"Bearer {secret}"}
+    session = a.config.INCOMING_DIR / ("d" * 32)
+    session.mkdir(parents=True)
+    # Deux fois le même contenu : le premier est rangé, le second est un doublon.
+    (session / "a.jpg").write_bytes(b"exactement la meme photo")
+    (session / "b.jpg").write_bytes(b"exactement la meme photo")
+
+    r = client.post("/sync/commit", headers=h, json={"session": session.name})
+
+    assert r.status_code == 200
+    assert r.json()["sorted"] == 1 and r.json()["duplicates"] == 1
+    assert r.json()["errors"] == 0
+    assert a.quarantaine.lister(a.config.INCOMING_DIR / a.quarantaine.DOSSIER) == []
+    # Le doublon a bien été détruit avec la session : rien n'est dupliqué.
+    assert not session.exists()

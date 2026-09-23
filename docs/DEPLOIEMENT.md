@@ -498,6 +498,50 @@ cp ~/mediasort_catalog.db.avant-signatures ~/mediasort_catalog.db
 sudo systemctl start phototheque
 ```
 
+### Les médias que le serveur n'a pas su ranger
+
+Un fichier reçu que le trieur n'arrive pas à ranger — disque plein, média
+illisible, source modifiée pendant la copie — n'est **pas détruit**. Il est
+déplacé dans :
+
+```
+<INCOMING_DIR>/_echecs/<chemin envoyé par le téléphone>
+```
+
+soit, avec les réglages par défaut,
+`/media/izquierdo/Famille/incoming/_echecs/`. Chaque média y est accompagné
+d'un petit fichier `<nom>.motif` qui porte la raison de l'échec et sa date.
+
+**Avant l'issue #16, ces fichiers étaient supprimés.** Le nettoyage de fin de
+synchro effaçait le dossier de session sans regarder le bilan, et un fichier en
+échec y restait. L'horizon n'avançait pas, donc le téléphone reproposait le
+média — mais cette garantie reposait entièrement sur lui. Si l'application
+libérait la place après envoi, ou si le DCIM était vidé à la main, l'unique
+copie restante venait d'être détruite par le serveur.
+
+**Où les voir.** Sur la page d'administration, un bloc « Médias non rangés »
+apparaît dès qu'il y en a — et seulement dans ce cas. Il liste chaque fichier,
+sa raison, sa taille et sa date.
+
+**Comment ça se vide.** *Jamais tout seul.* Il n'y a **aucune purge
+automatique**, et c'est délibéré : une purge à l'ancienneté redeviendrait
+exactement le défaut qu'on vient de corriger, avec un délai. Le bouton
+« Vider la quarantaine » de la page d'administration est le seul moyen, et il
+demande confirmation.
+
+**Ce dossier ne grossit que quand quelque chose ne va pas.** Qu'il grossisse est
+un signal, pas un déchet. Traitez la cause avant de vider — sinon le téléphone
+renverra le même fichier à la prochaine synchro, il échouera pareil, et il
+reviendra. La boucle est bornée : un média identique au même chemin n'occupe
+qu'une place, ce n'est pas la quarantaine qui remplira le disque.
+
+En ligne de commande, si la page d'administration n'est pas accessible :
+
+```bash
+ls -R /media/izquierdo/Famille/incoming/_echecs/     # voir
+rm -rf /media/izquierdo/Famille/incoming/_echecs/    # vider (irréversible)
+```
+
 ---
 
 ## Paramétrage

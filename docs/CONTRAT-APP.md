@@ -232,11 +232,18 @@ son horizon n'avancera jamais. Les valeurs sont des **timestamps Unix flottants*
   "whatsapp": 0,
   "octets_ranges": 954,
   "par_source_date": { "filename": 1 },
-  "par_annee_mois": { "2026/09 SEPTEMBRE": 1 }
+  "par_annee_mois": { "2026/09 SEPTEMBRE": 1 },
+  "echecs": []
 }
 ```
 
-> ⚠️ **Ces onze champs ne sont pas construits par le serveur.** Ils viennent de
+`echecs` (ajouté le 23/09, issue #16) nomme les fichiers que le tri n'a pas su
+ranger, avec leur raison : `[{"fichier": "Pictures/a.jpg", "raison": "..."}]`.
+Le chemin est relatif au dossier de session, c'est-à-dire **exactement le
+`path` envoyé par l'application**. Champ additif : une application qui ne lit
+que `errors` continue de fonctionner sans rien changer.
+
+> ⚠️ **Ces douze champs ne sont pas construits par le serveur.** Ils viennent de
 > `Report.to_dict()` dans **`mediasort/sorter.py`**, c'est-à-dire du trieur.
 > Conséquence : une modification du trieur peut faire disparaître une ligne de
 > l'écran de détail de l'application **sans que personne ne touche à
@@ -249,14 +256,23 @@ son horizon n'avancera jamais. Les valeurs sont des **timestamps Unix flottants*
 aucun horizon.** Les médias concernés seront reproposés à la synchro suivante,
 et l'anti-doublon écartera sans les transférer ceux qui étaient déjà rangés.
 
-> ⚠️ **Et le fichier fautif, lui, a été DÉTRUIT.** Ce n'est pas un détail de
-> mise en œuvre, c'est la moitié de l'invariante, et c'est elle qui dicte ce que
-> l'application doit faire.
+> ⚠️ **Le fichier fautif est MIS DE CÔTÉ, plus détruit** — mais l'application
+> doit se comporter exactement comme avant.
 >
-> `phototheque/app.py` appelle `sessions.cleanup()` — un `shutil.rmtree` sans
-> condition — **avant** de tester `errors`, et `mediasort/sorter.py` n'efface pas
-> ce qu'il n'a pas su ranger : le fichier en échec est encore dans la session
-> quand elle est supprimée. Il n'existe donc plus **nulle part** côté serveur.
+> Jusqu'au 23/09, `phototheque/app.py` appelait `sessions.cleanup()` — un
+> `shutil.rmtree` sans condition — **avant** de tester `errors` ; or
+> `mediasort/sorter.py` n'efface pas ce qu'il n'a pas su ranger, donc le fichier
+> en échec était encore dans la session quand elle était supprimée. Il
+> n'existait plus **nulle part**. L'issue #16 l'a corrigé : le fichier part
+> maintenant dans `INCOMING_DIR/_echecs/<chemin envoyé>`, visible sur la page
+> d'administration, et n'en sort que sur une purge manuelle.
+>
+> **Cela ne relâche rien côté application.** Un média en quarantaine n'est PAS
+> dans la bibliothèque : il n'est pas rangé, pas daté, pas au catalogue, et rien
+> ne le rangera tout seul. Faire avancer l'horizon par-dessus reviendrait
+> toujours à le perdre de vue définitivement. La quarantaine est une ceinture
+> côté serveur — le média existe encore sur le disque, donc le mainteneur peut
+> le récupérer — pas un remplacement du gel d'horizon.
 >
 > Conséquence pour l'application, et elle est vitale depuis que la
 > synchronisation est découpée en **paquets** (un `commit` par paquet) : dès

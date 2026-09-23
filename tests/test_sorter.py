@@ -203,3 +203,72 @@ def test_sort_keeps_source_when_it_changes_during_copy(tmp_path, monkeypatch):
 def test_retirer_copie_douteuse_tolere_un_fichier_absent(tmp_path):
     """Le nettoyage ne doit jamais lever : sinon l'erreur serait comptée deux fois."""
     sorter._retirer_copie_douteuse(tmp_path / "jamais-ecrit.jpg")  # ne lève pas
+
+
+def test_report_nomme_les_fichiers_en_echec(tmp_path, monkeypatch):
+    """Un échec n'est pas qu'un compteur : le bilan dit QUEL fichier et POURQUOI.
+
+    Sans cette liste, impossible de mettre en quarantaine les seuls fichiers en
+    échec : ce qui reste dans le dossier de session contient aussi les doublons
+    et le bruit exclu, qu'on a raison de détruire (issue #16).
+    """
+    _force_date(monkeypatch, datetime.date(2023, 5, 26))
+    src = tmp_path / "src"; src.mkdir()
+    lib = tmp_path / "lib"; lib.mkdir()
+    (src / "sous").mkdir()
+    (src / "sous" / "a.jpg").write_bytes(b"photo-a")
+    cat = Catalog(":memory:")
+    monkeypatch.setattr(sorter, "file_hash", lambda p: "empreinte-corrompue")
+
+    report = sorter.sort_folder(src, lib, cat, dry_run=False)
+
+    assert report.errors == 1
+    assert len(report.echecs) == 1
+    echec = report.echecs[0]
+    # Chemin RELATIF au dossier trié : c'est ce dont la quarantaine a besoin
+    # pour reconstruire l'arborescence, et c'est affichable sans divulguer les
+    # chemins absolus du serveur.
+    assert echec["fichier"] == "sous/a.jpg"
+    assert "empreinte" in echec["raison"]
+    assert report.to_dict()["echecs"] == report.echecs
+    cat.close()
+
+
+def test_report_nomme_l_echec_d_une_source_modifiee(tmp_path, monkeypatch):
+    """Deuxième chemin d'erreur : la source change entre le contrôle et la copie."""
+    _force_date(monkeypatch, datetime.date(2023, 5, 26))
+    src = tmp_path / "src"; src.mkdir()
+    lib = tmp_path / "lib"; lib.mkdir()
+    (src / "a.jpg").write_bytes(b"photo-a")
+    cat = Catalog(":memory:")
+    cat.add_media("autre-media", 1, "/lib/z.jpg", None, "seed")  # pré-filtre off
+    def copie_dune_source_modifiee(source, destination):
+        destination.write_bytes(b"contenu-different")
+        return "empreinte-differente"
+    monkeypatch.setattr(sorter, "copy_and_hash", copie_dune_source_modifiee)
+
+    report = sorter.sort_folder(src, lib, cat, dry_run=False)
+
+    assert report.errors == 1
+    assert [e["fichier"] for e in report.echecs] == ["a.jpg"]
+    assert "source" in report.echecs[0]["raison"]
+    cat.close()
+
+
+def test_report_nomme_l_echec_d_une_erreur_systeme(tmp_path, monkeypatch):
+    """Troisième chemin d'erreur : OSError (disque plein, fichier illisible)."""
+    _force_date(monkeypatch, datetime.date(2023, 5, 26))
+    src = tmp_path / "src"; src.mkdir()
+    lib = tmp_path / "lib"; lib.mkdir()
+    (src / "a.jpg").write_bytes(b"photo-a")
+    cat = Catalog(":memory:")
+    def disque_plein(source, destination):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(sorter, "copy_and_hash", disque_plein)
+
+    report = sorter.sort_folder(src, lib, cat, dry_run=False)
+
+    assert report.errors == 1
+    assert [e["fichier"] for e in report.echecs] == ["a.jpg"]
+    assert "space" in report.echecs[0]["raison"]
+    cat.close()

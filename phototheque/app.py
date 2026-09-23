@@ -16,8 +16,8 @@ from pydantic import BaseModel
 from mediasort import classify
 from mediasort.catalog import Catalog
 from mediasort.hashing import file_hash
-from . import (adminauth, apk, config, essais, ingest, pairing, sessions,
-               stats, tls, web)
+from . import (adminauth, apk, config, essais, ingest, pairing, quarantaine,
+               sessions, stats, tls, web)
 from .devices import DeviceStore
 
 # docs_url/redoc_url/openapi_url à None = les routes n'existent pas du tout,
@@ -239,13 +239,23 @@ def sync_commit(req: CommitRequest, dev_id: str = Depends(require_device)) -> di
             cat.close()
     else:
         bilan = ingest.bilan_vide()      # session vide : rien n'a été envoyé
+    # AVANT le nettoyage, impérativement : `sessions.cleanup` supprime le
+    # dossier de session en entier, et un fichier que le tri n'a pas su ranger
+    # y est resté. C'est ainsi que le serveur détruisait les médias qu'il
+    # n'avait pas rangés (issue #16). Seule la liste `echecs` dit quoi sauver :
+    # ce qui reste dans la session contient aussi les doublons et le bruit
+    # exclu, qu'on a raison de détruire.
+    if bilan["echecs"]:
+        quarantaine.mettre_de_cote(
+            session_dir, bilan["echecs"],
+            config.INCOMING_DIR / quarantaine.DOSSIER)
     sessions.cleanup(config.INCOMING_DIR, req.session)
-    # L'horizon n'avance qu'après un tri INTÉGRALEMENT réussi. Si un seul
-    # fichier a échoué, il est resté dans la session — que le nettoyage
-    # ci-dessus vient de supprimer. Avancer l'horizon dirait au téléphone
-    # « bien reçu » pour un média qui n'existe plus nulle part : perte
-    # définitive et silencieuse. On préfère qu'il repropose tout le dossier ;
-    # l'anti-doublon écartera les fichiers déjà rangés sans les transférer.
+    # L'horizon n'avance qu'après un tri INTÉGRALEMENT réussi. Avancer dirait
+    # au téléphone « bien reçu » pour un média que la bibliothèque n'a pas ;
+    # il ne le proposerait plus jamais. On préfère qu'il repropose tout le
+    # dossier ; l'anti-doublon écartera les fichiers déjà rangés sans les
+    # transférer. La quarantaine ci-dessus est la ceinture : même si le
+    # téléphone ne repasse jamais, le média existe encore sur le NUC.
     if bilan["errors"] == 0:
         # Borne haute : un horodatage dans le futur — horloge d'appareil photo
         # mal réglée, bug de l'application, valeur aberrante — FERMERAIT
@@ -300,6 +310,19 @@ def sync_horizon(dev_id: str = Depends(require_device)) -> dict:
 @app.get("/devices")
 def list_devices(_: None = Depends(require_admin)) -> list:
     return devices().list()
+
+
+@app.post("/echecs/purge")
+def purge_echecs(_: None = Depends(require_admin)) -> dict:
+    """Vide la quarantaine des médias que le tri n'a pas su ranger (issue #16).
+
+    Derrière le mot de passe d'administration : c'est la seule route du
+    serveur qui supprime des médias sur commande. La purge reste manuelle,
+    jamais automatique — une purge à l'ancienneté redeviendrait le défaut
+    qu'on a corrigé, avec un délai.
+    """
+    return {"retires": quarantaine.purger(
+        config.INCOMING_DIR / quarantaine.DOSSIER)}
 
 
 @app.post("/devices/{device_id}/revoke")
@@ -409,7 +432,9 @@ def pair_depuis(depuis: str = Form(...), _: None = Depends(require_admin)) -> st
 def admin(_: None = Depends(require_admin)) -> str:
     d = stats.disk_stats(config.LIBRARY_DIR)
     return web.admin_html(devices().list(), d, _media_counts(),
-                          apk.infos(config.APK_FILE))
+                          apk.infos(config.APK_FILE),
+                          quarantaine.lister(
+                              config.INCOMING_DIR / quarantaine.DOSSIER))
 
 
 @app.get("/apk")

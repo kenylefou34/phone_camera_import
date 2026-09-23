@@ -25,6 +25,11 @@ class Report:
     bytes_sorted: int = 0
     by_source_date: dict = field(default_factory=dict)
     by_year_month: dict = field(default_factory=dict)
+    # Les fichiers en échec, NOMMÉS. Un compteur ne suffit pas : ce qui reste
+    # dans le dossier trié contient aussi les doublons et le bruit exclu, que
+    # l'appelant a raison de détruire. Seule cette liste dit ce qu'il faut
+    # sauver (issue #16). Chemin RELATIF au dossier trié.
+    echecs: list = field(default_factory=list)
 
     def to_dict(self) -> dict:
         """Bilan sérialisable (clés françaises pour l'API)."""
@@ -36,6 +41,7 @@ class Report:
             "octets_ranges": self.bytes_sorted,
             "par_source_date": self.by_source_date,
             "par_annee_mois": self.by_year_month,
+            "echecs": self.echecs,
         }
 
 
@@ -68,6 +74,13 @@ def _retirer_copie_douteuse(destination: Path) -> None:
 def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> Report:
     """Range tous les médias de 'source' dans 'library'. Renvoie un Report détaillé."""
     report = Report()
+
+    def echec(p: Path, raison: str) -> None:
+        """Compte l'erreur ET retient le fichier, pour que l'appelant le sauve."""
+        report.errors += 1
+        report.echecs.append({"fichier": p.relative_to(source).as_posix(),
+                              "raison": raison})
+
     fichiers = [p for p in sorted(source.rglob("*")) if p.is_file()]
     # Pré-chargement des dates de métadonnées en un seul appel exiftool (perf).
     medias = [p for p in fichiers if classify.media_type(p.suffix) is not None]
@@ -136,13 +149,13 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
             if empreinte is not None and empreinte_copiee != empreinte:
                 # L'empreinte du contrôle anti-doublon et celle lue à la copie
                 # diffèrent : la source a changé entre-temps, on ne touche à rien.
-                report.errors += 1
+                echec(p, "la source a changé pendant le tri")
                 log.error("La source a changé pendant le tri : %s", p)
                 _retirer_copie_douteuse(dest)
                 continue
             # Copie sûre : on relit la destination avant de retirer la source.
             if file_hash(dest) != empreinte_copiee:
-                report.errors += 1
+                echec(p, "empreinte différente après copie")
                 log.error("Empreinte différente après copie : %s", dest)
                 _retirer_copie_douteuse(dest)
                 continue
@@ -151,6 +164,6 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
                               signature)
             p.unlink()
         except OSError as e:
-            report.errors += 1
+            echec(p, str(e))
             log.error("Erreur sur %s : %s", p, e)
     return report

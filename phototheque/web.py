@@ -240,8 +240,42 @@ def _bloc_apk(apk: dict | None) -> str:
     )
 
 
+def _bloc_echecs(echecs: list | None) -> str:
+    """Section « Médias non rangés » — ABSENTE quand tout va bien.
+
+    En marche normale cette liste est vide, et un bloc « 0 média en échec »
+    n'apprendrait rien tout en inquiétant. On ne l'affiche donc que s'il y a
+    quelque chose à montrer — et alors il faut qu'il se voie.
+    """
+    if not echecs:
+        return ""
+    lignes = "".join(
+        '<li><span class="nom">{fichier}</span>'
+        '<span class="quand">{date}</span>'
+        '<span class="etiquette">{raison}</span>'
+        '<span class="pousse">{taille}</span></li>'.format(
+            fichier=html.escape(e["fichier"]),
+            date=_date(e.get("date", "")),
+            raison=html.escape(e.get("raison", "")),
+            taille=_go(e.get("octets", 0)),
+        )
+        for e in echecs
+    )
+    return (
+        "<h2>Médias non rangés</h2>"
+        '<div class="carte">'
+        f"<p>{len(echecs)} média(s) reçus que le serveur n'a pas su ranger. "
+        "Ils sont <strong>conservés</strong> sur le NUC : le téléphone peut "
+        "les avoir supprimés de son côté. Videz seulement après avoir traité "
+        "la cause.</p>"
+        f"<ul class=\"liste\">{lignes}</ul>"
+        "<p><button onclick=\"purger()\">Vider la quarantaine</button></p>"
+        "</div>"
+    )
+
+
 def admin_html(devices: list, disk: dict, media: dict,
-               apk: dict | None = None) -> str:
+               apk: dict | None = None, echecs: list | None = None) -> str:
     """Page d'administration : chiffres clés, occupation disque, appareils.
 
     `apk` est facultatif : les appels historiques à trois arguments — et les
@@ -280,10 +314,14 @@ def admin_html(devices: list, disk: dict, media: dict,
         '<h2>Ajouter un téléphone</h2>'
         '<a class="bouton principal" href="/pair">Afficher le QR d\'appairage</a>'
         f"{_bloc_apk(apk)}"
+        f"{_bloc_echecs(echecs)}"
         "<script>"
         "function revoquer(id){"
         "if(!confirm('Révoquer cet appareil ?'))return;"
         "fetch('/devices/'+id+'/revoke',{method:'POST'}).then(()=>location.reload());}"
+        "function purger(){"
+        "if(!confirm('Supprimer definitivement ces medias du NUC ?'))return;"
+        "fetch('/echecs/purge',{method:'POST'}).then(()=>location.reload());}"
         "</script>"
     )
     return _document("phototheque — admin", corps)
