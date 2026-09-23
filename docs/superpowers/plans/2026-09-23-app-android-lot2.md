@@ -362,7 +362,10 @@ class ArbreTest {
             "Pictures/WhatsApp" to 300,
             "Pictures/Messages" to 38))
 
-        assertEquals(listOf("DCIM", "Pictures"), arbre.map { it.libelle })
+        // « DCIM » se replie avec son unique enfant : il ne contient aucun
+        // média et n'a qu'un sous-dossier, donc y entrer n'apprendrait rien.
+        // « Pictures » en a deux, il reste donc un niveau à part entière.
+        assertEquals(listOf("DCIM/Camera", "Pictures"), arbre.map { it.libelle })
         val pictures = arbre.first { it.libelle == "Pictures" }
         assertEquals(listOf("Messages", "WhatsApp"), pictures.enfants.map { it.libelle })
         assertEquals("Pictures/Messages", pictures.enfants.first().chemin)
