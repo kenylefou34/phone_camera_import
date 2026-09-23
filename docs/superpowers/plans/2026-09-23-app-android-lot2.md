@@ -2682,31 +2682,11 @@ cd /home/invisart/dev/phone_camera_import && ./deploy/envoyer-apk.sh
 
 - [ ] **Étape 6 : recette manuelle**
 
-Aucun test d'instrumentation ne couvre ce qui suit. À dérouler sur un vrai
-téléphone, dans cet ordre :
-
-1. Ouvrir les réglages, entrer dans `Pictures`, cocher `Messages` en « ce
-   dossier seulement ». Ressortir, rentrer : la coche est toujours là.
-2. Cocher `Android` en « ce dossier et ses sous-dossiers ». Vérifier que la
-   chaîne `Android/media/com.whatsapp/…` apparaît **repliée sur une seule
-   ligne**, et que son compte de médias n'est pas zéro.
-3. Vérifier qu'un dossier dont un seul enfant est coché affiche la case **à
-   moitié pleine**, et non pleine.
-4. Poser une date de début au 1er janvier 2019, lancer. Vérifier que des médias
-   anciens sont proposés — c'est l'ordre de reprise.
-5. Laisser finir, relancer immédiatement : **rien ne doit être reproposé**.
-   C'est la preuve que la reprise ne s'applique qu'une fois.
-6. Poser une date de fin dans le passé. Vérifier que l'écran annonce combien de
-   médias sont **hors fenêtre**.
-7. Cocher « Sauvegarder automatiquement ». Vérifier que la date de fin est
-   **effacée**, que l'application le **dit**, et que le champ reste visible,
-   grisé.
-8. Brancher le téléphone sur le WiFi de la maison et attendre une nuit. Vérifier
-   au matin que « dernière sauvegarde » s'est mise à jour sans intervention.
-9. Désappairer **en coupant le WiFi d'abord**. Vérifier que l'application
-   revient à l'écran de scan malgré le serveur injoignable, et qu'elle **dit**
-   que le serveur n'a pas pu être prévenu.
-10. Réappairer. Vérifier que les dossiers cochés ont survécu au désappairage.
+La recette qui fait foi est **[`docs/APPLICATION-ANDROID.md`](../../APPLICATION-ANDROID.md)
+§9** (17 étapes, chacune avec sa raison). Celle qui figurait ici a été écrite
+avant elle, ne couvrait ni la moitié des écrans ni les corrections de la
+relecture finale, et deux recettes concurrentes est exactement le piège que
+`CLAUDE.md` avait déjà dû signaler pour le lot 1 bis.
 
 - [ ] **Étape 7 : commettre et pousser**
 

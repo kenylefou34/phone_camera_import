@@ -375,6 +375,19 @@ déjà à jour ; voir
 `docs/superpowers/specs/2026-09-23-app-android-lot2-design.md` §4.3–4.4 pour
 le scénario que ça évite et le détail du calcul.
 
+**Et une seconde garde, du même esprit : un dossier dont la fenêtre de dates
+a écarté quelque chose PAR LE BAS ne voit pas son horizon bouger de la
+synchronisation.** Sans elle, la règle du dessus se retournait contre
+elle-même : sur un dossier déjà connu dont l'horizon est *sous* la date de
+début, la sélection propose bien la tranche `[horizon, début[` — c'est
+justement le soin que prend l'application de ne jamais remonter un plancher —
+puis la fenêtre l'écarte, et l'horizon se serait posé sur le dernier fichier
+envoyé, c'est-à-dire **au-dessus** de la tranche écartée. Le piège de cette
+section, mot pour mot, déclenché par un geste banal : remonter sa date de
+début. L'horizon gelé garde la tranche reproposable le jour où la date
+redescend. La borne HAUTE, elle, ne gèle rien : un horizon calculé sur les
+seuls fichiers envoyés ne peut pas dépasser la date de fin.
+
 ---
 
 ## 6. Les extensions acceptées

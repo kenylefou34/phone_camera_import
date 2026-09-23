@@ -11,7 +11,7 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
 + revue visuelle (doublons, floues/rafales, re-datation) ; **Phase 3** visages ;
 **Phase 4** génération (livre photo…).
 
-## État actuel (2026-09-18, soir)
+## État actuel (2026-09-24)
 - ✅ **Trieur `mediasort/`** (Python, stdlib + exiftool/ffmpeg) : range par vraie
   date (métadonnées > nom > système > `_A_TRIER/`), anti-doublon par catalogue
   SQLite d'empreintes. Testé.
@@ -95,9 +95,30 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   rendu monotone côté application — voir `docs/CONTRAT-APP.md` §4.5 et §5).
   Trois nouveaux écrans (Dossiers, Sauvegarde, Appareil), atteints depuis
   l'accueil par « Réglages » — mode d'emploi et recette de validation :
-  `docs/APPLICATION-ANDROID.md` §8-§9. **220 tests** côté app (144 au lot
+  `docs/APPLICATION-ANDROID.md` §8-§9. **240 tests** côté app (144 au lot
   1 bis), **301** côté serveur (264 au lot 1 bis).
   **Écrit et relu, jamais exécuté sur un appareil** — voir la section REPRISE.
+- ✅ **Relecture finale du lot 2 (24/09)** : la première à regarder les
+  **interactions** entre les douze tâches, chacune relue isolément jusque-là.
+  Trois défauts critiques, tous trouvés là et nulle part ailleurs.
+  1. La borne basse de la fenêtre de dates **faisait sauter l'horizon
+     par-dessus des médias jamais envoyés** — des photos perdues en silence,
+     déclenché par un geste banal : *remonter* sa date de début. L'horizon
+     d'un dossier amputé par le bas est désormais **gelé** (`Orchestrateur`),
+     comme l'est celui d'un dossier en échec.
+  2. Cocher l'automatique **grisait « Sauvegarder maintenant » pour toujours**
+     et affichait une attente permanente : un `PeriodicWorkRequest` reste
+     `ENQUEUED` entre deux passes, il n'est jamais « terminé ». La décision
+     est extraite en `EtatTravail.combiner`, pure et testée.
+  3. « Interrompre » **détruisait la chaîne périodique** (`cancelUniqueWork`
+     ne suspend rien) : plus rien n'était planifié, l'interrupteur restait
+     affiché actif. Il reprogramme maintenant, avec six heures de délai pour
+     ne pas relancer aussitôt ce qu'on vient d'arrêter.
+  Plus : zéro dossier coché ne compte plus comme une réussite (et se voit sur
+  l'accueil), « Ne pas sauvegarder » sur un dossier à moitié coché décoche
+  enfin sa descendance, **remonter** la date de début ne déclenche plus de
+  reprise complète, et trois commentaires faux corrigés. Rapport complet :
+  `.superpowers/sdd/2026-09-23-app-android-lot2/correction-finale-report.md`.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
@@ -122,11 +143,11 @@ cd ~/dev/phone_camera_import && ./deploy/envoyer-apk.sh
 **Pourquoi cette recette pèse lourd :** il n'existe dans ce projet **aucun test
 d'instrumentation Android**. `WorkManager`, le service de premier plan, les
 notifications, le `BroadcastReceiver`, tout Compose et `VerrouSynchro` ne sont
-couverts par **rien** d'automatique. Les 220 tests côté app ne disent rien de
+couverts par **rien** d'automatique. Les 240 tests côté app ne disent rien de
 ces chemins-là ; les relectures les ont jugés par la lecture, pas par
 l'exécution.
 
-La recette (`docs/APPLICATION-ANDROID.md` §9) fait **15 étapes** et chacune
+La recette (`docs/APPLICATION-ANDROID.md` §9) fait **17 étapes** et chacune
 existe pour une raison précise — la suivre telle quelle plutôt que
 d'improviser. Si c'est la toute première fois que l'application tourne sur un
 appareil, la recette d'origine du lot 1 bis (tâche 10 de
@@ -317,6 +338,21 @@ l'avoir gardé là.
   réappairage, lui, doit reprogrammer pour de vrai si l'automatique était
   coché — un désappairage l'avait déprogrammé sans toucher au réglage
   affiché.
+- **Un `PeriodicWorkRequest` n'atteint JAMAIS d'état terminal** (relecture
+  finale du lot 2) : entre deux passes il reste `ENQUEUED`, donc
+  `!state.isFinished` y est vrai en permanence. Un écran qui en déduit « un
+  travail attend » affiche une attente éternelle et grise son bouton pour
+  toujours, dès la seconde où l'utilisateur coche l'automatique. La file
+  périodique ne doit contribuer qu'à « en cours » ; l'attente et la nouvelle
+  tentative ne se lisent que sur la file **manuelle**.
+- **`cancelUniqueWork` sur un travail périodique ne suspend pas la passe : il
+  DÉTRUIT la chaîne.** Plus rien n'est planifié, et le réglage reste affiché
+  actif. Il faut replanifier derrière — mais avec un **délai initial**, car
+  un `PeriodicWorkRequest` neuf démarre dès que ses contraintes sont
+  satisfaites, sans attendre sa première période : sans ce délai, le bouton
+  « Interrompre » relancerait aussitôt ce qu'il vient d'arrêter (téléphone en
+  charge sur le WiFi de la maison = contraintes satisfaites, c'est-à-dire
+  exactement le cas où l'on appuie).
 - **Les bornes de la fenêtre de dates sont asymétriques par construction**
   (UTC+14 pour le début, UTC-12 + 1 jour pour la fin) : le téléphone ignore le
   fuseau dans lequel une photo a été prise, et le principe retenu est

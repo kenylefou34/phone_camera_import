@@ -187,6 +187,22 @@ Le bouton « synchro auto » ne fait que basculer de l'un à l'autre.
    dossier est absent de `horizons`. Et **la baisser est un ordre de reprise**
    (§4.3). Elle ne bloque jamais rien de nouveau : sur un dossier déjà connu,
    c'est l'horizon qui commande.
+
+   **Correction apportée par la relecture finale (2026-09-24).** La dernière
+   phrase décrivait une intention, pas le code : la fenêtre est un filtre, et
+   sa borne basse s'applique *après* la sélection, donc elle **peut** amputer
+   un dossier déjà connu — précisément quand son horizon est *sous* la date de
+   début, c'est-à-dire après avoir **remonté** cette date. La tranche
+   `[horizon, début[` est alors écartée, et si l'horizon avançait quand même
+   sur les médias envoyés, elle passerait dessous : perdue pour toujours, sans
+   qu'un compteur bouge. L'application **gèle donc l'horizon de tout dossier
+   dont la borne basse a écarté un candidat** (même mécanisme que les dossiers
+   en échec, `Horizons.calculer`). Ce que l'écran promet reste vrai — « les
+   autres ne seront pas repris tant que vous ne baissez pas la date de
+   début » — et c'est le gel qui le rend tenable : la tranche redevient
+   proposable dès que la date redescend. Son coût est réel et assumé : tant
+   que la fenêtre coupe quelque chose par le bas, l'horizon de ce dossier
+   n'avance plus, donc ses médias sont réempreintés à chaque passe.
 3. **En automatique, la fenêtre est grisée, pas cachée.** On doit pouvoir lire
    *pourquoi* la borne haute a disparu.
 
@@ -208,6 +224,13 @@ C'est ce qui permet à la date de remplacer le désappairage comme moyen de tout
 reprendre (§6). La lecture concurrente — « plancher permanent », plancher réel
 = `max(date, horizon)` **en permanence** — a été écartée : l'horizon
 commanderait toujours, et baisser la date ne reproposerait jamais rien.
+
+**Seule une BAISSE est un ordre de reprise**, et la relecture finale
+(2026-09-24) a dû le faire respecter au code : `repriseADemander` traitait
+tout changement comme un ordre, y compris **remonter** la date. Or remonter la
+date est le geste de qui veut *alléger* — passer de 2019 à 2024 — et une
+reprise repropose et réempreinte (SHA-256 intégral) des dizaines de milliers
+de fichiers. Le geste obtenait l'exact contraire de ce qu'il demandait.
 
 **Son coût a disparu avec la monotonie de la tâche 6 (§4.4).** L'horizon
 transmis à chaque `commit` est `max(horizon calculé sur ce paquet, horizon
@@ -251,6 +274,19 @@ L'ordre de reprise du §4.3 est la seule exception, et il est délibéré : il
 `PeriodicWorkRequest`, période de 6 h, contraintes **réseau non facturé + en
 charge**. « Synchroniser maintenant » reste disponible à tout moment et ignore
 les contraintes.
+
+**Ce que la relecture finale (2026-09-24) a dû corriger pour que cette
+dernière phrase soit vraie.** Un `PeriodicWorkRequest` n'atteint jamais d'état
+terminal : entre deux passes il reste `ENQUEUED`. L'écran, qui dérivait son
+état de « une exécution n'est pas terminée », lisait donc une attente
+permanente dès que l'interrupteur était coché — bouton « Sauvegarder
+maintenant » **grisé pour toujours**, barre de progression et « En attente
+d'un réseau… » affichés en continu. La file périodique ne contribue plus qu'à
+l'état « en cours » ; l'attente et la nouvelle tentative ne se lisent que sur
+la file manuelle. Et « Interrompre », qui annule les deux files,
+**reprogramme** la file périodique derrière lui (avec six heures de délai,
+sinon il relancerait aussitôt ce qu'il vient d'arrêter) : `cancelUniqueWork`
+ne suspend pas une passe, il détruit la chaîne.
 
 ### 5.2 Ce que « toutes les 6 h » veut dire
 

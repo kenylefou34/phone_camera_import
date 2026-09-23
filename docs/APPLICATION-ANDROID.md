@@ -261,6 +261,38 @@ faire reculer ce que le serveur retient (la monotonie de l'horizon, voir
 rechangé la date ne repropose rien : c'est la preuve que la reprise ne
 s'applique qu'une fois.
 
+**La REMONTER ne déclenche aucune reprise**, et c'est voulu : passer de 2019 à
+2024 est le geste de qui veut alléger, pas relire toute la bibliothèque.
+
+**Ce que la remonter fait, en revanche** : les médias d'un dossier situés
+entre son horizon et la nouvelle date de début ne partent plus, et
+l'application **gèle l'horizon de ce dossier** tant que c'est le cas. Rien
+n'est perdu — la tranche redevient proposable dès que la date redescend — mais
+l'horizon de ce dossier n'avance plus, donc ses médias sont réanalysés à
+chaque sauvegarde. Si une sauvegarde vous paraît longue sans rien envoyer,
+c'est la première chose à regarder : effacer la date de début remet tout
+d'aplomb.
+
+### Deux gestes qui décochent plus que la ligne touchée
+
+- **« Ne pas sauvegarder » sur un dossier à la case à moitié pleine** décoche
+  **toute sa descendance**, et la ligne dépliée nomme d'abord les
+  sous-dossiers concernés. Sans cela, ce choix n'aurait strictement aucun
+  effet : la case est à moitié pleine parce que ce sont des enfants, et non ce
+  dossier-là, qui sont cochés.
+- **Aucun dossier coché du tout** : l'accueil le dit en bandeau, et la
+  sauvegarde n'est plus comptée comme une réussite — sans quoi le compteur
+  resterait au vert pendant que plus rien ne part.
+
+### « Interrompre » ne déprogramme pas la sauvegarde automatique
+
+Le bouton annule les deux files, la manuelle et l'automatique, puis
+**reprogramme** l'automatique si l'interrupteur est coché — avec six heures de
+délai, pour ne pas relancer aussitôt ce qu'on vient d'arrêter. La prochaine
+passe automatique glisse donc d'autant. Sans cette reprogrammation, un seul
+appui aurait déprogrammé la sauvegarde automatique pour de bon, l'interrupteur
+restant affiché « actif ».
+
 ### Le désappairage : ce que dit la confirmation
 
 Désappairer efface l'état local **inconditionnellement**, même si le serveur
@@ -423,6 +455,22 @@ les prendre pour des régressions de cette recette.
     l'afficher serait une fausse réassurance, pire qu'une fausse alerte
     puisqu'elle éteint le seul filet du projet contre les pannes muettes.
 
+16. **Cocher « Sauvegarder automatiquement », revenir à l'accueil et le
+    regarder sans rien toucher.** Le bouton « Sauvegarder maintenant » doit
+    rester **actif**, et l'accueil ne doit afficher ni barre de progression,
+    ni « Sauvegarde en attente… », ni « Interrompre ».
+    *Pourquoi :* un travail périodique reste `ENQUEUED` entre deux passes,
+    pour toujours. L'écran en tirait une attente permanente et grisait le
+    bouton définitivement. Rien, côté JVM, ne peut voir un bouton grisé.
+
+17. **Décocher tous les dossiers** (Réglages → Dossiers). L'accueil doit
+    afficher le bandeau « Aucun dossier n'est sélectionné ». Lancer une
+    sauvegarde : le compteur de jours ne doit **pas** repasser à « Sauvegardé
+    aujourd'hui ». Recocher ensuite ce qu'il faut.
+    *Pourquoi :* c'est la panne muette la plus facile à déclencher depuis que
+    les dossiers se choisissent — une sauvegarde « réussie » à zéro média,
+    verte, indéfiniment.
+
 **Si c'est la toute première fois que l'application tourne sur un appareil**,
 la recette du lot 1 bis (tâche 10 de
 [`superpowers/plans/2026-09-21-app-android-lot1bis.md`](superpowers/plans/2026-09-21-app-android-lot1bis.md),
@@ -437,6 +485,10 @@ Sur le téléphone, après une synchro :
 - l'accueil affiche **« Sauvegardé aujourd'hui »**, sans bandeau ;
 - **« Voir le détail »** liste les dossiers réellement trouvés, avec leur
   nombre de médias, et signale en rouge ceux qui sont suivis mais introuvables.
+- **L'accueil lui-même** annonce les dossiers qu'une coche « et ses
+  sous-dossiers » vient d'embarquer pour la première fois. Ce rappel est là
+  pour qu'on n'ait rien à surveiller : il ne se cache pas derrière « Voir le
+  détail ».
 
 Sur le NUC :
 
