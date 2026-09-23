@@ -56,6 +56,30 @@ class ReglagesTest {
                             debutApplique = "2019-01-01").repriseADemander())
     }
 
+    @Test fun remonter_la_date_de_debut_n_est_PAS_un_ordre_de_reprise() {
+        // Spec §4.3 : c'est la BAISSER qui est un ordre de reprise. Passer de
+        // 2019 à 2024 est le geste inverse — on veut alléger. Le traiter comme
+        // une reprise reproposerait et réempreinterait (SHA-256 intégral) des
+        // dizaines de milliers de fichiers : le contraire exact de ce que
+        // l'utilisateur vient de demander.
+        assertFalse(Reglages(debutJour = "2024-01-01",
+                             debutApplique = "2019-01-01").repriseADemander())
+        // Et le même jour d'une année plus tard, pour que la comparaison de
+        // chaînes ISO soit bien vérifiée au-delà du champ « année ».
+        assertFalse(Reglages(debutJour = "2019-06-15",
+                             debutApplique = "2019-02-28").repriseADemander())
+        assertTrue(Reglages(debutJour = "2019-02-28",
+                            debutApplique = "2019-06-15").repriseADemander())
+    }
+
+    @Test fun aucun_dossier_coche_se_lit_dans_les_reglages() {
+        // Ce que l'accueil affiche, et ce qui interdit de compter la synchro
+        // comme une réussite : sans dossier, rien ne part.
+        assertTrue(Reglages().aucunDossierChoisi())
+        assertFalse(Reglages.DEFAUT.aucunDossierChoisi())
+        assertFalse(Reglages(dossiersRecursifs = setOf("Pictures")).aucunDossierChoisi())
+    }
+
     // --- Reglages.apresSynchro : les quatre combinaisons vus vide/non vide x
     // reussiteComplete vrai/faux. Extraite de TravailSynchro pour être
     // testable sur la JVM : ce projet n'a aucun test d'instrumentation

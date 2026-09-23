@@ -155,6 +155,78 @@ class ChoixTest {
         assertEquals(Coche.HERITEE, Choix.etat(feuille, emptySet(), setOf("Pictures")))
     }
 
+    // --- PARTIELLE sur trois niveaux, et « Ne pas sauvegarder » qui fait
+    // vraiment quelque chose ---
+
+    /** Trois niveaux : « Pictures » > « Pictures/App » > « Pictures/App/Sent ». */
+    private fun arbreATroisNiveaux(): Noeud {
+        val petitFils = Noeud("Pictures/App/Sent", "Sent", 5, 5, emptyList())
+        val fils = Noeud("Pictures/App", "App", 0, 5, listOf(petitFils))
+        return Noeud("Pictures", "Pictures", 0, 5, listOf(fils))
+    }
+
+    @Test fun un_petit_fils_coche_rend_le_grand_pere_partiel() {
+        // La recursion n'etait verifiee qu'a UN niveau. S'arreter aux enfants
+        // directs afficherait une case vide sur « Pictures » alors que sa
+        // descendance part : on croirait le dossier hors sauvegarde.
+        val racine = arbreATroisNiveaux()
+
+        assertEquals(Coche.PARTIELLE,
+                     Choix.etat(racine, setOf("Pictures/App/Sent"), emptySet()))
+        assertEquals(listOf("Pictures/App/Sent"),
+                     Choix.descendantsCoches(racine, setOf("Pictures/App/Sent"), emptySet()))
+    }
+
+    @Test fun les_descendants_coches_sont_nommes_a_tous_les_niveaux() {
+        // Ce sont eux que l'ecran affiche avant de proposer « Ne pas
+        // sauvegarder » : decocher toute une descendance sans dire laquelle
+        // serait une surprise.
+        val racine = arbreATroisNiveaux()
+
+        assertEquals(listOf("Pictures/App", "Pictures/App/Sent"),
+                     Choix.descendantsCoches(
+                         racine, setOf("Pictures/App/Sent"), setOf("Pictures/App")))
+    }
+
+    @Test fun ne_pas_sauvegarder_sur_un_dossier_a_moitie_coche_decoche_la_descendance() {
+        // LE defaut que ce correctif supprime : sur un noeud PARTIELLE,
+        // retirer le seul chemin -- qui n'est dans aucun des deux ensembles --
+        // ne faisait RIEN. L'utilisateur croyait avoir exclu le dossier, la
+        // case restait a moitie pleine, et l'enfant continuait de partir.
+        val avant = Reglages(dossiersSeuls = setOf("Pictures/App/Sent", "DCIM/Camera"),
+                             dossiersRecursifs = setOf("Pictures/App"))
+
+        val apres = Choix.apresCoche(avant, "Pictures", Coche.AUCUNE)
+
+        assertEquals(setOf("DCIM/Camera"), apres.dossiersSeuls)
+        assertEquals(emptySet<String>(), apres.dossiersRecursifs)
+        // Le voisin homonyme n'est pas emporte : « Pictures » ne couvre pas
+        // « PicturesBis ».
+        assertEquals(setOf("PicturesBis"),
+                     Choix.apresCoche(Reglages(dossiersSeuls = setOf("PicturesBis")),
+                                      "Pictures", Coche.AUCUNE).dossiersSeuls)
+    }
+
+    @Test fun cocher_un_dossier_n_efface_pas_les_choix_de_sa_descendance() {
+        // Le pendant du test precedent : propager la coche, elle, effacerait
+        // en silence trois sous-dossiers choisis un par un la semaine
+        // derniere. Seul « Ne pas sauvegarder » emporte le sous-arbre.
+        val avant = Reglages(dossiersSeuls = setOf("Pictures/App/Sent"))
+
+        val apres = Choix.apresCoche(avant, "Pictures", Coche.RECURSIVE)
+
+        assertEquals(setOf("Pictures/App/Sent"), apres.dossiersSeuls)
+        assertEquals(setOf("Pictures"), apres.dossiersRecursifs)
+    }
+
+    @Test fun un_dossier_bascule_d_une_coche_a_l_autre_ne_reste_pas_dans_les_deux() {
+        val apres = Choix.apresCoche(
+            Reglages(dossiersSeuls = setOf("Pictures")), "Pictures", Coche.RECURSIVE)
+
+        assertEquals(emptySet<String>(), apres.dossiersSeuls)
+        assertEquals(setOf("Pictures"), apres.dossiersRecursifs)
+    }
+
     @Test fun un_dossier_recursif_pour_lui_meme_n_a_pas_de_parent_recursif() {
         // "Pictures" est RECURSIVE pour lui-même (Choix.etat le dit déjà) :
         // il n'est pas son propre ancêtre, donc pas HERITEE.

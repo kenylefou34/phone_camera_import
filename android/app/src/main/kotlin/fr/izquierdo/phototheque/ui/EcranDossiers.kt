@@ -98,6 +98,11 @@ fun EcranDossiers(
                     coche = Choix.etat(noeud, reglages.dossiersSeuls,
                                        reglages.dossiersRecursifs),
                     heritageDe = Choix.parentRecursif(noeud.chemin, reglages.dossiersRecursifs),
+                    // Les responsables d'une case à moitié pleine : sans eux,
+                    // « Ne pas sauvegarder » décocherait toute la descendance
+                    // sans que l'utilisateur sache ce qu'il décoche.
+                    descendantsCoches = Choix.descendantsCoches(
+                        noeud, reglages.dossiersSeuls, reglages.dossiersRecursifs),
                     deplie = deplie == noeud.chemin,
                     surDeplier = { deplie = if (deplie == noeud.chemin) null else noeud.chemin },
                     surChoix = { surCoche(noeud.chemin, it); deplie = null },
@@ -117,7 +122,8 @@ fun EcranDossiers(
 
 @Composable
 private fun LigneDossier(
-    noeud: Noeud, coche: Coche, heritageDe: String?, deplie: Boolean,
+    noeud: Noeud, coche: Coche, heritageDe: String?, descendantsCoches: List<String>,
+    deplie: Boolean,
     surDeplier: () -> Unit, surChoix: (Coche) -> Unit,
     surEntrer: () -> Unit, surApercu: () -> Unit,
 ) {
@@ -157,6 +163,19 @@ private fun LigneDossier(
                         "sous-dossiers un par un.",
                         style = MaterialTheme.typography.bodySmall)
                 } else {
+                    // Case à moitié pleine : on nomme les responsables AVANT
+                    // les trois choix. « Ne pas sauvegarder » va décocher
+                    // toute la descendance — c'est la seule façon que ce
+                    // choix fasse quelque chose ici (voir Choix.apresCoche) —
+                    // et décocher sans dire quoi serait une surprise, y
+                    // compris sur des dossiers qu'on ne voit pas depuis cette
+                    // ligne.
+                    if (coche == Coche.PARTIELLE && descendantsCoches.isNotEmpty()) {
+                        Text("Sauvegardé par ses sous-dossiers : " +
+                             Lisible.enumerer(descendantsCoches) +
+                             ". « Ne pas sauvegarder » les décochera tous.",
+                             style = MaterialTheme.typography.bodySmall)
+                    }
                     // Les trois choix en clair. Le vocabulaire est la moitié
                     // de l'affaire : « récursivement » ne veut rien dire pour
                     // personne.
@@ -194,8 +213,9 @@ private fun TriCase(coche: Coche, surClic: () -> Unit) {
 
 /**
  * Les chiffres qui parlent : c'est eux, et non des vignettes, qui font
- * reconnaître un dossier. « tous < 50 Ko » démasque `.thumbnails` sans avoir à
- * l'ouvrir.
+ * reconnaître un dossier. Ils ne disent que des COMPTES — aucune taille n'est
+ * calculée ici, et le bouton « voir » reste le moyen de démasquer un dossier
+ * de vignettes.
  *
  * Les deux comptes sont donnés dès qu'ils diffèrent : `mediasTotal` seul, à
  * côté d'un choix « Ce dossier seulement » qui ne prendra que `medias`,

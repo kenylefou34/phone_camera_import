@@ -43,11 +43,38 @@ data class Reglages(
     fun enAuto(): Reglages = copy(auto = true, finJour = null)
 
     /**
-     * Vrai si la date de début a changé depuis la dernière reprise menée à
-     * son terme. C'est ce qui fait qu'abaisser la date repropose les vieux
+     * Vrai si la date de début a **baissé** depuis la dernière reprise menée
+     * à son terme. C'est ce qui fait qu'abaisser la date repropose les vieux
      * médias UNE FOIS et non chaque nuit.
+     *
+     * Seule une BAISSE est un ordre de reprise (spec §4.3 : « la baisser est
+     * un ordre de reprise »). La remonter — de 2019 à 2024, pour réduire la
+     * charge — ne doit surtout pas en déclencher une : une reprise repropose
+     * et réempreinte (SHA-256 intégral) des dizaines de milliers de fichiers,
+     * soit l'exact contraire du geste demandé.
+     *
+     * Les dates sont comparées comme des CHAÎNES, et c'est correct pour du
+     * format ISO seul : même longueur, champs rangés du plus significatif au
+     * moins significatif, chiffres complétés par des zéros — l'ordre
+     * alphabétique y est l'ordre chronologique.
+     *
+     * Une date jamais appliquée (`debutApplique` nul) est toujours un ordre
+     * de reprise : rien n'a encore été repris, il n'y a rien à comparer.
      */
-    fun repriseADemander(): Boolean = debutJour != null && debutJour != debutApplique
+    fun repriseADemander(): Boolean =
+        debutJour != null && (debutApplique == null || debutJour < debutApplique)
+
+    /**
+     * Vrai si l'utilisateur n'a coché AUCUN dossier.
+     *
+     * Décocher les trois dossiers d'origine prend deux minutes sur l'écran
+     * des dossiers. La synchronisation « réussit » alors à zéro média, le
+     * compteur de l'accueil reste au vert, et plus rien n'est sauvegardé :
+     * la panne muette canonique de ce projet. L'accueil doit le dire, et
+     * [EtatSynchro.estUneReussite] refuser d'appeler ça une réussite.
+     */
+    fun aucunDossierChoisi(): Boolean =
+        dossiersSeuls.isEmpty() && dossiersRecursifs.isEmpty()
 
     /**
      * Ce que ces réglages deviennent une fois une synchronisation menée à son

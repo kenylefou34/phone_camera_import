@@ -186,8 +186,16 @@ class TravailSynchro(
             // une reprise coupée en deux (interrompue, ou révoquée, ou dont le
             // serveur a raté le rangement) doit se rejouer entièrement la
             // prochaine fois, pas être considérée acquise.
-            val reussiteComplete =
-                !bilan.interrompu && EtatSynchro.estUneReussite(bilan, depot.accesRefuse())
+            //
+            // `vus` est calculé ici, avant la règle, parce qu'elle en a
+            // besoin : une synchronisation qui n'a couvert AUCUN dossier
+            // (tout décoché, ou le seul dossier coché déplacé par WhatsApp)
+            // n'a rien sauvegardé et ne doit pas rallumer le vert. Il ressert
+            // tel quel pour `apresSynchro`, plus bas.
+            val vus = dossiersVus?.keys.orEmpty()
+            val reussiteComplete = !bilan.interrompu && EtatSynchro.estUneReussite(
+                bilan, depot.accesRefuse(),
+                dossiersRetenus = Choix.dossiersASauvegarder(reglages, vus).size)
             if (reussiteComplete) {
                 Memoire(contexte).enregistrerReussite(System.currentTimeMillis())
             }
@@ -201,7 +209,6 @@ class TravailSynchro(
             // en une seule lecture, un seul appel, une seule écriture : deux
             // `ecrire()` bâtis chacun sur sa propre lecture s'écraseraient
             // l'un l'autre selon l'ordre.
-            val vus = dossiersVus?.keys.orEmpty()
             val magasin = MagasinReglages(contexte)
             val avant = magasin.lire()
             // Vide au tout premier lancement (aucune synchronisation

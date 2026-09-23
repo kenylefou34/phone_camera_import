@@ -67,9 +67,11 @@ class EtatSynchroTest {
     }
 
     @Test fun un_dossier_sauvegarde_absent_du_telephone_est_reperable() {
-        // Les trois dossiers sauvegardes sont codes en dur. Si l'un n'existe
-        // pas ici, la synchro reussit avec ZERO media et rien ne le dit : c'est
-        // la difference entre les deux ensembles qui le revele.
+        // Si un dossier suivi n'existe pas ici, la synchro reussit avec ZERO
+        // media et rien ne le dit : c'est la difference entre les deux
+        // ensembles qui le revele. (Le jeu de donnees reprend les trois
+        // dossiers d'origine, qui ne sont plus qu'une valeur par defaut
+        // depuis le lot 2 ; la regle complete, elle, est `Choix.introuvables`.)
         val sauvegardes = setOf("DCIM/Camera", "Pictures/WhatsApp", "Movies/WhatsApp")
         val vus = mapOf("DCIM/Camera" to 1200, "Pictures/Screenshots" to 40)
         assertEquals(setOf("Pictures/WhatsApp", "Movies/WhatsApp"),
@@ -104,20 +106,39 @@ class EtatSynchroTest {
     @Test fun sans_acces_aux_medias_une_synchro_a_vide_n_est_PAS_une_reussite() {
         // Sinon la date serait gravee dans Memoire, donc sur le disque, et plus
         // rien ne l'effacerait : un mensonge durable.
-        assertFalse(EtatSynchro.estUneReussite(bilan(), accesRefuse = true))
+        assertFalse(EtatSynchro.estUneReussite(bilan(), accesRefuse = true, dossiersRetenus = 2))
     }
 
     @Test fun un_rangement_en_erreur_cote_serveur_n_est_pas_une_reussite() {
         // errors > 0 : le serveur n'a fait avancer AUCUN horizon.
-        assertFalse(EtatSynchro.estUneReussite(bilan(erreursServeur = 2.0), accesRefuse = false))
+        assertFalse(EtatSynchro.estUneReussite(
+            bilan(erreursServeur = 2.0), accesRefuse = false, dossiersRetenus = 2))
     }
 
     @Test fun une_synchro_propre_est_une_reussite() {
-        assertTrue(EtatSynchro.estUneReussite(bilan(), accesRefuse = false))
+        assertTrue(EtatSynchro.estUneReussite(
+            bilan(), accesRefuse = false, dossiersRetenus = 2))
     }
 
     @Test fun un_echec_local_ou_une_revocation_ne_sont_pas_des_reussites() {
-        assertFalse(EtatSynchro.estUneReussite(bilan(echecs = 1), accesRefuse = false))
-        assertFalse(EtatSynchro.estUneReussite(bilan(revoque = true), accesRefuse = false))
+        assertFalse(EtatSynchro.estUneReussite(
+            bilan(echecs = 1), accesRefuse = false, dossiersRetenus = 2))
+        assertFalse(EtatSynchro.estUneReussite(
+            bilan(revoque = true), accesRefuse = false, dossiersRetenus = 2))
+    }
+
+    @Test fun une_synchro_sans_aucun_dossier_retenu_n_est_PAS_une_reussite() {
+        // Le scenario : l'utilisateur decoche les trois dossiers d'origine sur
+        // le nouvel ecran (deux minutes de manipulation). La synchro
+        // « reussit » alors a zero media, la date part dans Memoire, donc sur
+        // le disque, et le compteur de l'accueil reste au vert pendant que
+        // RIEN n'est sauvegarde. Meme mensonge durable que l'acces refuse,
+        // sous un autre habit -- et plus facile a declencher.
+        //
+        // Couvre aussi le cas ou les dossiers sont bien coches mais aucun
+        // n'existe sur le telephone (WhatsApp deplace) : `dossiersRetenus`
+        // est resolu sur ce que MediaStore rend vraiment.
+        assertFalse(EtatSynchro.estUneReussite(
+            bilan(), accesRefuse = false, dossiersRetenus = 0))
     }
 }

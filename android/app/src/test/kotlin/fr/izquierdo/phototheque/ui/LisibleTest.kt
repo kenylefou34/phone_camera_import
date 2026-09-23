@@ -35,4 +35,18 @@ class LisibleTest {
         assertEquals("moins d'une minute", Lisible.restant(0))
         assertEquals("~ 45 s", Lisible.restant(45))
     }
+
+    @Test fun une_courte_liste_de_noms_est_donnee_en_entier() {
+        assertEquals("a, b", Lisible.enumerer(listOf("a", "b")))
+        assertEquals("", Lisible.enumerer(emptyList()))
+    }
+
+    @Test fun une_longue_liste_de_noms_annonce_le_reste_sans_l_escamoter() {
+        // L'« a un pres » typique : avec `noms.size` au lieu du reste, on
+        // annoncerait « c et 5 autres » sur une liste de cinq.
+        assertEquals("a, b, c et 2 autre(s)",
+                     Lisible.enumerer(listOf("a", "b", "c", "d", "e")))
+        // La limite exacte ne doit RIEN ajouter.
+        assertEquals("a, b, c", Lisible.enumerer(listOf("a", "b", "c")))
+    }
 }

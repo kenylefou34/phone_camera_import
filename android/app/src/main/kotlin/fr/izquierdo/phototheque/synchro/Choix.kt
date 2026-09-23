@@ -72,15 +72,65 @@ object Choix {
         noeud.chemin in recursifs -> Coche.RECURSIVE
         noeud.chemin in seuls -> Coche.DOSSIER
         parentRecursif(noeud.chemin, recursifs) != null -> Coche.HERITEE
-        descendanceCochee(noeud, seuls, recursifs) -> Coche.PARTIELLE
+        descendantsCoches(noeud, seuls, recursifs).isNotEmpty() -> Coche.PARTIELLE
         else -> Coche.AUCUNE
     }
 
-    private fun descendanceCochee(
+    /**
+     * Les descendants de [noeud] que l'utilisateur a cochés, à n'importe
+     * quelle profondeur, du plus proche au plus lointain.
+     *
+     * C'est ce qui rend un nœud PARTIELLE — et c'est aussi ce que l'écran
+     * doit NOMMER : sur un dossier à moitié coché, « Ne pas sauvegarder » ne
+     * veut rien dire tant qu'on ne sait pas qui, en dessous, est responsable.
+     *
+     * La récursion compte : un petit-fils coché rend le grand-père PARTIELLE
+     * tout autant qu'un fils. S'arrêter aux enfants directs afficherait une
+     * case vide sur un dossier dont la descendance part pourtant.
+     */
+    fun descendantsCoches(
         noeud: Noeud, seuls: Set<String>, recursifs: Set<String>,
-    ): Boolean = noeud.enfants.any {
-        it.chemin in seuls || it.chemin in recursifs || descendanceCochee(it, seuls, recursifs)
+    ): List<String> = noeud.enfants.flatMap { enfant ->
+        val lui = if (enfant.chemin in seuls || enfant.chemin in recursifs)
+                      listOf(enfant.chemin) else emptyList()
+        lui + descendantsCoches(enfant, seuls, recursifs)
     }
+
+    /**
+     * Les réglages une fois la case de [chemin] mise à [coche].
+     *
+     * Pure, et donc vérifiable : c'est le seul endroit où un appui de
+     * l'utilisateur change ce qui sera sauvegardé, et une régression y serait
+     * muette — la sauvegarde réussirait, sur les mauvais dossiers.
+     *
+     * **« Ne pas sauvegarder » emporte tout le sous-arbre**, et c'est le cœur
+     * de la fonction. Sur un dossier à moitié coché, retirer le seul [chemin]
+     * — qui, justement, n'est dans aucun des deux ensembles — ne ferait
+     * ABSOLUMENT rien : la case resterait à moitié pleine et les enfants
+     * continueraient de partir, alors que l'utilisateur croirait les avoir
+     * exclus. C'est le défaut que la branche HERITEE de l'écran traite déjà
+     * en refusant d'afficher ce choix-là ; ici, il existe une réponse
+     * meilleure qu'un refus, puisque les responsables sont EN DESSOUS et
+     * qu'on peut les décocher.
+     *
+     * Les deux autres choix, eux, ne touchent pas à la descendance : « Ce
+     * dossier seulement » posé sur un parent ne doit pas effacer en silence
+     * trois sous-dossiers cochés un par un la semaine dernière.
+     */
+    fun apresCoche(reglages: Reglages, chemin: String, coche: Coche): Reglages = when (coche) {
+        Coche.AUCUNE -> reglages.copy(
+            dossiersSeuls = sansSousArbre(reglages.dossiersSeuls, chemin),
+            dossiersRecursifs = sansSousArbre(reglages.dossiersRecursifs, chemin))
+        else -> reglages.copy(
+            dossiersSeuls = if (coche == Coche.DOSSIER) reglages.dossiersSeuls + chemin
+                            else reglages.dossiersSeuls - chemin,
+            dossiersRecursifs = if (coche == Coche.RECURSIVE) reglages.dossiersRecursifs + chemin
+                                else reglages.dossiersRecursifs - chemin)
+    }
+
+    /** [ensemble] débarrassé de [chemin] ET de toute sa descendance. */
+    private fun sansSousArbre(ensemble: Set<String>, chemin: String): Set<String> =
+        ensemble.filterNotTo(mutableSetOf()) { sousArbre(it, chemin) }
 
     /**
      * L'ancêtre récursif responsable de [chemin], ou `null` si aucun ne le

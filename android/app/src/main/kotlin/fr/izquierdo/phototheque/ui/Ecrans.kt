@@ -35,6 +35,15 @@ fun EcranAccueil(etat: EtatSynchro, reglages: Reglages, maintenantMs: Long,
             "Autorisez l'accès à toutes les photos dans les réglages Android.")
         if (etat.revoque) Bandeau(
             "Cet appareil a été révoqué. Scannez un nouveau QR sur la page du serveur.")
+        // Décocher les trois dossiers d'origine prend deux minutes sur l'écran
+        // des dossiers. Sans ce bandeau, la sauvegarde « réussirait » à zéro
+        // média et le compteur resterait au vert pour toujours : la panne
+        // muette canonique de ce projet. `EtatSynchro.estUneReussite` refuse
+        // par ailleurs de compter cette synchro-là comme une réussite — les
+        // deux vont ensemble, l'une empêche le vert, l'autre dit pourquoi.
+        if (reglages.aucunDossierChoisi()) Bandeau(
+            "Aucun dossier n'est sélectionné : rien ne sera sauvegardé. " +
+            "Choisissez-en dans Réglages → « Dossiers à sauvegarder ».")
 
         Text(
             text = when {
@@ -85,6 +94,18 @@ fun EcranAccueil(etat: EtatSynchro, reglages: Reglages, maintenantMs: Long,
             Spacer(Modifier.height(8.dp))
             // Formulation volontairement neutre : ce n'est pas une panne.
             Text("Serveur introuvable — vous n'êtes probablement pas chez vous.")
+        }
+        // Le filet de la récursivité, SUR L'ACCUEIL et pas derrière « Voir le
+        // détail » : la spec §3.6 dit « après chaque synchronisation,
+        // l'application affiche la liste des dossiers entrés… sans ce rappel,
+        // le mainteneur devrait surveiller ». Un rappel qu'il faut aller
+        // chercher ne prévient personne. L'écran de détail garde la même
+        // liste, en plus long.
+        if (etat.dossiersNouveaux.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("Nouveaux dossiers pris par une coche « et ses sous-dossiers » : " +
+                 Lisible.enumerer(etat.dossiersNouveaux.sorted()),
+                 style = MaterialTheme.typography.bodyMedium)
         }
         etat.erreur?.let {
             Spacer(Modifier.height(8.dp))
@@ -283,9 +304,9 @@ fun EcranDetail(etat: EtatSynchro, reglages: Reglages) {
             bilan.bilanServeur.forEach { (cle, valeur) -> Text("$cle : ${valeur.toInt()}") }
         }
 
-        // Les dossiers sauvegardés sont ceux des RÉGLAGES, plus la constante
-        // codée en dur d'origine (Reglages.DEFAUT en est la valeur de
-        // départ). Si l'un d'eux n'existe pas sur ce téléphone — WhatsApp
+        // Les dossiers sauvegardés sont ceux des RÉGLAGES — dont les trois
+        // dossiers d'origine ne sont plus que la valeur initiale
+        // (Reglages.DEFAUT). Si l'un d'eux n'existe pas sur ce téléphone — WhatsApp
         // récent range sous Android/media/com.whatsapp/… — la synchro réussit
         // avec ZÉRO média et rien ne le signale. Confronter les réglages à ce
         // que MediaStore contient vraiment est la seule façon de le voir.

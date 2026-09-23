@@ -49,10 +49,11 @@ data class EtatSynchro(
     val permissionRefusee: Boolean = false,
     /**
      * Dossiers réellement présents sur le téléphone, et nombre de médias de
-     * chacun. Les trois dossiers sauvegardés sont codés en dur : si l'un
-     * n'existe pas (WhatsApp récent range sous `Android/media/com.whatsapp/…`),
-     * la synchro réussit avec ZÉRO média et rien ne le dit. Cette liste est ce
-     * qui le révèle.
+     * chacun. Si un dossier coché n'existe pas ici (WhatsApp récent range sous
+     * `Android/media/com.whatsapp/…`), la synchro réussit avec ZÉRO média et
+     * rien ne le dit. Cette liste est ce qui le révèle — à confronter aux
+     * dossiers choisis dans les réglages (`Choix.introuvables`), qui ne sont
+     * plus les trois d'origine depuis le lot 2.
      *
      * `null` et la liste VIDE ne veulent pas dire la même chose, et l'écart est
      * tout l'intérêt : `null` = on n'a pas encore regardé ; vide = on a regardé
@@ -142,9 +143,19 @@ data class EtatSynchro(
          * une synchro « parfaite » n'a rien sauvegardé du tout — elle a
          * proposé zéro fichier. Écrire cette date-là graverait un mensonge
          * durable sur le disque, que plus rien n'effacerait.
+         *
+         * @param dossiersRetenus combien de dossiers cette synchronisation a
+         *   réellement couverts, c'est-à-dire cochés ET présents sur le
+         *   téléphone ([fr.izquierdo.phototheque.synchro.Choix.dossiersASauvegarder]).
+         *   Zéro est la cinquième condition, et le même mensonge que la
+         *   quatrième sous un autre habit : depuis que l'utilisateur choisit
+         *   ses dossiers (lot 2), tout décocher — ou ne garder qu'un dossier
+         *   que WhatsApp a déplacé — fait « réussir » une sauvegarde qui ne
+         *   sauvegarde rien, indéfiniment et en vert.
          */
-        fun estUneReussite(bilan: Bilan, accesRefuse: Boolean): Boolean =
+        fun estUneReussite(bilan: Bilan, accesRefuse: Boolean, dossiersRetenus: Int): Boolean =
             !accesRefuse &&
+            dossiersRetenus > 0 &&
             bilan.echecs == 0 &&
             !bilan.revoque &&
             (bilan.bilanServeur["errors"] ?: 0.0) == 0.0

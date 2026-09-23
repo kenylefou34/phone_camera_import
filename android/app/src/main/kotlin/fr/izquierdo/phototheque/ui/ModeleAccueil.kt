@@ -8,6 +8,7 @@ import fr.izquierdo.phototheque.medias.Depot
 import fr.izquierdo.phototheque.reseau.ClientServeur
 import fr.izquierdo.phototheque.reseau.Decouverte
 import fr.izquierdo.phototheque.reseau.Fabrique
+import fr.izquierdo.phototheque.synchro.Choix
 import fr.izquierdo.phototheque.synchro.Coche
 import fr.izquierdo.phototheque.synchro.Desappairage
 import fr.izquierdo.phototheque.synchro.EtatTravail
@@ -226,12 +227,10 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
      * effacerait alors en silence ce que la synchro venait de noter.
      */
     fun changerCoche(chemin: String, coche: Coche) {
-        val r = magasin.lire()
-        val nouveau = r.copy(
-            dossiersSeuls = if (coche == Coche.DOSSIER) r.dossiersSeuls + chemin
-                            else r.dossiersSeuls - chemin,
-            dossiersRecursifs = if (coche == Coche.RECURSIVE) r.dossiersRecursifs + chemin
-                                else r.dossiersRecursifs - chemin)
+        // La décision elle-même est dans `Choix.apresCoche`, pure et testée :
+        // « Ne pas sauvegarder » sur un dossier à moitié coché doit emporter
+        // toute la descendance, sinon le choix ne fait rien du tout.
+        val nouveau = Choix.apresCoche(magasin.lire(), chemin, coche)
         _reglages.value = nouveau
         magasin.ecrire(nouveau)
     }
