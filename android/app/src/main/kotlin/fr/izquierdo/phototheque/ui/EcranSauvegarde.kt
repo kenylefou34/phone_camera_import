@@ -104,41 +104,49 @@ fun EcranSauvegarde(
 
         Spacer(Modifier.height(24.dp))
         if (inversee) {
-            // Sans ce message, `Fenetre.dansLaFenetre` rend bien zéro média,
-            // mais silencieusement : un grand compte « antérieur » ou
-            // « postérieur » est indiscernable d'une fenêtre simplement
-            // sévère. Remplace les deux comptes ci-dessous : les afficher en
-            // même temps qu'une phrase disant « aucun média » serait
-            // contradictoire, exactement ce que le point 3 de la ronde de
-            // correction interdit (ne pas annoncer une chose et son
-            // contraire).
-            Text("Votre date de début est après votre date de fin : aucun " +
-                 "média ne sera sauvegardé.",
+            // Un FAIT sur les réglages, pas une prédiction sur les médias :
+            // à cause des ancrages généreux de `Fenetre` (UTC+14 / UTC-12),
+            // une inversion d'un seul jour laisse encore passer ~26 h de
+            // médias (Fenetre.fenetreInversee, ronde de correction 2/5).
+            // Promettre « aucun média » serait donc parfois faux — le
+            // mensonge d'écran que ce sous-projet existe pour supprimer,
+            // introduit une première fois par la correction censée
+            // l'éliminer. Le signalement reste utile : l'utilisateur s'est
+            // bien trompé, même si la fenêtre n'est pas totalement vide.
+            Text("Votre date de début (${reglages.debutJour}) est après " +
+                 "votre date de fin (${reglages.finJour}). La fenêtre est " +
+                 "presque vide — vérifiez vos deux dates.",
                  color = MaterialTheme.colorScheme.error,
                  style = MaterialTheme.typography.bodyMedium)
-        } else {
-            if (comptes.avant > 0) {
-                // Neutre, volontairement : un média antérieur à la date de
-                // début est un choix assumé, pas une anomalie. Le texte ne
-                // prétend pas savoir ce qui est déjà sur le serveur — une
-                // question à laquelle répondre coûterait un aller-retour
-                // réseau que ce compteur n'a pas à payer (point 3).
-                Text("${comptes.avant} médias sont antérieurs à cette date. " +
-                     "Ceux déjà sauvegardés le restent ; les autres ne seront " +
-                     "pas repris tant que vous ne baissez pas la date de début.",
-                     style = MaterialTheme.typography.bodyMedium)
-            }
-            if (comptes.apres > 0) {
-                Spacer(Modifier.height(8.dp))
-                // LE signal que cet écran existe pour rendre visible : une
-                // date de fin oubliée bloque en silence toutes les photos à
-                // venir. Couleur d'erreur et formulation distincte du compte
-                // ci-dessus, pour qu'on ne les confonde jamais.
-                Text("⚠️ ${comptes.apres} médias sont plus récents que votre " +
-                     "date de fin et ne partiront pas tant qu'elle est posée.",
-                     color = MaterialTheme.colorScheme.error,
-                     style = MaterialTheme.typography.bodyMedium)
-            }
+        }
+        // Les deux comptes restent affichés À CÔTÉ du message ci-dessus, pas
+        // remplacés par lui : le message dit « vos dates sont inversées », les
+        // comptes disent ce qui se passera réellement. Les masquer ferait
+        // disparaître l'information même quand elle importe le plus — une
+        // fenêtre inversée mais presque vide reste presque vide, il faut le
+        // dire.
+        if (comptes.avant > 0) {
+            Spacer(Modifier.height(8.dp))
+            // Neutre, volontairement : un média antérieur à la date de
+            // début est un choix assumé, pas une anomalie. Le texte ne
+            // prétend pas savoir ce qui est déjà sur le serveur — une
+            // question à laquelle répondre coûterait un aller-retour
+            // réseau que ce compteur n'a pas à payer (point 3, ronde 1).
+            Text("${comptes.avant} médias sont antérieurs à cette date. " +
+                 "Ceux déjà sauvegardés le restent ; les autres ne seront " +
+                 "pas repris tant que vous ne baissez pas la date de début.",
+                 style = MaterialTheme.typography.bodyMedium)
+        }
+        if (comptes.apres > 0) {
+            Spacer(Modifier.height(8.dp))
+            // LE signal que cet écran existe pour rendre visible : une
+            // date de fin oubliée bloque en silence toutes les photos à
+            // venir. Couleur d'erreur et formulation distincte du compte
+            // ci-dessus, pour qu'on ne les confonde jamais.
+            Text("⚠️ ${comptes.apres} médias sont plus récents que votre " +
+                 "date de fin et ne partiront pas tant qu'elle est posée.",
+                 color = MaterialTheme.colorScheme.error,
+                 style = MaterialTheme.typography.bodyMedium)
         }
     }
 }

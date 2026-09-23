@@ -85,11 +85,13 @@ object Fenetre {
      * Vrai si la date de début est postérieure à la date de fin :
      * l'utilisateur a interverti ses deux bornes.
      *
-     * [dansLaFenetre] rend bien zéro média dans ce cas (les deux vérifications
-     * combinées ne laissent jamais rien passer sur un intervalle assez
-     * large), mais SILENCIEUSEMENT — un grand compte dans [avantLaFenetre] ou
-     * [apresLaFenetre] est indiscernable d'une fenêtre simplement sévère.
-     * C'est à l'écran de le DIRE, cette fonction lui en donne le moyen.
+     * Détecte l'ERREUR de saisie, pas l'absence garantie de médias. À cause
+     * des ancrages généreux de [debutDuJour]/[finDuJour] (UTC+14 / UTC-12,
+     * 26 h d'écart), une inversion d'un seul jour laisse encore passer
+     * quelques heures dans [dansLaFenetre] — une photo prise le 14 à 14 h à
+     * Paris reste dans la fenêtre « 15 → 14 » (ronde de correction 2/5 de la
+     * tâche 8 : le message affiché à l'écran ne doit donc JAMAIS promettre
+     * « aucun média », seulement signaler l'erreur de saisie).
      *
      * Une seule borne posée n'est jamais inversée : il n'y a rien à
      * comparer. Une fenêtre d'un seul jour (`debut == fin`) non plus.

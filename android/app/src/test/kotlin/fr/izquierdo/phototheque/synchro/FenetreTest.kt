@@ -106,4 +106,18 @@ class FenetreTest {
         assertFalse(Fenetre.fenetreInversee(debut = "2026-09-01", fin = null))
         assertFalse(Fenetre.fenetreInversee(debut = null, fin = "2026-09-01"))
     }
+
+    // --- Ronde de correction 2/5 : le message ne doit pas promettre "aucun média" ---
+
+    @Test fun une_inversion_d_un_seul_jour_laisse_passer_quelques_medias() {
+        // Les ancrages généreux (UTC+14 / UTC-12) laissent 26 h ouvertes
+        // quand les deux dates sont inversées d'un seul jour. Le message
+        // d'inversion doit donc signaler l'erreur SANS promettre que rien
+        // ne passera : une photo du 14 à 14 h à Paris est bel et bien dans
+        // la fenêtre.
+        val photo = media(instantLocal("2026-09-14T14:00", "Europe/Paris"))
+
+        assertTrue(Fenetre.fenetreInversee("2026-09-15", "2026-09-14"))
+        assertTrue(Fenetre.dansLaFenetre(photo, "2026-09-15", "2026-09-14"))
+    }
 }
