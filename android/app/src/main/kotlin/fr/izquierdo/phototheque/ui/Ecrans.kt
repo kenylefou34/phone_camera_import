@@ -13,10 +13,11 @@ import fr.izquierdo.phototheque.synchro.Phase
 import fr.izquierdo.phototheque.synchro.TravailSynchro
 
 @Composable
-fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
+fun EcranAccueil(etat: EtatSynchro, reglages: Reglages, maintenantMs: Long,
                  surSynchroniser: () -> Unit, surInterrompre: () -> Unit,
-                 surVoirDetail: () -> Unit) {
+                 surVoirDetail: () -> Unit, surReglages: () -> Unit) {
     val jours = EtatSynchro.joursDepuis(maintenantMs, etat.derniereReussiteMs)
+    // Tâche 9 : le seuil descend à 3 jours quand l'automatique est actif.
     val alerte = jours == null || jours >= EtatSynchro.SEUIL_ALERTE_JOURS
 
     Column(Modifier.fillMaxSize().padding(24.dp),
@@ -100,6 +101,8 @@ fun EcranAccueil(etat: EtatSynchro, maintenantMs: Long,
                 else -> "Sauvegarder maintenant"
             })
         }
+        Spacer(Modifier.height(8.dp))
+        TextButton(onClick = surReglages) { Text("Réglages") }
         // Cet écran reste le SEUL visible tant qu'aucun avancement n'a été
         // publié — MainActivity bascule sur EcranAvancement dès la première
         // publication. Et tant que le travail n'a pas démarré, rien ne tourne :
@@ -282,6 +285,25 @@ fun EcranDetail(etat: EtatSynchro, dossiersSauvegardes: Set<String>) {
                 Text("Dossiers sauvegardés introuvables ici : ${absents.joinToString(", ")}",
                      color = MaterialTheme.colorScheme.error)
             }
+        }
+    }
+}
+
+/** Menu des réglages : trois portes, rien d'autre. */
+@Composable
+fun EcranReglages(surDossiers: () -> Unit, surSauvegarde: () -> Unit,
+                  surAppareil: () -> Unit) {
+    Column(Modifier.fillMaxSize().padding(24.dp),
+           verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Réglages", style = MaterialTheme.typography.headlineMedium)
+        Button(onClick = surDossiers, modifier = Modifier.fillMaxWidth()) {
+            Text("Dossiers à sauvegarder")
+        }
+        Button(onClick = surSauvegarde, modifier = Modifier.fillMaxWidth()) {
+            Text("Quand sauvegarder")
+        }
+        Button(onClick = surAppareil, modifier = Modifier.fillMaxWidth()) {
+            Text("Cet appareil")
         }
     }
 }

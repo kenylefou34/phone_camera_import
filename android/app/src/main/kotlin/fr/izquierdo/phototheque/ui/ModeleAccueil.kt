@@ -21,8 +21,13 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
     private val coffre = Coffre(application)
     private val depot = Depot(application)
     private val memoire = Memoire(application)
+    private val magasin = MagasinReglages(application)
     private val _etat = MutableStateFlow(EtatSynchro())
     val etat = _etat.asStateFlow()
+
+    /** Les réglages choisis par l'utilisateur, relus au démarrage. */
+    private val _reglages = MutableStateFlow(magasin.lire())
+    val reglages = _reglages.asStateFlow()
 
     /** L'avancement publié par le travail de fond, null quand rien ne tourne. */
     val avancement = TravailSynchro.avancement

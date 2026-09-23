@@ -14,11 +14,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import fr.izquierdo.phototheque.synchro.TravailSynchro
+import fr.izquierdo.phototheque.ui.Ecran
 import fr.izquierdo.phototheque.ui.EcranAccueil
 import fr.izquierdo.phototheque.ui.EcranAppairage
 import fr.izquierdo.phototheque.ui.EcranAvancement
 import fr.izquierdo.phototheque.ui.EcranDetail
+import fr.izquierdo.phototheque.ui.EcranReglages
 import fr.izquierdo.phototheque.ui.ModeleAccueil
+import fr.izquierdo.phototheque.ui.Navigation
 
 class MainActivity : ComponentActivity() {
 
@@ -58,20 +61,22 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 val etat by modele.etat.collectAsStateWithLifecycle()
                 val avancement by modele.avancement.collectAsStateWithLifecycle()
-                // rememberSaveable et non remember : l'ecran de detail
-                // retombait sur l'accueil a chaque rotation (issue #24).
-                var detail by rememberSaveable { mutableStateOf(false) }
+                val reglages by modele.reglages.collectAsStateWithLifecycle()
+                // rememberSaveable et non remember : l'écran affiché retombait
+                // sur l'accueil à chaque rotation (issue #24).
+                var demande by rememberSaveable { mutableStateOf(Ecran.ACCUEIL) }
+                val affiche = Navigation.ecranAffiche(
+                    demande, appaire = etat.appaire, synchroEnCours = avancement != null)
 
-                // Sans ce BackHandler, le bouton retour du systeme FERMAIT
-                // l'application depuis l'ecran de detail, en perdant le
-                // dernier bilan (issue #24). `avancement == null` en plus :
-                // sinon, pendant une synchro, un premier retour eteignait
-                // `detail` sans rien changer a l'ecran (EcranAvancement reste
-                // affiche), et le SECOND fermait l'application.
-                BackHandler(enabled = detail && avancement == null) { detail = false }
+                // Le retour est calculé, plus deviné : à sept destinations, la
+                // cascade de booléens du lot 1 laissait des états
+                // inatteignables par le bouton retour.
+                BackHandler(enabled = Navigation.retour(affiche) != null) {
+                    Navigation.retour(affiche)?.let { demande = it }
+                }
 
-                when {
-                    !etat.appaire -> EcranAppairage(
+                when (affiche) {
+                    Ecran.APPAIRAGE -> EcranAppairage(
                         qrInvalide = etat.qrInvalide,
                         revoque = etat.revoque,
                         surScanner = {
@@ -88,16 +93,25 @@ class MainActivity : ComponentActivity() {
                                     // le 23/09.
                                     .setOrientationLocked(false))
                         })
-                    avancement != null -> EcranAvancement(
-                        avancement!!, surInterrompre = modele::interrompre)
-                    detail -> EcranDetail(etat, TravailSynchro.DOSSIERS_SAUVEGARDES)
-                    else -> EcranAccueil(etat, System.currentTimeMillis(),
-                        surSynchroniser = modele::synchroniser,
-                        // Le travail peut etre EN ATTENTE d'un reseau : aucun
-                        // avancement n'est publie, donc aucun autre ecran ne
-                        // propose d'en sortir.
-                        surInterrompre = modele::interrompre,
-                        surVoirDetail = { detail = true })
+                    Ecran.ACCUEIL ->
+                        if (avancement != null) EcranAvancement(
+                            avancement!!, surInterrompre = modele::interrompre)
+                        else EcranAccueil(etat, reglages, System.currentTimeMillis(),
+                            surSynchroniser = modele::synchroniser,
+                            // Le travail peut etre EN ATTENTE d'un reseau : aucun
+                            // avancement n'est publie, donc aucun autre ecran ne
+                            // propose d'en sortir.
+                            surInterrompre = modele::interrompre,
+                            surVoirDetail = { demande = Ecran.DETAIL },
+                            surReglages = { demande = Ecran.REGLAGES })
+                    Ecran.DETAIL -> EcranDetail(etat, TravailSynchro.DOSSIERS_SAUVEGARDES)
+                    Ecran.REGLAGES -> EcranReglages(
+                        surDossiers = { demande = Ecran.DOSSIERS },
+                        surSauvegarde = { demande = Ecran.SAUVEGARDE },
+                        surAppareil = { demande = Ecran.APPAREIL })
+                    // Écrits aux tâches 5, 8 et 11.
+                    Ecran.DOSSIERS, Ecran.SAUVEGARDE, Ecran.APPAREIL -> EcranReglages(
+                        surDossiers = {}, surSauvegarde = {}, surAppareil = {})
                 }
             }
         }
