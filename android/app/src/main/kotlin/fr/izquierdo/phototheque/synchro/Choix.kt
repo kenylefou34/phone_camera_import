@@ -115,15 +115,31 @@ object Choix {
     /**
      * Les dossiers configurés dont RIEN n'est visible sur le téléphone.
      *
-     * Comparer chaque dossier configuré à [vus] par égalité stricte serait
-     * faux pour une coche récursive : MediaStore ne rend que les dossiers
-     * qui contiennent directement des médias, jamais un dossier intermédiaire
-     * qui n'en a que par ses sous-dossiers. « Pictures » coché en récursif et
-     * sauvegardé uniquement via « Pictures/WhatsApp » ne doit pas s'afficher
-     * comme introuvable — c'est exactement le cas que l'écran doit RECONNAÎTRE
-     * comme normal, pas signaler en rouge.
+     * Chaque ensemble est jugé avec la MÊME règle que [resoudre] lui applique
+     * — ce n'est pas une incohérence, c'est le reflet exact de ce qui sera
+     * sauvegardé :
+     * - [Reglages.dossiersSeuls] : égalité stricte. « Ce dossier seulement »
+     *   ne prend jamais un sous-dossier ; un dossier sans média direct mais
+     *   avec un sous-dossier qui en a ne sauvegarde structurellement RIEN, et
+     *   doit être signalé — c'est justement ce que [resoudre] ne rattrape pas.
+     * - [Reglages.dossiersRecursifs] : tolérance de sous-arbre. MediaStore ne
+     *   rend que les dossiers qui contiennent directement des médias, jamais
+     *   un dossier intermédiaire qui n'en a que par ses sous-dossiers.
+     *   « Pictures » coché en récursif et sauvegardé uniquement via
+     *   « Pictures/WhatsApp » ne doit PAS s'afficher comme introuvable —
+     *   c'est exactement le cas que l'écran doit RECONNAÎTRE comme normal,
+     *   pas signaler en rouge.
+     *
+     * Appliquer la tolérance de sous-arbre aux DEUX ensembles manquerait le
+     * premier cas (faux négatif : une coche « seulement » qui ne sauvegarde
+     * rien, jamais signalée) ; comparer les DEUX par égalité stricte
+     * retomberait dans le faux positif que cette fonction existe pour
+     * éliminer (une coche récursive parfaitement fonctionnelle signalée à
+     * tort).
      */
     fun introuvables(reglages: Reglages, vus: Set<String>): Set<String> =
-        (reglages.dossiersSeuls + reglages.dossiersRecursifs)
-            .filterTo(mutableSetOf()) { racine -> vus.none { sousArbre(it, racine) } }
+        reglages.dossiersSeuls.filterTo(mutableSetOf()) { it !in vus } +
+        reglages.dossiersRecursifs.filterTo(mutableSetOf()) { racine ->
+            vus.none { sousArbre(it, racine) }
+        }
 }

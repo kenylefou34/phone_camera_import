@@ -134,6 +134,19 @@ class ChoixTest {
         assertEquals(setOf("Pictures"), introuvables)
     }
 
+    @Test fun un_dossier_coche_seulement_sans_media_direct_est_introuvable() {
+        // Symétrique du test précédent, côté "seuls" : "Pictures" coché
+        // "ce dossier seulement" (pas récursif) ne sauvegarde JAMAIS
+        // "Pictures/WhatsApp" (Choix.resoudre compare `seuls` par égalité
+        // stricte). Contrairement à la coche récursive, ce choix précis ne
+        // sauvegarde structurellement rien ici, et doit être signalé.
+        val reglages = Reglages(dossiersSeuls = setOf("Pictures"))
+
+        val introuvables = Choix.introuvables(reglages, vus = setOf("Pictures/WhatsApp"))
+
+        assertEquals(setOf("Pictures"), introuvables)
+    }
+
     // --- HERITEE : un enfant d'une coche récursive est sauvegardé, mais pas par lui-même ---
 
     @Test fun l_etat_d_un_enfant_dont_un_ancetre_est_recursif_est_herite() {
