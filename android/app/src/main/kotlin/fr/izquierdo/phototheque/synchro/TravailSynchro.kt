@@ -71,25 +71,14 @@ class TravailSynchro(
 ) : CoroutineWorker(context, parametres) {
 
     override suspend fun doWork(): Result {
-        // Le verrou AVANT tout le reste, y compris les remises à zéro qui
-        // suivent : la file manuelle (« synchro ») et la file automatique
-        // (« synchro-auto ») peuvent démarrer en même temps (voir
-        // VerrouSynchro), et tout ce qui suit touche un état partagé par
-        // TOUTE exécution. Si une autre exécution tient déjà le verrou, elle
-        // publie déjà son propre avancement : on ressort sans rien toucher,
-        // ce n'est donc pas un silence, seulement une exécution de trop.
+        // Le verrou AVANT tout le reste : la file manuelle (« synchro ») et
+        // la file automatique (« synchro-auto ») peuvent démarrer en même
+        // temps (voir VerrouSynchro), et tout ce qui suit touche un état
+        // partagé par TOUTE exécution. Si une autre exécution tient déjà le
+        // verrou, elle publie déjà son propre avancement : on ressort sans
+        // rien toucher, ce n'est donc pas un silence, seulement une
+        // exécution de trop.
         if (!VerrouSynchro.tenter()) return Result.success()
-
-        // `_derniereIssue` est un StateFlow de companion object, donc de la
-        // duree de vie du processus : sans cette remise a zero, un nouveau
-        // collecteur (ecran recree, nouvelle synchro) rejouerait l'issue de
-        // l'execution PRECEDENTE - un vieux bandeau d'erreur qui reapparait.
-        _derniereIssue.value = null
-        // Une execution neuve n'a recu aucun ordre d'arret. Sans cette remise
-        // a zero, un arret demande lors de la synchro PRECEDENTE ferait
-        // annoncer « interrompue » a celle-ci.
-        arretDemande = false
-        val contexte = applicationContext
 
         // Retenu au fil des publications de l'orchestrateur : c'est la seule
         // source de `dossiersVus`, et sans cette variable la valeur serait
@@ -97,20 +86,44 @@ class TravailSynchro(
         // Part de `null` (jamais publie), pas d'une carte vide : sinon une
         // panne survenue AVANT la premiere publication se lirait comme un
         // « MediaStore n'a rien rendu » qu'elle n'a jamais constate.
+        //
+        // Déclarées ICI, avant le `try`, et non dedans : les blocs `catch`
+        // plus bas les lisent, et une variable déclarée À L'INTÉRIEUR d'un
+        // `try` n'est pas visible depuis son `catch` (scope Kotlin/JVM).
         var dossiersVus: Map<String, Int>? = null
         // Le bilan REEL, retenu au vol : une annulation empeche `withContext`
         // de le rendre (voir le catch de CancellationException), et sans lui
         // l'ecran annoncerait « 0 envoyes » apres vingt paquets valides.
         var bilanPartiel: Bilan? = null
 
-        // Tout le corps est sous `try` : la preparation aussi. `setForeground`
-        // leve sur Android 12+ quand le demarrage d'un service de premier plan
-        // depuis l'arriere-plan est restreint - exactement le cas d'une
-        // reprise automatique, application fermee. Hors du try, l'exception
-        // marquait le travail en echec sans qu'aucun message n'existe nulle
-        // part : ni avancement, ni bilan, ni erreur. La panne muette que tout
-        // le sous-projet interdit.
+        // Tout le reste est sous `try`, la préparation ET les remises à
+        // zéro comprises — pas seulement `setForeground` (qui lève sur
+        // Android 12+ quand le démarrage d'un service de premier plan depuis
+        // l'arrière-plan est restreint, exactement le cas d'une reprise
+        // automatique, application fermée). Le `finally` ne libère
+        // `VerrouSynchro` que pour ce qui est SOUS le `try` : si les trois
+        // premières lignes ci-dessous restaient avant son ouverture et que
+        // l'une levait, le verrou ne serait plus JAMAIS relâché — plus
+        // aucune synchronisation, ni manuelle ni automatique, jusqu'au
+        // prochain redémarrage du processus. Pire mode de panne de ce
+        // fichier, et silencieux comme les autres qu'il corrige déjà.
         try {
+            // `_derniereIssue` est un StateFlow de companion object, donc de
+            // la duree de vie du processus : sans cette remise a zero, un
+            // nouveau collecteur (ecran recree, nouvelle synchro) rejouerait
+            // l'issue de l'execution PRECEDENTE - un vieux bandeau d'erreur
+            // qui reapparait.
+            _derniereIssue.value = null
+            // Une execution neuve n'a recu aucun ordre d'arret. Sans cette
+            // remise a zero, un arret demande lors de la synchro PRECEDENTE
+            // ferait annoncer « interrompue » a celle-ci.
+            arretDemande = false
+            // `contexte` reste local au `try` : sa seule utilisation en
+            // dehors (l'ancien `catch (ServeurRevoqueException)`) a été
+            // remplacée par `applicationContext` directement, précisément
+            // pour ne pas avoir à le sortir d'ici.
+            val contexte = applicationContext
+
             val charge = Coffre(contexte).charge() ?: return Result.success()
             val depot = Depot(contexte)
             val reglages = MagasinReglages(contexte).lire()
@@ -248,7 +261,10 @@ class TravailSynchro(
                 Result.retry() else Result.success()
 
         } catch (e: ServeurRevoqueException) {
-            Coffre(contexte).oublier()
+            // `applicationContext` directement, et non la `contexte` locale
+            // du `try` : elle n'est plus visible ici depuis qu'elle est
+            // déclarée à l'intérieur (voir le commentaire au-dessus du `try`).
+            Coffre(applicationContext).oublier()
             _derniereIssue.value = IssueSynchro(revoque = true, dossiersVus = dossiersVus)
             return Result.success()
         } catch (e: CancellationException) {
