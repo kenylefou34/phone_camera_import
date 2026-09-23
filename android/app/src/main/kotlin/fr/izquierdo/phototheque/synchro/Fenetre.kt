@@ -45,19 +45,55 @@ object Fenetre {
         LocalDate.parse(jour).plusDays(1)
             .atStartOfDay(ZoneOffset.ofHours(-12)).toEpochSecond().toDouble()
 
-    fun dansLaFenetre(media: Media, debut: String?, fin: String?): Boolean {
-        if (debut != null && media.instant < debutDuJour(debut)) return false
-        if (fin != null && media.instant >= finDuJour(fin)) return false
-        return true
-    }
+    /** Vrai si [media] est strictement plus ancien que le début de la
+     *  fenêtre. Partagé par [dansLaFenetre] et [avantLaFenetre] pour qu'ils
+     *  ne puissent pas diverger. */
+    private fun avantDebut(media: Media, debut: String?): Boolean =
+        debut != null && media.instant < debutDuJour(debut)
+
+    /** Vrai si [media] est à ou après la fin (exclusive) de la fenêtre.
+     *  Partagé par [dansLaFenetre] et [apresLaFenetre] pour qu'ils ne
+     *  puissent pas diverger. */
+    private fun apresFin(media: Media, fin: String?): Boolean =
+        fin != null && media.instant >= finDuJour(fin)
+
+    fun dansLaFenetre(media: Media, debut: String?, fin: String?): Boolean =
+        !avantDebut(media, debut) && !apresFin(media, fin)
 
     /**
-     * Combien de médias la fenêtre laisse dehors.
+     * Les médias antérieurs au début de la fenêtre. Normal : ce sont les
+     * vieux qu'on a choisi de ne pas reprendre.
      *
-     * Ce nombre doit être affiché EN PERMANENCE. Une fenêtre est un filtre, et
-     * un filtre muet est une panne silencieuse : c'est exactement le piège de
-     * la date de fin oubliée.
+     * Ne JAMAIS le confondre avec [apresLaFenetre] à l'écran : mélanger les
+     * deux dans un seul total noierait le seul signal qui compte (une date
+     * de fin oubliée) sous le nombre, bien plus grand en pratique, des vieux
+     * médias volontairement laissés de côté.
      */
-    fun horsFenetre(medias: List<Media>, debut: String?, fin: String?): Int =
-        medias.count { !dansLaFenetre(it, debut, fin) }
+    fun avantLaFenetre(medias: List<Media>, debut: String?): Int =
+        medias.count { avantDebut(it, debut) }
+
+    /**
+     * Les médias POSTÉRIEURS à la fin de la fenêtre. C'est le compte qui
+     * compte : une date de fin oubliée bloque en silence toutes les photos
+     * à venir, et c'est le seul signal qui le révèle — noyé dans
+     * [avantLaFenetre], il redeviendrait invisible.
+     */
+    fun apresLaFenetre(medias: List<Media>, fin: String?): Int =
+        medias.count { apresFin(it, fin) }
+
+    /**
+     * Vrai si la date de début est postérieure à la date de fin :
+     * l'utilisateur a interverti ses deux bornes.
+     *
+     * [dansLaFenetre] rend bien zéro média dans ce cas (les deux vérifications
+     * combinées ne laissent jamais rien passer sur un intervalle assez
+     * large), mais SILENCIEUSEMENT — un grand compte dans [avantLaFenetre] ou
+     * [apresLaFenetre] est indiscernable d'une fenêtre simplement sévère.
+     * C'est à l'écran de le DIRE, cette fonction lui en donne le moyen.
+     *
+     * Une seule borne posée n'est jamais inversée : il n'y a rien à
+     * comparer. Une fenêtre d'un seul jour (`debut == fin`) non plus.
+     */
+    fun fenetreInversee(debut: String?, fin: String?): Boolean =
+        debut != null && fin != null && LocalDate.parse(debut).isAfter(LocalDate.parse(fin))
 }
