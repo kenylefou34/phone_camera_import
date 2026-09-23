@@ -190,38 +190,88 @@ port_ouvert() {
     return 1
 }
 
-adresse_nuc() {
-    # Affiche l'adresse a utiliser pour joindre le NUC, ou rend 1.
-    #   $1 nom mDNS, $2 adresse de repli, $3 port (22), $4 essais par candidat (1)
+adresse_avahi() {
+    # Affiche l'adresse d'une sortie d'`avahi-resolve`, ou rien.
     #
-    # mDNS d'abord : c'est la seule chose qui suive la machine quand la box lui
-    # change son bail. Le repli sert quand Avahi est muet.
-    #
-    # Chaque candidat est SONDE avant d'etre retenu : une resolution qui
-    # aboutit ne prouve pas que la machine repond.
-    #
-    # Ecrit son raisonnement sur la sortie d'erreur, pour que l'appelant ne
-    # rapporte pas « mDNS ne repond pas » quand le mDNS a parfaitement resolu
-    # et que c'est la sonde qui est tombee sur un creux — le message etait faux
-    # le 23/09 et envoyait chercher au mauvais endroit.
-    local nom=$1 repli=$2 port=${3:-22} essais=${4:-1}
-    local sortie adresse
+    # Format : "nom<TAB>adresse" — l'adresse est le DERNIER champ, a l'inverse
+    # de `getent hosts` ou elle est le premier. Deux analyseurs, donc, plutot
+    # qu'un seul qui se tromperait sur l'un des deux.
+    local sortie=$1 ligne adresse
+    while IFS= read -r ligne; do
+        [ -z "$ligne" ] && continue
+        adresse=${ligne##*$'\t'}
+        adresse=${adresse##* }
+        case "$adresse" in
+            *:*) continue ;;
+            *.*) echo "$adresse"; return 0 ;;
+        esac
+    done <<< "$sortie"
+    return 1
+}
 
-    sortie=$(getent hosts "$nom" 2>/dev/null) || sortie=""
-    adresse=$(premiere_adresse "$sortie") || adresse=""
+resoudre_mdns() {
+    # Affiche l'adresse IPv4 annoncee en mDNS pour ce nom, ou rend 1.
+    #
+    # `avahi-resolve -4` D'ABORD, `getent` en secours. Mesure le 23/09 : dix
+    # `getent hosts IZQUIERDO-NUC.local` d'affilee ont tous echoue alors
+    # qu'`avahi-resolve` repondait sans broncher. La raison est dans
+    # /etc/nsswitch.conf : `mdns4_minimal [NOTFOUND=return]` n'interroge que
+    # l'IPv4 et coupe la chaine des qu'elle manque — or le NUC annoncait a ce
+    # moment-la son IPv6 sans son IPv4. `avahi-resolve` parle au demon local
+    # directement et n'a pas ce trou.
+    #
+    # Le `-4` n'est pas cosmetique : sans lui, avahi rend l'IPv6 en premier.
+    local nom=$1 sortie adresse=""
 
-    if [ -z "$adresse" ]; then
-        echo "  $nom ne resout pas (Avahi muet ?)" >&2
-    else
-        echo "  $nom resout en $adresse" >&2
-        if port_ouvert "$adresse" "$port" 2 "$essais"; then
-            echo "$adresse"
-            return 0
-        fi
-        echo "  ...mais $adresse:$port ne repond pas" >&2
+    if command -v avahi-resolve >/dev/null 2>&1; then
+        sortie=$(timeout 5 avahi-resolve -4 -n "$nom" 2>/dev/null) || sortie=""
+        adresse=$(adresse_avahi "$sortie") || adresse=""
     fi
 
-    if [ -n "$repli" ] && [ "$repli" != "$adresse" ]; then
+    if [ -z "$adresse" ]; then
+        sortie=$(getent hosts "$nom" 2>/dev/null) || sortie=""
+        adresse=$(premiere_adresse "$sortie") || adresse=""
+    fi
+
+    [ -z "$adresse" ] && return 1
+    echo "$adresse"
+}
+
+adresse_nuc() {
+    # Affiche l'adresse a utiliser pour joindre le NUC, ou rend 1.
+    #   $1 nom mDNS, $2 adresse de repli, $3 port (22), $4 essais (1)
+    #
+    # La RESOLUTION est refaite a chaque essai, pas une fois pour toutes : le
+    # 23/09, elle a reussi, puis echoue dix fois de suite, puis reussi de
+    # nouveau. La sonder une seule fois envoyait au repli pour rien.
+    #
+    # Et chaque adresse est SONDEE avant d'etre retenue : resoudre ne prouve
+    # pas que la machine repond. Le meme jour, `.21` repondait au ping sans
+    # que rien n'y ecoute — l'adresse etait passee a un autre appareil.
+    local nom=$1 repli=$2 port=${3:-22} essais=${4:-1}
+    local n=0 adresse="" vu=""
+
+    while [ "$n" -lt "$essais" ]; do
+        adresse=$(resoudre_mdns "$nom") || adresse=""
+        if [ -n "$adresse" ]; then
+            vu=$adresse
+            if port_ouvert "$adresse" "$port" 2 1; then
+                echo "  $nom -> $adresse" >&2
+                echo "$adresse"
+                return 0
+            fi
+        fi
+        n=$((n + 1))
+        [ "$n" -lt "$essais" ] && sleep 3
+    done
+
+    if [ -n "$vu" ]; then
+        echo "  $nom resout en $vu, mais $vu:$port n'a jamais repondu" >&2
+    else
+        echo "  $nom n'a jamais resolu (Avahi muet ?)" >&2
+    fi
+
+    if [ -n "$repli" ] && [ "$repli" != "$vu" ]; then
         echo "  essai du repli $repli" >&2
         if port_ouvert "$repli" "$port" 2 "$essais"; then
             echo "$repli"

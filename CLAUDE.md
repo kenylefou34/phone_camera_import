@@ -219,11 +219,21 @@ l'avoir gardé là.
   documentée depuis le 19/09 (3 bascules en 16 jours → 6 le 19/09 → 11 le
   20/09 → bloqué le 21/09 → battement le 23/09). Tant que ça dure, **une
   synchro de plusieurs Go et la recette sont hors de portée**.
-- **Les scripts cherchent le NUC en mDNS**, ils n'écrivent plus son adresse en
-  dur : `adresse_nuc()` dans `deploy/lib.sh` résout `IZQUIERDO-NUC.local`,
-  **sonde** l'adresse obtenue (résoudre ne prouve pas que la machine répond),
-  et retombe sur `192.168.1.21`. Huit essais espacés, pour traverser un creux
-  de battement. Surcharges : `NUC=user@ip`, `NUC_HOTE`, `NUC_REPLI`.
+- **⚠️ `getent hosts IZQUIERDO-NUC.local` n'est PAS fiable ici.** Le 23/09,
+  dix appels d'affilée ont échoué pendant qu'`avahi-resolve` répondait sans
+  broncher. La cause est dans `/etc/nsswitch.conf` :
+  `mdns4_minimal [NOTFOUND=return]` n'interroge que l'IPv4 et **coupe la
+  chaîne** dès qu'elle manque — or le NUC annonçait alors son IPv6 sans son
+  IPv4. Utiliser :
+  `avahi-resolve -4 -n IZQUIERDO-NUC.local`
+  Le `-4` n'est pas cosmétique : sans lui, avahi rend l'IPv6 en premier.
+- **L'adresse du NUC change** : `.21` le 21/09, `.31` le 23/09 après
+  redémarrage. Ne jamais l'écrire en dur. **Les scripts la cherchent** :
+  `adresse_nuc()` dans `deploy/lib.sh` résout par `avahi-resolve` puis
+  `getent`, **sonde** l'adresse obtenue (résoudre ne prouve pas que la machine
+  répond — le 23/09, `.21` répondait au ping sans que rien n'y écoute), refait
+  la résolution **à chaque essai**, et retombe sur `NUC_REPLI` en dernier
+  recours. Surcharges : `NUC=user@ip`, `NUC_HOTE`, `NUC_REPLI`.
 - **`eno1` (ethernet du NUC) n'a aucun câble** (`cat /sys/class/net/eno1/carrier`
   = 0) : le WiFi est l'unique chemin vers le serveur photo. Un câble le rendrait
   insensible aux aléas radio — action physique, à la main du mainteneur.

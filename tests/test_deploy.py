@@ -982,3 +982,40 @@ def test_adresse_nuc_SONDE_ce_que_le_mdns_resout_avant_de_le_retenir():
         assert sortie.splitlines()[-1] == "127.0.0.1"
     finally:
         serveur.close()
+
+
+def test_adresse_avahi_prend_le_dernier_champ():
+    """`avahi-resolve` met l'adresse en DERNIER, `getent` en premier.
+
+    Un analyseur unique se tromperait sur l'un des deux — d'où deux fonctions.
+    """
+    code, sortie = appeler("adresse_avahi", "IZQUIERDO-NUC.local\t192.168.1.31")
+    assert code == 0 and sortie == "192.168.1.31"
+
+
+def test_adresse_avahi_saute_l_ipv6():
+    """Sans `-4`, avahi rend l'IPv6 en premier ; on ne la retient pas."""
+    code, _ = appeler(
+        "adresse_avahi", "IZQUIERDO-NUC.local\t2a01:cb1d:8ea0:700:a496:569a:2bfd:2be5")
+    assert code == 1
+
+
+def test_adresse_avahi_sur_une_sortie_vide_rend_1():
+    code, _ = appeler("adresse_avahi", "")
+    assert code == 1
+
+
+def test_resoudre_mdns_retombe_sur_getent_quand_avahi_ne_sait_pas():
+    """avahi ne résout pas une IP littérale ; getent, si.
+
+    C'est la bretelle de secours : le 23/09 c'est l'inverse qui s'est produit
+    — `getent` a échoué dix fois d'affilée pendant qu'`avahi-resolve`
+    répondait — mais les deux sens doivent tenir.
+    """
+    code, sortie = appeler("resoudre_mdns", "127.0.0.1")
+    assert code == 0 and sortie == "127.0.0.1"
+
+
+def test_resoudre_mdns_rend_1_quand_personne_ne_sait():
+    code, _ = appeler("resoudre_mdns", "nom-qui-nexiste-pas.invalid")
+    assert code == 1
