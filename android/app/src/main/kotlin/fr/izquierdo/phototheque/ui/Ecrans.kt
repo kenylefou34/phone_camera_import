@@ -205,13 +205,14 @@ fun EcranAvancement(avancement: Avancement, reglages: Reglages, surInterrompre: 
         // `Avancement` recu a deja regarde MediaStore — y compris quand les
         // dossiers suivis sont absents, le cas le plus grave.
         //
-        // Comparé aux réglages BRUTS (dossiersSeuls + dossiersRecursifs), pas
-        // à `dossiersChoisis` : celui-ci est déjà filtré par ce qui existe
-        // sur ce téléphone (Choix.resoudre), donc toujours inclus dans
-        // `dossiersVus.keys` — la différence serait vide à coup sûr, et
-        // l'avertissement ne se déclencherait plus jamais.
-        val brut = reglages.dossiersSeuls + reglages.dossiersRecursifs
-        val absents = brut - avancement.dossiersVus.keys
+        // `Choix.introuvables`, pas une simple différence d'ensembles : un
+        // dossier coché en récursif n'apparaît JAMAIS lui-même dans
+        // `dossiersVus` (MediaStore ne rend que les dossiers qui contiennent
+        // directement des médias) — une différence brute crierait « Pictures
+        // introuvable » alors que « Pictures/WhatsApp » est parfaitement
+        // sauvegardé. Testé et pur dans `Choix`, pour ne pas dupliquer cette
+        // règle dans deux écrans Compose, invérifiables.
+        val absents = Choix.introuvables(reglages, avancement.dossiersVus.keys)
         if (absents.isNotEmpty()) {
             Text("Introuvables sur ce téléphone : ${absents.joinToString(", ")}",
                  color = MaterialTheme.colorScheme.error,
@@ -297,12 +298,11 @@ fun EcranDetail(etat: EtatSynchro, reglages: Reglages) {
                 Text("$nom : $combien" +
                      if (suivi) " — sauvegardé" else " — non sauvegardé")
             }
-            // Comparé aux réglages BRUTS, pas à `dossiersChoisis` : celui-ci
-            // est déjà filtré sur ce qui existe ici, donc toujours inclus dans
-            // `vus.keys` — la différence serait vide à coup sûr, et cette
-            // alerte ne se déclencherait plus jamais.
-            val brut = reglages.dossiersSeuls + reglages.dossiersRecursifs
-            val absents = brut - vus.keys
+            // `Choix.introuvables`, pas une simple différence d'ensembles :
+            // voir le commentaire identique dans `EcranAvancement` — un
+            // dossier coché en récursif n'apparaît jamais lui-même dans
+            // `vus.keys`, une différence brute crierait à tort.
+            val absents = Choix.introuvables(reglages, vus.keys)
             if (absents.isNotEmpty()) {
                 Spacer(Modifier.height(8.dp))
                 Text("Dossiers sauvegardés introuvables ici : ${absents.joinToString(", ")}",

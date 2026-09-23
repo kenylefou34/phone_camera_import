@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import fr.izquierdo.phototheque.medias.Depot
 import fr.izquierdo.phototheque.medias.Media
+import fr.izquierdo.phototheque.synchro.Arbre
 import fr.izquierdo.phototheque.synchro.Choix
 import fr.izquierdo.phototheque.synchro.Coche
 import fr.izquierdo.phototheque.synchro.Noeud
@@ -34,11 +35,40 @@ import kotlinx.coroutines.withContext
  */
 @Composable
 fun EcranDossiers(
-    racine: List<Noeud>,
+    dossiersVus: Map<String, Int>?,
     reglages: Reglages,
     depot: Depot,
     surCoche: (String, Coche) -> Unit,
 ) {
+    // L'arbre ne vient plus de la dernière synchro (`dossiersVus` peut être
+    // `null` : au tout premier lancement, avant toute synchronisation, cet
+    // écran — le cœur du lot 2 — serait sinon vide au moment exact où on
+    // l'ouvre pour la première fois, un parcours pourtant banal : appairage,
+    // puis Réglages → Dossiers). L'écran balaie lui-même MediaStore à
+    // l'ouverture, hors du fil principal.
+    //
+    // `dossiersVus` sert de valeur de DÉPART quand elle existe déjà : ça évite
+    // un écran vide le temps du balayage sur les ouvertures suivantes. Le
+    // balayage frais la remplace ensuite silencieusement, sans indicateur
+    // d'attente supplémentaire — seul le tout premier balayage (aucune valeur
+    // de départ) en affiche un, plein écran.
+    var racine by remember {
+        mutableStateOf(dossiersVus?.let { Arbre.construire(it) })
+    }
+    LaunchedEffect(Unit) {
+        val vus = withContext(Dispatchers.IO) {
+            depot.lister().groupingBy { it.dossier }.eachCount()
+        }
+        racine = Arbre.construire(vus)
+    }
+    val arbre = racine
+    if (arbre == null) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        return
+    }
+
     // Le chemin où l'on se trouve : la navigation DANS l'arbre est un état
     // local à cet écran, distinct de la navigation entre écrans.
     var chemin by rememberSaveable { mutableStateOf(listOf<String>()) }
@@ -48,7 +78,7 @@ fun EcranDossiers(
     // compromis raisonnable, ce n'est qu'une fenêtre de vérification.
     var apercu by remember { mutableStateOf<String?>(null) }
 
-    val courants = chemin.fold(racine) { niveau, libelle ->
+    val courants = chemin.fold(arbre) { niveau, libelle ->
         niveau.firstOrNull { it.libelle == libelle }?.enfants ?: emptyList()
     }
 
@@ -67,6 +97,7 @@ fun EcranDossiers(
                     noeud = noeud,
                     coche = Choix.etat(noeud, reglages.dossiersSeuls,
                                        reglages.dossiersRecursifs),
+                    heritageDe = Choix.parentRecursif(noeud.chemin, reglages.dossiersRecursifs),
                     deplie = deplie == noeud.chemin,
                     surDeplier = { deplie = if (deplie == noeud.chemin) null else noeud.chemin },
                     surChoix = { surCoche(noeud.chemin, it); deplie = null },
@@ -86,7 +117,7 @@ fun EcranDossiers(
 
 @Composable
 private fun LigneDossier(
-    noeud: Noeud, coche: Coche, deplie: Boolean,
+    noeud: Noeud, coche: Coche, heritageDe: String?, deplie: Boolean,
     surDeplier: () -> Unit, surChoix: (Coche) -> Unit,
     surEntrer: () -> Unit, surApercu: () -> Unit,
 ) {
@@ -112,12 +143,27 @@ private fun LigneDossier(
             }
         }
         if (deplie) {
-            // Les trois choix en clair. Le vocabulaire est la moitié de
-            // l'affaire : « récursivement » ne veut rien dire pour personne.
             Column(Modifier.padding(start = 52.dp, bottom = 8.dp)) {
-                ChoixLigne("Ce dossier seulement", coche == Coche.DOSSIER) { surChoix(Coche.DOSSIER) }
-                ChoixLigne("Ce dossier et ses sous-dossiers", coche == Coche.RECURSIVE) { surChoix(Coche.RECURSIVE) }
-                ChoixLigne("Ne pas sauvegarder", coche == Coche.AUCUNE) { surChoix(Coche.AUCUNE) }
+                if (coche == Coche.HERITEE && heritageDe != null) {
+                    // Pas de trois choix ici : « Ne pas sauvegarder » ne
+                    // ferait RIEN (changerCoche retirerait ce chemin de deux
+                    // ensembles où il n'est pas), et un choix qui ne fait rien
+                    // est pire que pas de choix — l'utilisateur croirait
+                    // avoir exclu ce dossier, alors qu'il continuerait de
+                    // partir. On nomme le responsable et on dit quoi faire.
+                    Text(
+                        "Pris par « $heritageDe », coché avec ses sous-dossiers. " +
+                        "Pour l'exclure, décochez « $heritageDe » et cochez ses " +
+                        "sous-dossiers un par un.",
+                        style = MaterialTheme.typography.bodySmall)
+                } else {
+                    // Les trois choix en clair. Le vocabulaire est la moitié
+                    // de l'affaire : « récursivement » ne veut rien dire pour
+                    // personne.
+                    ChoixLigne("Ce dossier seulement", coche == Coche.DOSSIER) { surChoix(Coche.DOSSIER) }
+                    ChoixLigne("Ce dossier et ses sous-dossiers", coche == Coche.RECURSIVE) { surChoix(Coche.RECURSIVE) }
+                    ChoixLigne("Ne pas sauvegarder", coche == Coche.AUCUNE) { surChoix(Coche.AUCUNE) }
+                }
             }
         }
     }
@@ -140,7 +186,8 @@ private fun TriCase(coche: Coche, surClic: () -> Unit) {
         state = when (coche) {
             Coche.AUCUNE -> androidx.compose.ui.state.ToggleableState.Off
             Coche.PARTIELLE -> androidx.compose.ui.state.ToggleableState.Indeterminate
-            Coche.DOSSIER, Coche.RECURSIVE -> androidx.compose.ui.state.ToggleableState.On
+            Coche.DOSSIER, Coche.RECURSIVE, Coche.HERITEE ->
+                androidx.compose.ui.state.ToggleableState.On
         },
         onClick = surClic)
 }
@@ -149,9 +196,14 @@ private fun TriCase(coche: Coche, surClic: () -> Unit) {
  * Les chiffres qui parlent : c'est eux, et non des vignettes, qui font
  * reconnaître un dossier. « tous < 50 Ko » démasque `.thumbnails` sans avoir à
  * l'ouvrir.
+ *
+ * Les deux comptes sont donnés dès qu'ils diffèrent : `mediasTotal` seul, à
+ * côté d'un choix « Ce dossier seulement » qui ne prendra que `medias`,
+ * annoncerait un nombre que ce choix précis ne sauvegardera jamais.
  */
 private fun sousTitre(noeud: Noeud): String = buildString {
-    append("${noeud.mediasTotal} média(s)")
+    if (noeud.medias == noeud.mediasTotal) append("${noeud.medias} média(s)")
+    else append("${noeud.medias} ici · ${noeud.mediasTotal} avec les sous-dossiers")
     if (noeud.enfants.isNotEmpty()) append(" · ${noeud.enfants.size} sous-dossier(s)")
 }
 
@@ -209,11 +261,8 @@ private fun DialogueApercu(depot: Depot, dossier: Noeud, surFermer: () -> Unit) 
  */
 @Composable
 private fun Vignette(depot: Depot, media: Media) {
-    // Clé sur `chemin`, pas `id` : MediaStore attribue des identifiants
-    // SÉPARÉS aux collections Images et Vidéo (une photo et une vidéo d'un
-    // même dossier peuvent partager le même id), alors qu'un dossier ne peut
-    // pas contenir deux fichiers de même nom. `chemin` est le seul des deux
-    // qui identifie vraiment un média.
+    // Clé sur `chemin`, pas `id` : `chemin` identifie le média de façon
+    // lisible et ne dépend pas de la numérotation interne de MediaStore.
     var bitmap by remember(media.chemin) { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(media.chemin) {
         bitmap = withContext(Dispatchers.IO) { depot.vignette(media) }

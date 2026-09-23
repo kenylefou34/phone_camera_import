@@ -14,7 +14,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import fr.izquierdo.phototheque.medias.Depot
-import fr.izquierdo.phototheque.synchro.Arbre
 import fr.izquierdo.phototheque.ui.Ecran
 import fr.izquierdo.phototheque.ui.EcranAccueil
 import fr.izquierdo.phototheque.ui.EcranAppairage
@@ -116,7 +115,7 @@ class MainActivity : ComponentActivity() {
                         surSauvegarde = { demande = Ecran.SAUVEGARDE },
                         surAppareil = { demande = Ecran.APPAREIL })
                     Ecran.DOSSIERS -> EcranDossiers(
-                        racine = Arbre.construire(etat.dossiersVus ?: emptyMap()),
+                        dossiersVus = etat.dossiersVus,
                         reglages = reglages,
                         depot = depot,
                         surCoche = modele::changerCoche)

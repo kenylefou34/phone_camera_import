@@ -199,7 +199,14 @@ class TravailSynchro(
             // sans cela, les mêmes dossiers seraient annoncés « nouveaux » à
             // chaque synchronisation, et l'avertissement deviendrait un bruit
             // qu'on apprend à ignorer.
-            magasin.ecrire(avant.copy(dossiersConnus = vus))
+            //
+            // N'écrit rien si `vus` est vide : une permission média retirée
+            // fait rendre `lister()` une liste vide, la synchro « réussit »
+            // quand même (aucun média à envoyer n'est pas un échec), et sans
+            // cette garde `dossiersConnus` repartirait à zéro — la prochaine
+            // synchro, permission revenue, annoncerait alors TOUS les
+            // dossiers récursifs comme nouveaux, à tort.
+            if (vus.isNotEmpty()) magasin.ecrire(avant.copy(dossiersConnus = vus))
 
             _derniereIssue.value = IssueSynchro(
                 bilan = bilan.pourLEcran(), revoque = bilan.revoque, dossiersVus = dossiersVus,

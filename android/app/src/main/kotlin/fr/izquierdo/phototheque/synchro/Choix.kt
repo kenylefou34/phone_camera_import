@@ -11,6 +11,14 @@ enum class Coche {
     DOSSIER,
     /** Ce dossier et toute sa descendance. */
     RECURSIVE,
+    /**
+     * Sauvegardé, mais pas par son propre réglage : un ANCÊTRE est coché
+     * « et ses sous-dossiers ». Distinct de PARTIELLE, qui décrit l'inverse
+     * (une partie seulement de la descendance) ; ici c'est la totalité, mais
+     * décidée plus haut dans l'arbre — décocher ce nœud ne ferait rien, la
+     * case reviendrait aussitôt à HERITEE au prochain passage.
+     */
+    HERITEE,
 }
 
 object Choix {
@@ -56,11 +64,14 @@ object Choix {
      *
      * L'état PARTIELLE existe pour empêcher une erreur de lecture : sans lui,
      * un dossier dont un seul sous-dossier est pris se lirait comme entièrement
-     * pris.
+     * pris. HERITEE est testée avant PARTIELLE : quand un ANCÊTRE est coché
+     * en récursif, toute la descendance est déjà entièrement prise — il ne
+     * peut plus y avoir de « partiel » à signaler pour ce nœud.
      */
     fun etat(noeud: Noeud, seuls: Set<String>, recursifs: Set<String>): Coche = when {
         noeud.chemin in recursifs -> Coche.RECURSIVE
         noeud.chemin in seuls -> Coche.DOSSIER
+        parentRecursif(noeud.chemin, recursifs) != null -> Coche.HERITEE
         descendanceCochee(noeud, seuls, recursifs) -> Coche.PARTIELLE
         else -> Coche.AUCUNE
     }
@@ -70,6 +81,20 @@ object Choix {
     ): Boolean = noeud.enfants.any {
         it.chemin in seuls || it.chemin in recursifs || descendanceCochee(it, seuls, recursifs)
     }
+
+    /**
+     * L'ancêtre récursif responsable de [chemin], ou `null` si aucun ne le
+     * couvre.
+     *
+     * [chemin] lui-même n'est jamais son propre ancêtre : un dossier qui est
+     * DANS [recursifs] est RECURSIVE, pas HERITEE. Quand plusieurs ancêtres
+     * récursifs se recouvrent (« Pictures » et « Pictures/WhatsApp » tous les
+     * deux cochés), le plus proche — le chemin le plus long — est le vrai
+     * responsable : c'est lui que l'écran doit nommer.
+     */
+    fun parentRecursif(chemin: String, recursifs: Set<String>): String? =
+        recursifs.filter { it != chemin && sousArbre(chemin, it) }
+            .maxByOrNull { it.length }
 
     /**
      * Les dossiers qu'une coche récursive vient d'embarquer sans qu'on les ait
@@ -86,4 +111,19 @@ object Choix {
     fun nouveauxParRecursivite(
         tous: Set<String>, connus: Set<String>, recursifs: Set<String>,
     ): Set<String> = resoudre(tous - connus, emptySet(), recursifs)
+
+    /**
+     * Les dossiers configurés dont RIEN n'est visible sur le téléphone.
+     *
+     * Comparer chaque dossier configuré à [vus] par égalité stricte serait
+     * faux pour une coche récursive : MediaStore ne rend que les dossiers
+     * qui contiennent directement des médias, jamais un dossier intermédiaire
+     * qui n'en a que par ses sous-dossiers. « Pictures » coché en récursif et
+     * sauvegardé uniquement via « Pictures/WhatsApp » ne doit pas s'afficher
+     * comme introuvable — c'est exactement le cas que l'écran doit RECONNAÎTRE
+     * comme normal, pas signaler en rouge.
+     */
+    fun introuvables(reglages: Reglages, vus: Set<String>): Set<String> =
+        (reglages.dossiersSeuls + reglages.dossiersRecursifs)
+            .filterTo(mutableSetOf()) { racine -> vus.none { sousArbre(it, racine) } }
 }

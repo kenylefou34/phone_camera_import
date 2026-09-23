@@ -2,6 +2,7 @@ package fr.izquierdo.phototheque.synchro
 
 import fr.izquierdo.phototheque.ui.Reglages
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ChoixTest {
@@ -109,5 +110,51 @@ class ChoixTest {
             tous = setOf("Pictures", "Pictures/WhatsApp", "DCIM/Camera"))
 
         assertEquals(setOf("Pictures", "Pictures/WhatsApp"), choisis)
+    }
+
+    // --- introuvables : l'alerte rouge ne doit pas crier sur une coche récursive normale ---
+
+    @Test fun un_dossier_coche_recursif_present_par_ses_enfants_seulement_n_est_pas_introuvable() {
+        // MediaStore ne rend jamais "Pictures" lui-même s'il n'a aucun média
+        // DIRECT : seul "Pictures/WhatsApp" apparaît dans vus. Une comparaison
+        // par égalité stricte crierait "introuvable" sur une configuration qui
+        // sauvegarde pourtant parfaitement.
+        val reglages = Reglages(dossiersRecursifs = setOf("Pictures"))
+
+        val introuvables = Choix.introuvables(reglages, vus = setOf("Pictures/WhatsApp"))
+
+        assertEquals(emptySet<String>(), introuvables)
+    }
+
+    @Test fun un_dossier_coche_absent_partout_est_introuvable() {
+        val reglages = Reglages(dossiersRecursifs = setOf("Pictures"))
+
+        val introuvables = Choix.introuvables(reglages, vus = setOf("DCIM/Camera"))
+
+        assertEquals(setOf("Pictures"), introuvables)
+    }
+
+    // --- HERITEE : un enfant d'une coche récursive est sauvegardé, mais pas par lui-même ---
+
+    @Test fun l_etat_d_un_enfant_dont_un_ancetre_est_recursif_est_herite() {
+        val feuille = Noeud("Pictures/WhatsApp", "WhatsApp", 10, 10, emptyList())
+
+        assertEquals(Coche.HERITEE, Choix.etat(feuille, emptySet(), setOf("Pictures")))
+    }
+
+    @Test fun un_dossier_recursif_pour_lui_meme_n_a_pas_de_parent_recursif() {
+        // "Pictures" est RECURSIVE pour lui-même (Choix.etat le dit déjà) :
+        // il n'est pas son propre ancêtre, donc pas HERITEE.
+        assertNull(Choix.parentRecursif("Pictures", setOf("Pictures")))
+    }
+
+    @Test fun le_parent_recursif_le_plus_proche_est_designe() {
+        // "Pictures" ET "Pictures/WhatsApp" sont tous deux cochés en
+        // récursif : c'est le plus proche qui doit être nommé à l'écran, pas
+        // le premier trouvé.
+        val ancetre = Choix.parentRecursif(
+            "Pictures/WhatsApp/Sent", setOf("Pictures", "Pictures/WhatsApp"))
+
+        assertEquals("Pictures/WhatsApp", ancetre)
     }
 }

@@ -186,9 +186,17 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
      * Pas de bouton « enregistrer » distinct : un réglage qu'on croit posé et
      * qui se perd (application tuée avant qu'on ne quitte l'écran) serait la
      * panne muette exacte que ce sous-projet existe pour éviter.
+     *
+     * Relit `magasin.lire()`, pas `_reglages.value` : ce dernier est posé une
+     * fois à la construction du modèle de vue et jamais rafraîchi. Le travail
+     * de fond écrit `dossiersConnus` (et bientôt `debutApplique`, tâche 7)
+     * directement dans les préférences, sans passer par ce `StateFlow`. Partir
+     * de `_reglages.value` réécrirait l'objet entier avec ces champs-là
+     * PÉRIMÉS — le geste le plus normal qui soit (cocher un dossier)
+     * effacerait alors en silence ce que la synchro venait de noter.
      */
     fun changerCoche(chemin: String, coche: Coche) {
-        val r = _reglages.value
+        val r = magasin.lire()
         val nouveau = r.copy(
             dossiersSeuls = if (coche == Coche.DOSSIER) r.dossiersSeuls + chemin
                             else r.dossiersSeuls - chemin,
