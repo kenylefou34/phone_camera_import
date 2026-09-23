@@ -191,11 +191,11 @@ fun EcranAvancement(avancement: Avancement, reglages: Reglages, surInterrompre: 
              style = MaterialTheme.typography.labelMedium)
 
         // Repond a « je sais meme pas quel dossier ca synchronise », sans
-        // avoir a ouvrir un autre ecran. Resolu depuis les reglages, pas une
-        // constante : la synchro lit desormais les dossiers choisis par
-        // l'utilisateur (Choix.dossiersASauvegarder), et un ecran qui
-        // afficherait encore les trois dossiers d'origine mentirait des
-        // qu'un seul reglage est change.
+        // avoir a ouvrir un autre ecran. Résolu depuis les réglages, pas une
+        // constante : la synchro lit désormais les dossiers choisis par
+        // l'utilisateur (Choix.dossiersASauvegarder), et un écran qui
+        // afficherait encore les trois dossiers d'origine mentirait dès
+        // qu'un seul réglage est changé.
         Spacer(Modifier.height(8.dp))
         val dossiersChoisis = Choix.dossiersASauvegarder(reglages, avancement.dossiersVus.keys)
         Text("Dossiers : " + dossiersChoisis.joinToString(", "),
@@ -205,11 +205,11 @@ fun EcranAvancement(avancement: Avancement, reglages: Reglages, surInterrompre: 
         // `Avancement` recu a deja regarde MediaStore — y compris quand les
         // dossiers suivis sont absents, le cas le plus grave.
         //
-        // Compare aux reglages BRUTS (dossiersSeuls + dossiersRecursifs), pas
-        // a `dossiersChoisis` : celui-ci est deja filtre par ce qui existe
-        // sur ce telephone (Choix.resoudre), donc toujours inclus dans
-        // `dossiersVus.keys` — la difference serait vide a coup sur, et
-        // l'avertissement ne se declencherait plus jamais.
+        // Comparé aux réglages BRUTS (dossiersSeuls + dossiersRecursifs), pas
+        // à `dossiersChoisis` : celui-ci est déjà filtré par ce qui existe
+        // sur ce téléphone (Choix.resoudre), donc toujours inclus dans
+        // `dossiersVus.keys` — la différence serait vide à coup sûr, et
+        // l'avertissement ne se déclencherait plus jamais.
         val brut = reglages.dossiersSeuls + reglages.dossiersRecursifs
         val absents = brut - avancement.dossiersVus.keys
         if (absents.isNotEmpty()) {

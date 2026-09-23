@@ -33,9 +33,9 @@ data class IssueSynchro(
     // le plus grave, cf EtatSynchro.dossiersVus — et ne doit jamais etre
     // confondue avec l'absence de reponse.
     val dossiersVus: Map<String, Int>? = null,
-    // Vide par defaut : seule la fin REUSSIE de doWork() le calcule. Les
-    // sorties en panne (revocation, annulation, exception) n'ont rien de
-    // fiable a dire ici - autant ne rien annoncer que d'annoncer a tort.
+    // Vide par défaut : seule la fin RÉUSSIE de doWork() le calcule. Les
+    // sorties en panne (révocation, annulation, exception) n'ont rien de
+    // fiable à dire ici - autant ne rien annoncer que d'annoncer à tort.
     val dossiersNouveaux: Set<String> = emptySet(),
 )
 
@@ -178,27 +178,27 @@ class TravailSynchro(
                 Memoire(contexte).enregistrerReussite(System.currentTimeMillis())
             }
 
-            // Les dossiers entres par une coche recursive depuis la derniere
+            // Les dossiers entrés par une coche récursive depuis la dernière
             // synchronisation. Une seule lecture, un seul `copy`, une seule
-            // ecriture : la tache 7 ajoute une autre mise a jour au meme
-            // endroit (`debutApplique`), et deux `ecrire()` batis chacun sur
-            // sa propre lecture s'ecraseraient l'un l'autre selon l'ordre.
+            // écriture : la tâche 7 ajoute une autre mise à jour au même
+            // endroit (`debutApplique`), et deux `ecrire()` bâtis chacun sur
+            // sa propre lecture s'écraseraient l'un l'autre selon l'ordre.
             val vus = dossiersVus?.keys.orEmpty()
             val magasin = MagasinReglages(contexte)
             val avant = magasin.lire()
             // Vide au tout premier lancement (aucune synchronisation
             // n'a encore rempli `dossiersConnus`) : sans cette garde, cette
-            // toute premiere synchronisation annoncerait TOUS les dossiers
-            // pris par une coche recursive comme « nouveaux », alors
-            // qu'aucun ne l'est reellement - il n'y a simplement encore rien
-            // eu a comparer. On se contente alors de remplir `dossiersConnus`.
+            // toute première synchronisation annoncerait TOUS les dossiers
+            // pris par une coche récursive comme « nouveaux », alors
+            // qu'aucun ne l'est réellement - il n'y a simplement encore rien
+            // eu à comparer. On se contente alors de remplir `dossiersConnus`.
             val nouveaux = if (avant.dossiersConnus.isEmpty()) emptySet()
                            else Choix.nouveauxParRecursivite(
                                vus, avant.dossiersConnus, avant.dossiersRecursifs)
-            // `dossiersConnus` est range DANS LE MEME geste que sa lecture :
-            // sans cela, les memes dossiers seraient annonces « nouveaux » a
+            // `dossiersConnus` est rangé DANS LE MÊME geste que sa lecture :
+            // sans cela, les mêmes dossiers seraient annoncés « nouveaux » à
             // chaque synchronisation, et l'avertissement deviendrait un bruit
-            // qu'on apprend a ignorer.
+            // qu'on apprend à ignorer.
             magasin.ecrire(avant.copy(dossiersConnus = vus))
 
             _derniereIssue.value = IssueSynchro(

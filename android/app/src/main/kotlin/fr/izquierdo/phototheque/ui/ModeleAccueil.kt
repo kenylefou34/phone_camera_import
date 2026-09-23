@@ -102,11 +102,11 @@ class ModeleAccueil(application: Application) : AndroidViewModel(application) {
                     // (jamais publie) et carte vide (regarde, rien trouve) ne
                     // doivent jamais etre confondus : `?:` et non `ifEmpty`.
                     dossiersVus = issue.dossiersVus ?: _etat.value.dossiersVus,
-                    // Pas de repli sur l'ancienne valeur, contrairement a
-                    // dossiersVus : ce signal est propre a CETTE issue (seule
-                    // la fin reussie de doWork le calcule, TravailSynchro.kt).
-                    // Le conserver d'une synchro a l'autre ferait ressurgir un
-                    // avertissement perime apres une synchro qui a echoue.
+                    // Pas de repli sur l'ancienne valeur, contrairement à
+                    // dossiersVus : ce signal est propre à CETTE issue (seule
+                    // la fin réussie de doWork le calcule, TravailSynchro.kt).
+                    // Le conserver d'une synchro à l'autre ferait ressurgir un
+                    // avertissement périmé après une synchro qui a échoué.
                     dossiersNouveaux = issue.dossiersNouveaux,
                 )
             }
