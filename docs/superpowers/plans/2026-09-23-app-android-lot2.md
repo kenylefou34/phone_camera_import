@@ -1880,6 +1880,8 @@ FIN
 package fr.izquierdo.phototheque.synchro
 
 import fr.izquierdo.phototheque.medias.Media
+import java.time.LocalDateTime
+import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -1889,35 +1891,53 @@ class FenetreTest {
 
     private fun media(instant: Double) = Media(1, "DCIM/Camera", "a.jpg", 10, instant)
 
-    @Test
-    fun `sans bornes tout est dans la fenetre`() {
+    /** Un instant reel, construit hors de Fenetre : c'est ce qui empeche ces
+     *  tests d'etre auto-coherents et donc vides de sens. */
+    private fun instantLocal(quand: String, fuseau: String): Double =
+        LocalDateTime.parse(quand).atZone(ZoneId.of(fuseau)).toEpochSecond().toDouble()
+
+    @Test fun sans_bornes_tout_est_dans_la_fenetre() {
         assertTrue(Fenetre.dansLaFenetre(media(0.0), null, null))
         assertTrue(Fenetre.dansLaFenetre(media(9e9), null, null))
     }
 
-    @Test
-    fun `la borne de fin porte sur le jour ENTIER`() {
-        // Une date saisie par un humain porte sur un jour entier. Comparer a
-        // minuit ferait disparaitre toutes les photos du dernier jour de la
-        // fenetre - et personne ne comprendrait pourquoi.
-        val finDeJournee = Fenetre.jourVersSecondes("2026-09-15") + 23 * 3600.0
-        assertTrue(Fenetre.dansLaFenetre(media(finDeJournee), null, "2026-09-15"))
+    @Test fun la_borne_de_fin_couvre_la_soiree_du_dernier_jour_partout() {
+        // LE test de cette tache. Une photo prise le 15 a 23 h doit rester
+        // DANS une fenetre qui finit le 15 — a Paris comme a Tokyo comme a
+        // Los Angeles. Une borne calee sur minuit UTC, ou pire sur le debut de
+        // jour + 24 h, couperait l'apres-midi et la soiree du dernier jour
+        // sans un mot.
+        for (fuseau in listOf("Europe/Paris", "Asia/Tokyo", "America/Los_Angeles")) {
+            val tard = instantLocal("2026-09-15T23:00", fuseau)
+            assertTrue(fuseau, Fenetre.dansLaFenetre(media(tard), null, "2026-09-15"))
+        }
     }
 
-    @Test
-    fun `une fenetre inversee ne retient rien et ne leve pas`() {
+    @Test fun la_borne_de_debut_couvre_le_petit_matin_du_premier_jour_partout() {
+        for (fuseau in listOf("Europe/Paris", "Asia/Tokyo", "America/Los_Angeles")) {
+            val tot = instantLocal("2026-09-15T00:30", fuseau)
+            assertTrue(fuseau, Fenetre.dansLaFenetre(media(tot), "2026-09-15", null))
+        }
+    }
+
+    @Test fun la_borne_de_fin_ecarte_bien_les_jours_suivants() {
+        // La contrepartie : trop large ne veut pas dire sans borne.
+        val bienApres = instantLocal("2026-09-20T12:00", "Europe/Paris")
+        assertFalse(Fenetre.dansLaFenetre(media(bienApres), null, "2026-09-15"))
+    }
+
+    @Test fun une_fenetre_inversee_ne_retient_rien_et_ne_leve_pas() {
         // Debut apres fin : l'utilisateur s'est trompe. Zero media, et
         // l'ecran doit le DIRE - pas un comportement indefini.
-        val m = media(Fenetre.jourVersSecondes("2026-06-01"))
+        val m = media(instantLocal("2026-06-01T12:00", "Europe/Paris"))
         assertFalse(Fenetre.dansLaFenetre(m, debut = "2026-09-01", fin = "2026-01-01"))
     }
 
-    @Test
-    fun `hors fenetre compte ce que la fenetre laisse dehors`() {
+    @Test fun hors_fenetre_compte_ce_que_la_fenetre_laisse_dehors() {
         val medias = listOf(
-            media(Fenetre.jourVersSecondes("2019-01-01")),
-            media(Fenetre.jourVersSecondes("2026-09-20")),
-            media(Fenetre.jourVersSecondes("2026-09-21")))
+            media(instantLocal("2019-01-01T12:00", "Europe/Paris")),
+            media(instantLocal("2026-09-20T12:00", "Europe/Paris")),
+            media(instantLocal("2026-09-21T12:00", "Europe/Paris")))
 
         assertEquals(2, Fenetre.horsFenetre(medias, debut = null, fin = "2026-01-01"))
     }
@@ -1946,18 +1966,45 @@ import java.time.ZoneOffset
  *
  * Les bornes sont des jours ISO, pas des instants : une date saisie par un
  * humain porte sur un jour entier.
+ *
+ * **Chaque borne est élargie dans SON sens**, et c'est délibéré. Le téléphone
+ * ne sait pas dans quel fuseau une photo a été prise : `instant` est un
+ * horodatage absolu, et « le 15 septembre » ne désigne pas le même intervalle
+ * à Paris, à Tokyo et à Los Angeles. Une borne trop étroite écarterait des
+ * médias en silence — une borne trop large en repropose quelques heures de
+ * trop, que l'anti-doublon du serveur écarte sans les transférer. Le choix
+ * est donc toujours le même : **reproposer plutôt que sauter.**
  */
 object Fenetre {
 
-    /** Minuit, en UTC, du jour donné. */
-    fun jourVersSecondes(jour: String): Double =
-        LocalDate.parse(jour).atStartOfDay(ZoneOffset.UTC).toEpochSecond().toDouble()
+    /**
+     * Le tout premier instant qui peut appartenir à ce jour, où que ce soit :
+     * minuit au fuseau le plus en avance (UTC+14).
+     *
+     * Même raisonnement, et même valeur, que la fonction qu'`Orchestrateur`
+     * utilisait pour l'horizon : vers l'est, la borne ne peut qu'être trop
+     * généreuse ; vers l'ouest, elle sauterait des médias.
+     */
+    fun debutDuJour(jour: String): Double =
+        LocalDate.parse(jour).atStartOfDay(ZoneOffset.ofHours(14)).toEpochSecond().toDouble()
+
+    /**
+     * Le premier instant qui n'appartient PLUS à ce jour, où que ce soit :
+     * minuit du lendemain au fuseau le plus en retard (UTC-12). Borne
+     * **exclusive**.
+     *
+     * Réutiliser [debutDuJour] en y ajoutant 24 h serait le piège : la fenêtre
+     * s'arrêterait à midi UTC le jour choisi, c'est-à-dire **vers 14 h à
+     * Paris**. Toutes les photos de l'après-midi et de la soirée du dernier
+     * jour disparaîtraient, sans un mot.
+     */
+    fun finDuJour(jour: String): Double =
+        LocalDate.parse(jour).plusDays(1)
+            .atStartOfDay(ZoneOffset.ofHours(-12)).toEpochSecond().toDouble()
 
     fun dansLaFenetre(media: Media, debut: String?, fin: String?): Boolean {
-        if (debut != null && media.instant < jourVersSecondes(debut)) return false
-        // + 1 jour : la borne haute INCLUT son jour. Comparer à minuit ferait
-        // disparaître toutes les photos du dernier jour de la fenêtre.
-        if (fin != null && media.instant >= jourVersSecondes(fin) + 86_400.0) return false
+        if (debut != null && media.instant < debutDuJour(debut)) return false
+        if (fin != null && media.instant >= finDuJour(fin)) return false
         return true
     }
 
@@ -1990,8 +2037,13 @@ Attendu : SUCCÈS, 4 tests.
 
 - [ ] **Étape 5 : valider par mutation**
 
-Retirer `+ 86_400.0` de la borne haute. Relancer : seul
-`la borne de fin porte sur le jour ENTIER` doit tomber. Restaurer.
+Remplacer `finDuJour` par `debutDuJour(jour) + 86_400.0` — le piège exact.
+Relancer : `la_borne_de_fin_couvre_la_soiree_du_dernier_jour_partout` doit
+tomber. Restaurer.
+
+Puis remplacer l'ancrage de `debutDuJour` par `ZoneOffset.UTC`. Relancer :
+`la_borne_de_debut_couvre_le_petit_matin_du_premier_jour_partout` doit tomber
+(sur les fuseaux à l'est). Restaurer.
 
 - [ ] **Étape 6 : écrire l'écran**
 
