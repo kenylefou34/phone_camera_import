@@ -838,7 +838,7 @@ class NavigationTest {
     }
 
     @Test
-    @Test fun une_synchro_en_cours_ne_maintient_pas_un_appareil_revoque_sur_l_accueil() {
+    fun une_synchro_en_cours_ne_maintient_pas_un_appareil_revoque_sur_l_accueil() {
         // Cet état est ATTEIGNABLE, contrairement à ce qu'on croirait : une
         // révocation en pleine synchro fait appeler Coffre.oublier() par
         // TravailSynchro (TravailSynchro.kt:163), donc `appaire` retombe à
@@ -850,6 +850,7 @@ class NavigationTest {
             Navigation.ecranAffiche(Ecran.ACCUEIL, appaire = false, synchroEnCours = true))
     }
 
+    @Test
     fun `l'ecran demande est affiche quand rien ne s'y oppose`() {
         assertEquals(Ecran.DOSSIERS,
             Navigation.ecranAffiche(Ecran.DOSSIERS, appaire = true, synchroEnCours = false))
