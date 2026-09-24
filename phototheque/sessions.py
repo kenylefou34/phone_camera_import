@@ -1,10 +1,16 @@
 """Sessions de synchro : réception des fichiers dans incoming/<session>/."""
 
+import logging
 import re
 import shutil
 import time
 import uuid
 from pathlib import Path
+
+# Une purge qui casse sur UNE session (disque NTFS externe capricieux,
+# permissions, course avec une autre synchro) n'a droit qu'à une ligne ici :
+# elle ne doit jamais remonter jusqu'à l'appelant (voir purger_abandonnees).
+_log = logging.getLogger("phototheque.sessions")
 
 # Taille des blocs lus puis écrits. Même valeur que mediasort.hashing : c'est
 # le compromis déjà éprouvé du projet entre nombre d'appels système et mémoire
@@ -97,9 +103,46 @@ def cleanup(base: Path, session: str) -> None:
 
 
 def _inventaire(dossier: Path) -> tuple[int, int]:
-    """(nombre de fichiers, octets) sous `dossier`, lui compris s'il en contient."""
-    fichiers = [p for p in dossier.rglob("*") if p.is_file()]
-    return len(fichiers), sum(p.stat().st_size for p in fichiers)
+    """(nombre de fichiers, octets) sous `dossier`, lui compris s'il en contient.
+
+    Un fichier qui disparaît ENTRE le listage (`rglob`) et le `stat()` qui lit
+    sa taille — course avec une autre synchro qui déplace ses fichiers, ou un
+    « .partiel » renommé au même instant — est compté pour ce qu'il est
+    devenu : absent. On rend ce qu'on a pu compter plutôt que de faire échouer
+    tout le décompte pour UNE entrée qui n'existe déjà plus.
+    """
+    fichiers = 0
+    octets = 0
+    for p in dossier.rglob("*"):
+        if not p.is_file():
+            continue
+        try:
+            octets += p.stat().st_size
+        except OSError:
+            continue
+        fichiers += 1
+    return fichiers, octets
+
+
+def _mtime_le_plus_recent(dossier: Path) -> float:
+    """Date de modification la plus récente de `dossier` et de tout son contenu.
+
+    `dossier` lui-même doit exister (son `stat()` n'est pas protégé : s'il a
+    disparu, il n'y a de toute façon plus rien à purger — l'appelant attrape
+    l'exception). En revanche une entrée sous `dossier` qui disparaît PENDANT
+    le parcours (même course qu'`_inventaire`) est ignorée pour la datation :
+    elle n'existe plus, elle ne peut donc plus dater quoi que ce soit. Sans ce
+    filtrage, une session qui reçoit régulièrement des fichiers éphémères
+    (« .partiel » renommés pendant qu'on purge) ne serait JAMAIS purgeable :
+    chaque passe retomberait sur la même course et échouerait de nouveau.
+    """
+    plus_recent = dossier.stat().st_mtime
+    for p in dossier.rglob("*"):
+        try:
+            plus_recent = max(plus_recent, p.stat().st_mtime)
+        except FileNotFoundError:
+            continue
+    return plus_recent
 
 
 def purger_abandonnees(base: Path, age_max_s: float = 24 * 3600,
@@ -119,6 +162,15 @@ def purger_abandonnees(base: Path, age_max_s: float = 24 * 3600,
     (`<session>/DCIM/Camera/...`) sans jamais rafraîchir la date du dossier de
     session — s'appuyer sur cette seule date purgerait une session dont un
     transfert est toujours en train d'arriver.
+
+    CHAQUE session est traitée dans son propre `try/except OSError` : sans
+    ça, une seule session à problème (stat impossible, `rmtree` qui casse sur
+    le disque externe NTFS) faisait lever toute la fonction — perdant au
+    passage la liste des sessions DÉJÀ purgées dans cette même passe (rien
+    n'était encore rendu), et laissant les sessions suivantes intactes pour
+    toujours puisque l'itération est triée et retombe sur la même en tête à
+    chaque appel. Une session qui échoue est simplement journalisée et
+    laissée en place : la prochaine passe retentera.
     """
     if maintenant is None:
         maintenant = time.time()
@@ -128,12 +180,19 @@ def purger_abandonnees(base: Path, age_max_s: float = 24 * 3600,
     for dossier in sorted(base.iterdir()):
         if not dossier.is_dir() or not identifiant_valide(dossier.name):
             continue
-        plus_recent = max(p.stat().st_mtime for p in [dossier, *dossier.rglob("*")])
-        if maintenant - plus_recent <= age_max_s:
+        try:
+            plus_recent = _mtime_le_plus_recent(dossier)
+            if maintenant - plus_recent <= age_max_s:
+                continue
+            fichiers, octets = _inventaire(dossier)
+            shutil.rmtree(dossier)
+        except OSError:
+            _log.exception("purge de la session %s impossible, poursuite avec les suivantes",
+                           dossier.name)
             continue
-        fichiers, octets = _inventaire(dossier)
+        # Ajouté seulement APRÈS un rmtree réussi : une session qu'on n'a pas
+        # su supprimer ne doit jamais apparaître comme retirée.
         emportees.append({"session": dossier.name, "fichiers": fichiers, "octets": octets})
-        shutil.rmtree(dossier)
     return emportees
 
 
@@ -145,9 +204,27 @@ def abandonner(base: Path, session: str) -> dict:
     Le contrôle de forme est fait EN PREMIER, avant même de regarder le
     disque : un identifiant hors norme ne doit strictement rien supprimer, ni
     même être parcouru.
+
+    Un identifiant valide qui désigne un LIEN SYMBOLIQUE n'est jamais produit
+    par ce service (`save_upload` ne crée que des dossiers) : on ne supprime
+    rien et on ne compte rien plutôt que de suivre le lien et de rendre un
+    bilan qui MENT sur ce qui a réellement disparu — `shutil.rmtree` refuse
+    déjà d'agir sur un lien, mais en silence (`cleanup` l'appelle avec
+    `ignore_errors=True`), ce qui ne suffit pas à garantir un compte rendu
+    honnête si on avait déjà compté à travers le lien avant.
+
+    Une panne de disque pendant le seul INVENTAIRE (avant toute suppression)
+    ne doit jamais faire échouer la route `/sync/abandon` avec une 500 : on
+    compte ce qu'on peut, zéro si même regarder le dossier échoue, et on
+    tente quand même le nettoyage.
     """
     _verifier_session(session)
     dossier = base / session
-    fichiers, octets = _inventaire(dossier) if dossier.is_dir() else (0, 0)
+    if dossier.is_symlink():
+        return {"supprimes": 0, "octets": 0}
+    try:
+        fichiers, octets = _inventaire(dossier) if dossier.is_dir() else (0, 0)
+    except OSError:
+        fichiers, octets = 0, 0
     cleanup(base, session)
     return {"supprimes": fichiers, "octets": octets}

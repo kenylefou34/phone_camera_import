@@ -83,15 +83,19 @@ def _purger() -> None:
     planifiée à installer ni à surveiller. Chaque session emportée laisse un
     événement « purge » dans le journal — personne ne surveille ce service en
     continu, seule une trace permet de comprendre APRÈS COUP qu'un ménage a
-    eu lieu. `sessions.purger_abandonnees` peut lever OSError (disque,
-    permissions) : c'est à l'appelant de décider si ça doit l'arrêter — ici,
-    jamais (voir _cycle_de_vie et sync_commit).
+    eu lieu. `sessions.purger_abandonnees` isole déjà chaque session dans son
+    propre `try/except` (une session à problème n'empêche pas les autres) :
+    c'est à l'appelant de décider si une panne plus large (qui remonterait
+    quand même jusqu'ici) doit l'arrêter — ici, jamais (voir _cycle_de_vie et
+    sync_commit, qui attrapent tous deux `Exception`, pas seulement
+    `OSError`).
     """
     for e in sessions.purger_abandonnees(config.INCOMING_DIR):
+        # La lambda est appelée tout de suite par _journaliser(), dans cette
+        # même itération : pas de piège de capture tardive à contourner ici,
+        # `detail` porte déjà la bonne valeur au moment de l'appel.
         detail = f"session {e['session']} : {e['fichiers']} fichier(s), {e['octets']} octets"
-        # `e=e` : sans ce défaut, toutes les lambdas de la boucle partageraient
-        # la MÊME variable `e` et journaliseraient toutes la dernière session.
-        _journaliser(lambda j, e=e, detail=detail: j.evenement("purge", detail=detail))
+        _journaliser(lambda j: j.evenement("purge", detail=detail))
 
 
 @asynccontextmanager
@@ -99,13 +103,18 @@ async def _cycle_de_vie(_app):
     """Au démarrage : trace + purge des sessions abandonnées (spec §5).
 
     Pas de tâche planifiée à installer ni à surveiller : le service purge en
-    s'ouvrant et après chaque commit. Une purge qui échoue ne doit pas
-    empêcher le service de démarrer.
+    s'ouvrant et après chaque commit. Une purge qui échoue ne doit JAMAIS
+    empêcher le service de démarrer — `except Exception` et non `except
+    OSError` : la règle qui compte est qu'une panne de purge ne bloque
+    jamais le démarrage, quelle que soit sa nature (une erreur de
+    programmation dans `sessions.purger_abandonnees` ne doit pas non plus
+    empêcher le service de répondre), comme `_journaliser` le fait déjà pour
+    la même raison.
     """
     _journaliser(lambda j: j.evenement("demarrage"))
     try:
         _purger()
-    except OSError:
+    except Exception:
         _log_journal.exception("purge au démarrage impossible")
     yield
 
@@ -407,11 +416,23 @@ def sync_commit(req: CommitRequest, request: Request,
     # APRÈS que les horizons ont été écrits, et dans son propre garde-fou :
     # une purge qui casse ne doit ni changer la réponse du commit (l'app la
     # lit comme un dictionnaire de nombres, voir plus haut) ni empêcher
-    # l'horizon d'avoir avancé.
+    # l'horizon d'avoir avancé. `except Exception`, pas seulement `OSError` :
+    # même règle qu'au démarrage (_cycle_de_vie) — une purge n'est qu'un
+    # ménage, sa panne ne doit JAMAIS se répercuter sur la réponse HTTP.
+    #
+    # Hypothèse dont dépend cette purge en fin de commit : plus haut,
+    # sync_commit traite un dossier de session ABSENT comme une session VIDE
+    # et fait quand même avancer l'horizon (voir la docstring de cette
+    # fonction). Une session ne doit donc jamais rester inactive plus de
+    # 24 h (age_max_s par défaut) entre son premier upload et son commit —
+    # vrai aujourd'hui car l'application fait plan/upload/commit en une
+    # seule passe (lot 1 bis) ; à reconsidérer si l'application se met un
+    # jour à garder une session ouverte plus longtemps (reprise différée
+    # d'un très gros envoi, par exemple).
     try:
         _purger()
-    except OSError:
-        _log_journal.exception("purge apres commit impossible")
+    except Exception:
+        _log_journal.exception("purge après commit impossible")
     return bilan
 
 

@@ -1487,3 +1487,44 @@ def test_une_purge_en_panne_ne_fait_pas_echouer_le_commit(tmp_path, monkeypatch)
 
     assert r.status_code == 200
     assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1.0e9}
+
+
+# --- relecture round 1 : les deux garde-fous de purge attrapent Exception ----
+
+
+def test_une_exception_quelconque_au_demarrage_ne_bloque_pas_le_service(tmp_path, monkeypatch):
+    """Reglage du controleur (round 1, point 1) : le garde-fou du demarrage
+    doit attraper N'IMPORTE QUELLE exception, pas seulement OSError — une
+    erreur de programmation dans la purge ne doit pas non plus empecher le
+    service de demarrer, meme regle que _journaliser."""
+    a, client = _client(tmp_path, monkeypatch)
+
+    def _casse(*args, **kwargs):
+        raise RuntimeError("panne non-OSError simulee")
+    monkeypatch.setattr(a.sessions, "purger_abandonnees", _casse)
+
+    with TestClient(a.app):            # ne doit pas lever
+        pass
+
+    types = [e["type"] for e in a.journal().evenements()]
+    assert "demarrage" in types
+
+
+def test_une_exception_quelconque_ne_fait_pas_echouer_le_commit(tmp_path, monkeypatch):
+    """Meme reglage cote sync_commit : n'importe quelle exception de purge,
+    pas seulement OSError, ne doit ni casser la reponse ni bloquer l'horizon."""
+    a, client = _client(tmp_path, monkeypatch)
+
+    def _casse(*args, **kwargs):
+        raise RuntimeError("panne non-OSError simulee")
+    monkeypatch.setattr(a.sessions, "purger_abandonnees", _casse)
+
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    r = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": 1.0e9}})
+
+    assert r.status_code == 200
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1.0e9}

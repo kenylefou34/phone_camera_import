@@ -1,6 +1,7 @@
 import io
 import os
 import time
+from pathlib import Path
 
 import pytest
 from phototheque import sessions
@@ -201,3 +202,95 @@ def test_abandonner_rend_ce_qui_a_ete_supprime(tmp_path):
     s = tmp_path / ("d" * 32); s.mkdir(); (s / "a.jpg").write_bytes(b"12345")
     assert sessions.abandonner(tmp_path, "d" * 32) == {"supprimes": 1, "octets": 5}
     assert not s.exists()
+
+
+# --- relecture round 1 : isolation par session, symlink, filtre réel --------
+
+
+def test_une_session_qui_leve_n_empeche_pas_les_autres_d_etre_purgees(tmp_path, monkeypatch):
+    """Important (relecture round 1) : une session dont le traitement casse
+
+    (`stat()` impossible, `rmtree` qui échoue sur le disque externe NTFS...)
+    ne doit ni faire perdre les sessions DÉJÀ purgées dans la même passe
+    (la liste n'était rendue qu'à la toute fin, une levée en cours de route
+    la perdait entièrement), ni empêcher les sessions SUIVANTES d'être
+    purgées à leur tour — et la fonction elle-même ne doit jamais lever.
+    """
+    a_dir = tmp_path / ("a" * 32); a_dir.mkdir(); (a_dir / "x.jpg").write_bytes(b"1")
+    b_dir = tmp_path / ("b" * 32); b_dir.mkdir(); (b_dir / "y.jpg").write_bytes(b"1")
+    c_dir = tmp_path / ("c" * 32); c_dir.mkdir(); (c_dir / "z.jpg").write_bytes(b"1")
+    for d in (a_dir, b_dir, c_dir):
+        _vieillir(d, 25 * 3600)
+
+    fichier_qui_casse = b_dir / "y.jpg"
+    stat_reel = Path.stat
+
+    def stat_qui_casse(self, *args, **kwargs):
+        if self == fichier_qui_casse:
+            raise PermissionError("panne simulee")
+        return stat_reel(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", stat_qui_casse)
+
+    emportees = sessions.purger_abandonnees(tmp_path)      # ne doit pas lever
+
+    assert {e["session"] for e in emportees} == {"a" * 32, "c" * 32}
+    assert not a_dir.exists()
+    assert b_dir.exists(), "une session en echec doit rester en place, pas disparaitre a moitie"
+    assert not c_dir.exists()
+
+
+def test_un_fichier_qui_disparait_pendant_le_parcours_ne_bloque_pas_la_session(tmp_path):
+    """Une entrée qui disparaît PENDANT le parcours (course avec une autre
+    synchro, « .partiel » renommé au même instant) doit être ignorée pour la
+    datation, pas faire échouer toute la session — sinon une session qui
+    reçoit régulièrement des fichiers éphémères ne serait jamais purgeable :
+    chaque passe retomberait sur la même course.
+    """
+    s = tmp_path / ("f" * 32); s.mkdir()
+    (s / "reste.jpg").write_bytes(b"1")
+    _vieillir(s, 25 * 3600)
+    # Le lien mort est créé APRÈS avoir vieilli : _vieillir() lui-même
+    # utilise os.utime(), qui suit les liens par défaut — un lien mort dans
+    # l'arborescence AU MOMENT de vieillir ferait lever _vieillir() avant
+    # même d'atteindre le code testé.
+    (s / "disparu.jpg").symlink_to(tmp_path / "cible-jamais-creee")
+    # Créer une entrée dans `s` vient de rafraîchir la date de `s` LUI-MÊME
+    # (le dossier a changé de contenu) : la revieillir pour que le test
+    # porte bien sur le contenu, pas sur cet effet de bord de la création.
+    os.utime(s, (time.time() - 25 * 3600,) * 2)
+
+    emportees = sessions.purger_abandonnees(tmp_path)
+
+    assert [e["session"] for e in emportees] == ["f" * 32]
+    assert not s.exists()
+
+
+def test_un_dossier_qui_n_est_pas_une_session_n_est_jamais_purge(tmp_path):
+    """Le filtre est bien `identifiant_valide()`, pas un raccourci du genre
+    « ne commence pas par _ » : un dossier ordinaire, vieux lui aussi, doit
+    survivre — sinon le seul test sur `_echecs` passerait encore avec un
+    filtre plus faible."""
+    autre = tmp_path / "Photos"; autre.mkdir(); (autre / "a.jpg").write_bytes(b"1")
+    _vieillir(autre, 25 * 3600)
+
+    assert sessions.purger_abandonnees(tmp_path) == []
+    assert (autre / "a.jpg").exists()
+
+
+def test_abandonner_ne_supprime_rien_si_la_session_est_un_lien_symbolique(tmp_path):
+    """Un identifiant valide (32 hex) qui désigne un LIEN SYMBOLIQUE n'est
+    jamais produit par ce service (`save_upload` ne crée que des dossiers) :
+    ne rien supprimer, ne rien compter — plutôt que suivre le lien et rendre
+    un bilan qui ment sur ce qui a réellement disparu.
+    """
+    cible = tmp_path / "ailleurs"; cible.mkdir()
+    (cible / "precieux.txt").write_text("a garder")
+    lien = tmp_path / ("e" * 32)
+    lien.symlink_to(cible, target_is_directory=True)
+
+    resultat = sessions.abandonner(tmp_path, "e" * 32)
+
+    assert resultat == {"supprimes": 0, "octets": 0}
+    assert cible.exists() and (cible / "precieux.txt").exists()
+    assert lien.exists(), "le lien lui-meme n'a pas a etre retire non plus"
