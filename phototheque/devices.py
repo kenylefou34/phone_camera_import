@@ -96,11 +96,20 @@ class DeviceStore:
             self._cx.commit()
         return dev_id, secret
 
-    def validate(self, secret: str, delai_minutes: int = DELAI_APPAIRAGE_MINUTES):
+    def validate(self, secret: str, delai_minutes: int = DELAI_APPAIRAGE_MINUTES,
+                 sur_confirmation=None):
         """Renvoie l'id de l'appareil si le secret est valable, sinon None.
 
         Un appairage encore en attente est CONFIRMÉ par ce premier usage : il
         ne pourra plus expirer. Passé le délai sans avoir servi, il est refusé.
+
+        `sur_confirmation`, si fourni, est appelé avec l'id de l'appareil UNE
+        SEULE FOIS : exactement au moment où CET appel confirme un appairage
+        jusque-là en attente — jamais pour un appareil déjà en service, jamais
+        pour un secret invalide ou périmé (issue #30, journal des événements).
+        L'appel a lieu APRÈS le commit() de la confirmation et HORS DU
+        VERROU : un rappel qui chercherait à reprendre le verrou (par exemple
+        pour lire ce store) s'y bloquerait sinon.
         """
         with self._lock:
             cur = self._cx.execute(
@@ -120,6 +129,8 @@ class DeviceStore:
                 (datetime.now().isoformat(timespec="seconds"), dev_id),
             )
             self._cx.commit()
+        if sur_confirmation is not None:
+            sur_confirmation(dev_id)
         return dev_id
 
     def purge_pending(self, delai_minutes: int = DELAI_APPAIRAGE_MINUTES) -> int:

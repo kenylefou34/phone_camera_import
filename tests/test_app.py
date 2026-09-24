@@ -1528,3 +1528,60 @@ def test_une_exception_quelconque_ne_fait_pas_echouer_le_commit(tmp_path, monkey
 
     assert r.status_code == 200
     assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1.0e9}
+
+
+# --- issue #30 (tache 5) : evenements d'appairage, de revocation et --------
+# --- d'authentification -----------------------------------------------------
+
+
+def test_une_requete_sans_identifiants_n_est_pas_un_echec_journalise(tmp_path, monkeypatch):
+    """Spec §8.9 : le navigateur en envoie toujours une avant sa fenetre.
+
+    Compter ce passage oblige comme un echec journalise donnerait une fausse
+    image d'acharnement pour une simple ouverture de page.
+    """
+    _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    client.get("/")
+    assert all(e["type"] != "auth_echec" for e in a.journal().evenements())
+
+
+def test_un_mauvais_mot_de_passe_est_journalise(tmp_path, monkeypatch):
+    _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    client.get("/", headers=_entetes("admin", "faux"))
+    assert any(e["type"] == "auth_echec" for e in a.journal().evenements())
+
+
+def test_appairage_confirmation_et_revocation_sont_journalises(tmp_path, monkeypatch):
+    """Les trois temps d'un appairage laissent chacun leur trace.
+
+    GET /pair cree un appairage EN ATTENTE ("appairage"), le premier usage du
+    secret par le telephone le CONFIRME ("confirmation"), et la revocation
+    par l'administration cloture l'appareil ("revocation").
+    """
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+
+    client.get("/pair", headers=entetes)
+    dev_id, secret = a._appairage_en_cours
+    client.get("/sync/horizon", headers={"Authorization": f"Bearer {secret}"})
+    client.post(f"/devices/{dev_id}/revoke", headers=entetes)
+
+    types = [e["type"] for e in a.journal().evenements()]
+    assert {"appairage", "confirmation", "revocation"} <= set(types)
+
+
+def test_le_desappairage_journalise_une_revocation(tmp_path, monkeypatch):
+    """Le telephone peut se retirer lui-meme (lot 2) : trace distincte de
+    celle d'une revocation faite depuis l'administration."""
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+
+    r = client.post("/sync/desappairer", headers=h)
+
+    assert r.status_code == 200 and r.json() == {"retire": True}
+    evenements = a.journal().evenements()
+    assert any(e["type"] == "revocation" and e["appareil"] == dev_id
+              and e["detail"] == "demandée par le téléphone" for e in evenements)

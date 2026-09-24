@@ -197,6 +197,18 @@ def test_migration_d_une_base_sans_horizons(tmp_path):
     st.close()
 
 
+def test_la_confirmation_est_signalee_une_seule_fois(tmp_path):
+    """`sur_confirmation` ne doit s'appeler qu'AU MOMENT où l'appairage passe
+    d'en attente à confirmé — jamais pour un appareil déjà en service
+    (issue #30, tâche 5)."""
+    store = DeviceStore(tmp_path / "d.db")
+    dev_id, secret = store.pair("Pixel")
+    vus = []
+    store.validate(secret, sur_confirmation=vus.append)
+    store.validate(secret, sur_confirmation=vus.append)
+    assert vus == [dev_id]
+
+
 def test_revoquer_un_appareil_supprime_aussi_ses_horizons(tmp_path):
     """La table horizons n'a ni clé étrangère ni ON DELETE CASCADE.
 

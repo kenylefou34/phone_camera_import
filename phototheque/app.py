@@ -128,11 +128,23 @@ async def _cycle_de_vie(_app):
 app.router.lifespan_context = _cycle_de_vie
 
 
-def require_device(authorization: str = Header(default="")) -> str:
-    """Dépendance d'auth : exige 'Authorization: Bearer <secret>' valide."""
+def require_device(request: Request, authorization: str = Header(default="")) -> str:
+    """Dépendance d'auth : exige 'Authorization: Bearer <secret>' valide.
+
+    `request` ne sert qu'à connaître l'adresse d'origine, pour l'événement
+    « confirmation » (issue #30) : le premier usage réel d'un secret
+    d'appairage confirme l'appareil, et c'est l'adresse de CETTE requête-là
+    qui dit qui vient de confirmer — pas celle, perdue depuis longtemps, où
+    le QR avait été affiché.
+    """
     prefixe = "Bearer "
     secret = authorization[len(prefixe):] if authorization.startswith(prefixe) else ""
-    dev_id = devices().validate(secret) if secret else None
+    adresse = request.client.host if request.client else None
+
+    def _confirme(dev_id: str) -> None:
+        _journaliser(lambda j: j.evenement("confirmation", appareil=dev_id, adresse=adresse))
+
+    dev_id = devices().validate(secret, sur_confirmation=_confirme) if secret else None
     if not dev_id:
         raise HTTPException(status_code=401, detail="jeton invalide")
     return dev_id
@@ -208,6 +220,13 @@ def require_admin(request: Request, authorization: str = Header(default="")) -> 
             _journal.warning(
                 "authentification d'administration : %d échecs consécutifs "
                 "depuis %s", nb, source)
+        # SEULEMENT ici, jamais dans la branche « pas d'en-tête Basic » plus
+        # haut : celle-ci est le passage obligé du navigateur avant d'afficher
+        # sa fenêtre, pas une tentative. Ici, des identifiants ont réellement
+        # été présentés et refusés — c'est un échec au sens du journal
+        # (issue #30). Le mot de passe lui-même n'y figure jamais.
+        _journaliser(lambda j: j.evenement(
+            "auth_echec", adresse=source, detail=f"utilisateur « {utilisateur} »"))
         raise refus
     # Réussite : on efface l'ardoise, le mainteneur ne traîne pas ses fautes
     # de frappe de la veille.
@@ -492,7 +511,10 @@ def sync_desappairer(dev_id: str = Depends(require_device)) -> dict:
     réponse : au moment précis où l'on désappaire pour se dépanner, le serveur
     est le plus souvent injoignable.
     """
-    return {"retire": devices().revoke(dev_id)}
+    resultat = devices().revoke(dev_id)
+    _journaliser(lambda j: j.evenement(
+        "revocation", appareil=dev_id, detail="demandée par le téléphone"))
+    return {"retire": resultat}
 
 
 # ---- surface d'admin, protégée par mot de passe (issue #10) ----
@@ -516,7 +538,10 @@ def purge_echecs(_: None = Depends(require_admin)) -> dict:
 
 @app.post("/devices/{device_id}/revoke")
 def revoke_device(device_id: str, _: None = Depends(require_admin)) -> dict:
-    return {"revoked": devices().revoke(device_id)}
+    resultat = devices().revoke(device_id)
+    _journaliser(lambda j: j.evenement(
+        "revocation", appareil=device_id, detail="depuis l'administration"))
+    return {"revoked": resultat}
 
 
 # Appairage actuellement proposé : (id, secret en clair). Gardé en mémoire
@@ -567,6 +592,8 @@ def _assurer_appairage_en_cours() -> None:
             _appairage_en_cours = None      # confirmé, expiré ou révoqué
     if _appairage_en_cours is None:
         _appairage_en_cours = devices().pair("Nouveau téléphone")
+        dev_id, _ = _appairage_en_cours
+        _journaliser(lambda j: j.evenement("appairage", appareil=dev_id))
 
 
 def _page_appairage() -> str:
