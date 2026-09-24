@@ -396,8 +396,9 @@ l'avoir gardé là.
   se retirer lui-même par `POST /sync/desappairer` (`require_device`, pas
   `require_admin`) — voir `docs/CONTRAT-APP.md` §4.5.
 - **Le serveur pose `horizon_initial = date.today()` à CHAQUE appairage**
-  (`Devices.pair()`, `phototheque/devices.py:94`), même quand personne ne
-  touche au formulaire de `/pair`, et même pour un réappairage du même
+  (`Devices.pair()`, `phototheque/devices.py:94`), et plus rien ne le
+  règle côté serveur : le champ date de `/pair` a été retiré le 24/09
+  (constat C5), la date de début du téléphone primant toujours. Vrai même pour un réappairage du même
   téléphone. Un réappairage ne relit donc PAS l'historique complet : il
   faut reposer une date de début côté application pour reprendre les médias
   plus anciens que le jour du réappairage — voir `docs/CONTRAT-APP.md` §4.1.

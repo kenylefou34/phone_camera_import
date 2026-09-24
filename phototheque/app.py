@@ -1,7 +1,6 @@
 """Application FastAPI du service d'ingestion."""
 
 import base64
-import datetime
 import json
 import logging
 import math
@@ -402,16 +401,11 @@ def _assurer_appairage_en_cours() -> None:
 def _page_appairage() -> str:
     """Rend la page d'appairage pour l'appairage en cours.
 
-    La date proposée est l'horizon déjà enregistré pour cet appareil : la
-    date du jour posée à la création de l'appairage, ou celle choisie lors
-    d'un POST précédent. Le « ou aujourd'hui » reste un filet pour un
-    appareil sans horizon (repris d'une base antérieure à ce réglage).
+    Elle ne propose plus de date de départ (constat C5, recette du 24/09) :
+    le téléphone règle la sienne et la fait toujours primer. L'horizon par
+    défaut reste posé par Devices.pair(), pour un téléphone sans date.
     """
-    identifiant, _ = _appairage_en_cours
-    depuis = (devices().get_horizon_initial(identifiant)
-              or datetime.date.today().isoformat())
-    return web.pair_html(pairing.qr_svg(charge_appairage()),
-                         config.PUBLIC_URL, depuis)
+    return web.pair_html(pairing.qr_svg(charge_appairage()), config.PUBLIC_URL)
 
 
 @app.get("/pair", response_class=HTMLResponse)
@@ -425,25 +419,6 @@ def pair(_: None = Depends(require_admin)) -> str:
     téléphone, expiré, ou révoqué.
     """
     _assurer_appairage_en_cours()
-    return _page_appairage()
-
-
-@app.post("/pair", response_class=HTMLResponse)
-def pair_depuis(depuis: str = Form(...), _: None = Depends(require_admin)) -> str:
-    """Enregistre la date à partir de laquelle l'appareil remontera ses médias.
-
-    Revérifie la fraîcheur de l'appairage avant d'écrire : une page restée
-    ouverte plus de 10 minutes verrait son appairage purgé entre-temps, et
-    sans ce contrôle la date serait écrite sur une ligne disparue avant de
-    réafficher un QR pointant vers un appareil inexistant.
-    """
-    try:
-        datetime.date.fromisoformat(depuis)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="date invalide (AAAA-MM-JJ)")
-    _assurer_appairage_en_cours()
-    identifiant, _secret = _appairage_en_cours
-    devices().set_horizon_initial(identifiant, depuis)
     return _page_appairage()
 
 

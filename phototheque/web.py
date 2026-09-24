@@ -327,19 +327,18 @@ def admin_html(devices: list, disk: dict, media: dict,
     return _document("phototheque — admin", corps)
 
 
-def pair_html(qr_svg: str, url: str, depuis: str) -> str:
-    """Page d'appairage : le QR, l'adresse en secours, et la date de départ."""
+def pair_html(qr_svg: str, url: str) -> str:
+    """Page d'appairage : le QR et l'adresse en secours.
+
+    Plus de date de départ ici (constat C5, recette du 24/09) : elle se règle
+    sur le téléphone, qui la fait toujours primer.
+    """
     corps = (
         '<div class="centre">'
         "<header><h1>Appairer un téléphone</h1>"
         '<p class="hote">Scanne ce code avec l\'application</p></header>'
         f'<div class="cadre-qr">{qr_svg}</div>'
         '<div class="carte" style="margin-top:24px">'
-        '<form method="post" action="/pair">'
-        '<div class="detail">Importer les médias à partir du :</div>'
-        f'<input type="date" name="depuis" value="{html.escape(depuis)}">'
-        '<button type="submit">Enregistrer</button>'
-        '</form>'
         f"<div class=\"detail\">Ou saisis l'adresse à la main :<br><code>{url}</code></div>"
         '<div class="detail" style="margin-top:10px;color:var(--muted)">'
         "Ce code reste valable 10 minutes. Il devient définitif dès que le "

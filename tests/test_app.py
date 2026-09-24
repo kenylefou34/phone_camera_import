@@ -49,12 +49,12 @@ def test_pages_support_dark_mode():
         devices=[], disk={"total": 1, "utilise": 0, "libre": 1, "pourcentage_utilise": 0},
         media={"photos": 0, "videos": 0})
     assert "prefers-color-scheme: dark" in html
-    assert "prefers-color-scheme: dark" in web.pair_html("<svg></svg>", "http://x:8787", "2026-09-17")
+    assert "prefers-color-scheme: dark" in web.pair_html("<svg></svg>", "http://x:8787")
 
 
 def test_pair_html_keeps_the_qr_on_a_light_background():
     """Le QR est noir sur fond transparent : en thème sombre il disparaîtrait."""
-    html = web.pair_html("<svg id=\"qr\"></svg>", "http://essai.local:8787", "2026-09-17")
+    html = web.pair_html("<svg id=\"qr\"></svg>", "http://essai.local:8787")
     assert "<svg id=\"qr\">" in html
     assert "http://essai.local:8787" in html
     assert "#fff" in html.lower() or "#ffffff" in html.lower()
@@ -367,17 +367,30 @@ def test_un_fichier_admin_corrompu_ferme_l_admin_sans_erreur_500(tmp_path, monke
     assert client.get("/").status_code == 401
 
 
-def test_la_page_d_appairage_propose_une_date(tmp_path, monkeypatch):
-    """Par défaut aujourd'hui : on ne remonte pas tout l'historique."""
-    import datetime
+def test_la_page_d_appairage_ne_propose_plus_de_date(tmp_path, monkeypatch):
+    """Constat C5 de la recette du lot 2 (24/09) : le champ date sous le QR.
+
+    Depuis le lot 2, la date de début se règle sur le téléphone et y prime
+    toujours (Orchestrateur.kt). Le champ de /pair ne servait donc plus qu'à
+    semer le doute : deux endroits pour régler la même chose, dont un sans
+    effet. Il est retiré ; le QR et l'adresse de secours restent.
+    """
     entetes = _avec_admin(tmp_path, monkeypatch)
     a, client = _client(tmp_path, monkeypatch)
     r = client.get("/pair", headers=entetes)
-    assert 'name="depuis"' in r.text
-    assert datetime.date.today().isoformat() in r.text
+    assert r.status_code == 200
+    assert 'name="depuis"' not in r.text
+    assert 'type="date"' not in r.text
+    assert "<svg" in r.text                 # le QR, lui, est toujours là
 
 
-def test_poster_une_date_l_enregistre_sur_l_appairage(tmp_path, monkeypatch):
+def test_poster_une_date_sur_pair_n_est_plus_possible(tmp_path, monkeypatch):
+    """La route qui servait le champ disparaît avec lui.
+
+    L'horizon par défaut reste posé par le serveur à l'appairage
+    (Devices.pair) : c'est la valeur que lit un téléphone sans date de début.
+    """
+    import datetime
     entetes = _avec_admin(tmp_path, monkeypatch)
     a, client = _client(tmp_path, monkeypatch)
     client.get("/pair", headers=entetes)
@@ -385,41 +398,8 @@ def test_poster_une_date_l_enregistre_sur_l_appairage(tmp_path, monkeypatch):
 
     r = client.post("/pair", headers=entetes, data={"depuis": "2020-01-01"})
 
-    assert r.status_code == 200
-    assert a.devices().get_horizon_initial(dev_id) == "2020-01-01"
-    assert "2020-01-01" in r.text
-
-
-def test_une_date_invalide_est_refusee(tmp_path, monkeypatch):
-    entetes = _avec_admin(tmp_path, monkeypatch)
-    a, client = _client(tmp_path, monkeypatch)
-    client.get("/pair", headers=entetes)
-    assert client.post("/pair", headers=entetes,
-                       data={"depuis": "hier"}).status_code == 400
-
-
-def test_poster_une_date_sur_un_appairage_perime_l_applique_au_nouveau(tmp_path, monkeypatch):
-    """Page laissée ouverte trop longtemps : la date suit le QR réellement affiché.
-
-    Sans cela, POST /pair écrivait dans le vide sur un appairage déjà purgé et
-    réaffichait un QR pointant vers un appareil inexistant — en silence.
-    """
-    from datetime import datetime, timedelta
-    entetes = _avec_admin(tmp_path, monkeypatch)
-    a, client = _client(tmp_path, monkeypatch)
-    client.get("/pair", headers=entetes)
-    perime = a.devices().list()[0]["id"]
-    vieux = (datetime.now() - timedelta(minutes=11)).isoformat(timespec="seconds")
-    a.devices()._cx.execute("UPDATE devices SET paired_at=? WHERE id=?", (vieux, perime))
-    a.devices()._cx.commit()
-
-    r = client.post("/pair", headers=entetes, data={"depuis": "2020-01-01"})
-
-    assert r.status_code == 200
-    restants = a.devices().list()
-    assert len(restants) == 1
-    assert restants[0]["id"] != perime       # l'appairage périmé a été purgé
-    assert a.devices().get_horizon_initial(restants[0]["id"]) == "2020-01-01"
+    assert r.status_code == 405
+    assert a.devices().get_horizon_initial(dev_id) == datetime.date.today().isoformat()
 
 
 def test_horizon_exige_un_jeton_d_appareil(tmp_path, monkeypatch):

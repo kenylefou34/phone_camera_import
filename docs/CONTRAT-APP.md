@@ -123,8 +123,9 @@ Et après une première synchro réussie :
 médias **plus récents** que ce timestamp. Sinon, utiliser `depuis`.
 
 > ⚠️ **`depuis` repart à la date DU JOUR à CHAQUE appairage**
-> (`Devices.pair()`, `phototheque/devices.py:94`), même quand personne ne
-> touche au formulaire de `/pair` — pas à l'historique complet, et pas à la
+> (`Devices.pair()`, `phototheque/devices.py:94`) — il n'existe d'ailleurs
+> plus aucun moyen de le régler côté serveur : le champ date de `/pair` a été
+> retiré le 24/09 (constat C5 de la recette du lot 2) — pas à l'historique complet, et pas à la
 > valeur choisie lors d'un appairage précédent du même téléphone. Un
 > réappairage (après un désappairage — §4.5 —, un changement de serveur, une
 > réinstallation) repart donc de zéro : les médias plus anciens que le jour du
