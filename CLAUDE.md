@@ -136,8 +136,8 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   (croisement manuel/automatique), constatée partielle — détail en section
   REPRISE.
 - ✅ **Cinq constats de cette recette corrigés, plus #36 et #38** — tous sur
-  cette branche, **pas encore sur `dev`, pas réinstallés sur le téléphone ni
-  le NUC** : C1 (verrou muet), C2 (aucun journal côté app), C3 (écran « Cet
+  la branche `worktree-constats-recette-lot2`, **à fusionner dans `dev` par
+  le mainteneur, pas encore réinstallés sur le téléphone ni le NUC** : C1 (verrou muet), C2 (aucun journal côté app), C3 (écran « Cet
   appareil » après réappairage), C4 (QR bloqué en paysage), C5 (champ date de
   `/pair` retiré), #36 (l'accueil annonce les dossiers gelés), #38 (décocher
   annonce les sous-dossiers emportés). Détail des cinq premiers en section
@@ -153,32 +153,42 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   enfin le compte des fichiers ignorés (issue #27). Documenté dans
   `docs/CONTRAT-APP.md` et `docs/DEPLOIEMENT.md` — les nouveaux exemples y
   sont **illustratifs**, restent à capturer sur un échange réel à la
-  prochaine recette. **356 tests** côté serveur (299 en début de session),
-  **262** côté app (240 en début de session).
+  prochaine recette. **Relecture finale de la branche (24/09)** : la purge
+  laisse désormais un mouvement nominatif par fichier supprimé, un commit
+  sur une session purgée ou abandonnée est refusé (`410`, aucun horizon
+  écrit), le journal est transactionnel et ne ralentit plus un tri quand sa
+  base est verrouillée, les deux purges (sessions / quarantaine) ne se
+  confondent plus sur `/evenements`. **383 tests** côté serveur (299 en
+  début de session), **262** côté app (240 en début de session).
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
 ## ⚠️ REPRISE — première chose à faire
 
 **Continuer la recette du lot 2**, commencée pour de vrai le 24/09 sur un
-HONOR 90 Lite (Android 15) — voir `docs/APPLICATION-ANDROID.md` §9. Neuf
+HONOR 90 Lite (Android 15) — voir `docs/APPLICATION-ANDROID.md` §9. Quinze
 étapes sur dix-sept sont déjà validées (**1 à 8**, **9 bis**, **10**, **13 à
-17** — détail dans l'État actuel ci-dessus). Dans l'ordre, ce qu'il reste à
-faire :
+17** — les étapes 13, 14 et 15 l'après-midi du 24/09 ; détail dans l'État
+actuel ci-dessus). Dans l'ordre, ce qu'il reste à faire :
 
 1. **Relever l'étape 11** : une nuit en charge sur le WiFi, « dernière
    sauvegarde » mise à jour sans intervention. Lancée le soir du 24/09,
    résultat non encore constaté.
-2. **Réinstaller** l'APK et le serveur de **cette branche**
-   (`worktree-constats-recette-lot2`) sur le téléphone et sur le NUC : la
-   recette a commencé avec l'APK du lot 2 tel qu'écrit, et cinq constats
-   (C1 à C5, ci-dessous) plus #36 et #38 ont été corrigés **après**, sans
-   jamais être réinstallés.
+2. **Fusionner `worktree-constats-recette-lot2` dans `dev`** (le
+   mainteneur), **puis réinstaller** l'APK et le serveur : la recette a
+   commencé avec l'APK du lot 2 tel qu'écrit, et cinq constats (C1 à C5,
+   ci-dessous) plus #36, #38, #30 et la relecture finale ont été corrigés
+   **après**, sans jamais être réinstallés. **Avant `install.sh` sur le
+   NUC, faire l'inventaire de `incoming/`** : le premier démarrage de cette
+   version supprime les sessions de plus de 24 h qui s'y trouvent
+   (`docs/DEPLOIEMENT.md`, « Au premier démarrage d'une version qui
+   purge » ; vide au 24/09, à revérifier).
    ```bash
    cd ~/dev/phone_camera_import && ./deploy/envoyer-apk.sh
    # puis sur le telephone : page d'admin -> « Telecharger l'application »
    # (ou adb install -r en debogage sans fil, meme cle de signature : appairage conserve)
-   # NUC : git pull (cette branche) puis ./deploy/install.sh
+   # NUC : inventaire de incoming/, puis git pull sur dev et redemarrer le
+   # service : ./deploy/install.sh (qui fait le systemctl restart)
    ```
 3. **Rejouer l'étape 12** (croisement synchro manuelle / automatique) et ce
    que les correctifs touchent :
@@ -191,12 +201,13 @@ faire :
      `/historique/<id>`, une recherche, `/evenements` (#30) ;
    - **capturer sur cet échange réel** les exemples aujourd'hui
      **illustratifs** de `docs/CONTRAT-APP.md` (`synchro`, `bilan_app`,
-     `POST /sync/abandon`), comme le veut l'usage établi par l'issue #15.
+     `ignores`, `POST /sync/abandon`, le refus `410`), comme le veut l'usage
+     établi par l'issue #15.
 4. Puis **#31** (galerie de consultation, phase 2 — spec
    `docs/superpowers/specs/2026-09-21-galerie-consultation-design.md`).
 
 **Les cinq constats de la recette du 24/09, tous corrigés sur cette branche**
-(pas sur `dev`, pas réinstallés — voir l'étape 2 ci-dessus) :
+(à fusionner dans `dev`, pas réinstallés — voir l'étape 2 ci-dessus) :
 
 - **C1** : une synchro arrêtée par Android pendant un appel réseau bloquant
   gardait `VerrouSynchro` pris — tout lancement pendant ce temps sortait en
@@ -245,7 +256,8 @@ d'afficher une ancienne réussite qui ne dit plus rien du nouveau serveur.
 
 ## Feuille de route (issues GitHub)
 Prochaine étape : **continuer la recette du lot 2** (voir REPRISE) — relever
-l'étape 11, réinstaller cette branche sur le téléphone et le NUC, rejouer
+l'étape 11, fusionner cette branche dans `dev` puis réinstaller sur le
+téléphone et le NUC (inventaire de `incoming/` d'abord), rejouer
 l'étape 12, capturer les exemples réels de `docs/CONTRAT-APP.md`, puis **#31**
 galerie de consultation (phase 2). **#29** (lot 1 bis) et **#12**
 (l'application elle-même) restent ouvertes tant que la recette n'est pas menée
@@ -296,10 +308,13 @@ d'utilisateur, devenu un secret partiel depuis `identifiants.sh`.
 la recette n'est pas finie (étape 11 à relever, étape 12 partielle) et les
 correctifs C1 à C5 n'y ont pas encore été réinstallés ni rejoués.
 
-**Pas de nouvelle PR avant la recette** : tout le lot 1 bis et le lot 2 —
-corrections C1 à C5, #30, #27, #36, #38 comprises — restent sur
-`worktree-constats-recette-lot2` tant que rien n'est validé sur un vrai
-téléphone. C'est tout l'intérêt de l'avoir gardé là.
+**Pas de nouvelle PR `dev` → `main` avant la recette** : tout le lot 1 bis et
+le lot 2 restent sur `dev` tant que rien n'est validé sur un vrai téléphone.
+C'est tout l'intérêt de les avoir gardés là. La branche
+`worktree-constats-recette-lot2` (corrections C1 à C5, #30, #27, #36, #38 et
+la relecture finale) est **à fusionner dans `dev`** — par le mainteneur, pas
+dans `main` : tant que ce n'est pas fait, ces correctifs ne sont pas encore
+sur `dev`.
 
 ## NUC (machine cible)
 - `ssh izquierdo@192.168.1.21` (clé configurée, hôte `IZQUIERDO-NUC`, Ubuntu 26.04,
@@ -497,10 +512,21 @@ téléphone. C'est tout l'intérêt de l'avoir gardé là.
   de session (32 hexadécimaux), et `_echecs` n'a pas cette forme.
 - **`sync_commit` traite un dossier de session ABSENT comme une session
   VIDE, et fait quand même avancer l'horizon** (voir sa docstring) : la purge
-  des sessions abandonnées (24 h) suppose donc qu'une session n'attend jamais
-  plus de 24 h entre son premier envoi et son commit. Vrai aujourd'hui, car
-  l'application fait plan/envoi/commit d'une seule traite — à reconsidérer si
-  elle se met un jour à garder une session ouverte plus longtemps.
+  des sessions abandonnées (24 h) suppose donc qu'une session ne reste jamais
+  **sans écriture** plus de 24 h (le critère est la date du fichier le plus
+  récent de toute l'arborescence, pas le temps depuis le premier envoi). Vrai
+  aujourd'hui, car l'application fait plan/envoi/commit d'une seule traite —
+  à reconsidérer si elle se met un jour à garder une session ouverte plus
+  longtemps. Filet depuis la relecture finale : le journal retient les
+  sessions purgées ou abandonnées (`sessions_retirees`) et un commit sur l'une
+  d'elles répond `410` sans toucher aux horizons — contrôlé avant ET après le
+  tri. Un journal illisible rend ce contrôle muet (comportement d'avant),
+  jamais bloquant.
+- **Le premier démarrage d'une version qui purge supprime les sessions de
+  plus de 24 h déjà présentes dans `incoming/`** : inventaire AVANT
+  `install.sh` (`docs/DEPLOIEMENT.md`, « Au premier démarrage d'une version
+  qui purge »). La trace nominative par fichier dit ce qui a disparu, elle ne
+  le rend pas.
 - **Un `/sync/commit` rejoué pour la même session n'est pas recompté dans le
   journal** (table `commits` de `phototheque/journal.py`) : si la réponse
   HTTP se perd (WiFi instable du NUC) et que le téléphone retente avec le
