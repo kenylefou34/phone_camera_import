@@ -1,6 +1,8 @@
 package fr.izquierdo.phototheque.ui
 
+import fr.izquierdo.phototheque.synchro.Coche
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class LisibleTest {
@@ -48,5 +50,23 @@ class LisibleTest {
                      Lisible.enumerer(listOf("a", "b", "c", "d", "e")))
         // La limite exacte ne doit RIEN ajouter.
         assertEquals("a, b, c", Lisible.enumerer(listOf("a", "b", "c")))
+    }
+
+    @Test fun decocher_annonce_les_sous_dossiers_emportes_quel_que_soit_l_etat() {
+        // Issue #38 : le message n'apparaissait que sur une case à moitié
+        // pleine. Or Choix.apresCoche décoche TOUTE la descendance quel que
+        // soit l'état de départ — un dossier coché « seul » ou « avec ses
+        // sous-dossiers » dont des enfants sont cochés un par un perdait
+        // leurs coches sans un mot.
+        val attendu = "Sauvegardé par ses sous-dossiers : Camera, Screenshots. " +
+            "« Ne pas sauvegarder » les décochera tous."
+        for (coche in listOf(Coche.DOSSIER, Coche.RECURSIVE, Coche.PARTIELLE)) {
+            assertEquals(coche.name, attendu,
+                Lisible.avertissementDecoche(coche, listOf("Camera", "Screenshots")))
+        }
+    }
+
+    @Test fun sans_sous_dossier_coche_rien_n_est_annonce() {
+        assertNull(Lisible.avertissementDecoche(Coche.DOSSIER, emptyList()))
     }
 }

@@ -163,18 +163,15 @@ private fun LigneDossier(
                         "sous-dossiers un par un.",
                         style = MaterialTheme.typography.bodySmall)
                 } else {
-                    // Case à moitié pleine : on nomme les responsables AVANT
-                    // les trois choix. « Ne pas sauvegarder » va décocher
-                    // toute la descendance — c'est la seule façon que ce
-                    // choix fasse quelque chose ici (voir Choix.apresCoche) —
-                    // et décocher sans dire quoi serait une surprise, y
-                    // compris sur des dossiers qu'on ne voit pas depuis cette
-                    // ligne.
-                    if (coche == Coche.PARTIELLE && descendantsCoches.isNotEmpty()) {
-                        Text("Sauvegardé par ses sous-dossiers : " +
-                             Lisible.enumerer(descendantsCoches) +
-                             ". « Ne pas sauvegarder » les décochera tous.",
-                             style = MaterialTheme.typography.bodySmall)
+                    // Des sous-dossiers cochés : on les nomme AVANT les trois
+                    // choix. « Ne pas sauvegarder » va décocher toute la
+                    // descendance, quel que soit l'état de cette ligne (voir
+                    // Choix.apresCoche et Lisible.avertissementDecoche,
+                    // issue #38), et décocher sans dire quoi serait une
+                    // surprise, y compris sur des dossiers qu'on ne voit pas
+                    // depuis cette ligne.
+                    Lisible.avertissementDecoche(coche, descendantsCoches)?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall)
                     }
                     // Les trois choix en clair. Le vocabulaire est la moitié
                     // de l'affaire : « récursivement » ne veut rien dire pour
