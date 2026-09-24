@@ -7,6 +7,13 @@ avoir à ouvrir une seule ligne de Python.
 le serveur, le 2026-09-18, et non rédigés de mémoire. C'est la seule façon
 d'éviter qu'ils divergent du code.
 
+**Exception, ajoutée le 24/09 (issue #30) :** les exemples des champs
+`synchro` / `bilan_app` (§4.4) et de `POST /sync/abandon` (§4.6) sont
+**illustratifs**, pas capturés — la recette sur téléphone qui aurait permis de
+les capturer sur un échange réel n'a pas encore eu lieu (voir `CLAUDE.md`,
+section REPRISE). Ils seront remplacés par un échange réel à la prochaine
+recette, comme le veut l'usage établi par l'issue #15.
+
 > Ce document décrit le contrat **figé** par le lot des issues #3, #10 et #2. Il
 > ne bougera plus sans une raison écrite. La conception d'ensemble est dans
 > `docs/superpowers/specs/2026-09-17-transport-auth-horizon-design.md`.
@@ -83,8 +90,10 @@ remplace cette validation, pas qui s'y ajoute.
 ## 4. Les appels
 
 Quatre appels forment le cycle ordinaire d'une synchronisation (§4.1 à §4.4).
-Un cinquième, §4.5, sert à s'en retirer — en dehors de ce cycle, appelé au
-plus une fois, jamais à chaque synchronisation.
+Deux de plus s'y ajoutent, tous deux **en dehors** de ce cycle ordinaire :
+§4.5 sert à s'en retirer, appelé au plus une fois, jamais à chaque
+synchronisation ; §4.6 sert à annuler une synchronisation interrompue en
+cours de route (bouton « Interrompre »), appelé au mieux, jamais bloquant.
 
 ### 4.1 `GET /sync/horizon` — depuis quand remonter
 
@@ -234,6 +243,30 @@ Le serveur écrit par blocs et ne tient jamais le fichier entier en mémoire
 `horizons` est **facultatif** ; un client qui ne l'envoie pas fonctionne, mais
 son horizon n'avancera jamais. Les valeurs sont des **timestamps Unix flottants**.
 
+Deux champs facultatifs de plus s'y ajoutent (issue #30) — un téléphone qui ne
+les envoie pas continue de fonctionner à l'identique :
+
+| Champ | Type | Rôle |
+|---|---|---|
+| `synchro` | `str`, 1 à 64 caractères parmi lettres, chiffres, `_` et `-` | Identifiant engendré par le téléphone **au début d'une synchronisation**, répété à l'identique à chaque paquet. C'est lui qui regroupe N commits en **une seule** ligne d'historique (`/historique`) au lieu d'une par paquet. Absent, vide ou hors de cette forme : le serveur en fabrique un lui-même et journalise quand même — juste sous une ligne par commit plutôt qu'une par synchronisation. |
+| `bilan_app` | `{ envoyes, refuses, echecs }` (entiers, chacun facultatif, défaut `0`) | Ce que le téléphone a vu **de son côté**, en cumul depuis le début de la synchronisation (pas un delta du seul paquet). Les échecs de lecture locale et les coupures réseau sont invisibles au serveur : sans ce champ, la colonne « échecs » de l'historique resterait toujours incomplète. |
+
+Exemple **illustratif** (non capturé — voir la remarque en tête de document) :
+
+```json
+{
+  "session": "4bad0393fe5f4fd69635802c39699ce1",
+  "synchro": "8f2c1a7e9b4d4f5e8c3a2b1d0e9f8a7b",
+  "horizons": { "DCIM/Camera": 1789000000.0 },
+  "bilan_app": { "envoyes": 12, "refuses": 0, "echecs": 1 }
+}
+```
+
+Détail utile à connaître, sans effet sur ce que l'application doit faire : un
+`commit` rejoué pour la **même** `session` (réponse HTTP perdue, nouvelle
+tentative avec les mêmes données) n'est pas recompté dans l'historique du
+serveur — la ligne de synchronisation ne double pas son bilan.
+
 **Réponse (200)** — le bilan détaillé du rangement :
 
 ```json
@@ -338,6 +371,49 @@ toujours).
 > `docs/superpowers/specs/2026-09-23-app-android-lot2-design.md` §6 pour la
 > conception complète.
 
+### 4.6 `POST /sync/abandon` — annuler une synchronisation en cours
+
+**Requête :**
+
+```json
+{ "session": "4bad0393fe5f4fd69635802c39699ce1" }
+```
+
+**Réponse (200)** — exemple **illustratif** (non capturé — voir la remarque en
+tête de document) :
+
+```json
+{ "supprimes": 12, "octets": 384102912 }
+```
+
+`supprimes` compte les fichiers du dossier de session au moment de l'appel
+(paquets déjà reçus compris) ; `octets` leur taille cumulée. Les deux valent
+zéro si la session n'existait déjà plus.
+
+**`400`** si `session` n'a pas la forme attendue (32 caractères hexadécimaux,
+celle que rend `/sync/plan`) :
+
+```json
+{ "detail": "identifiant de session non autorisé" }
+```
+
+Rien n'est supprimé dans ce cas : le contrôle de forme précède toute lecture
+du disque, exactement comme pour `/sync/commit`.
+
+Authentifiée comme les autres appels de synchronisation — en-tête
+`Authorization: Bearer <token>`, `require_device` — **pas** `require_admin`.
+
+**À quoi ça sert.** Le bouton « Interrompre » de l'application arrête l'envoi,
+mais le dossier de réception du paquet en cours reste sur le NUC —
+potentiellement plusieurs gigaoctets d'une vidéo à moitié envoyée. Cet appel le
+supprime tout de suite plutôt que d'attendre la purge des sessions abandonnées
+(24 h, voir `docs/DEPLOIEMENT.md`).
+
+**L'application appelle cette route au mieux, et ignore son échec.** Au moment
+précis où l'on interrompt, le réseau est souvent la raison de l'interruption :
+si l'appel échoue, ne pas réessayer ni bloquer l'interface. La purge des 24 h
+est le filet — le dossier disparaîtra de toute façon, avec un délai plus long.
+
 ---
 
 ## 5. ⚠️ Le piège le plus dangereux : l'horizon
@@ -423,6 +499,7 @@ sacrifiant tous les médias suivants pour un seul.
 |---|---|---|
 | `200` | Succès | Continuer. |
 | `400` | Extension non prise en charge (`/sync/upload`) | **Passer au fichier suivant.** Ne pas interrompre la session. |
+| `400` | `session` mal formée (`/sync/abandon`) | Bug de l'application : l'identifiant doit être repris tel quel de `/sync/plan`. Sans conséquence pratique — l'application ignore de toute façon l'échec de cet appel (§4.6). |
 | `401` | Jeton absent, invalide, ou **appareil révoqué depuis la page d'administration** | Effacer l'appairage local et demander un nouveau QR. Ne pas réessayer en boucle : le jeton ne redeviendra jamais valable. |
 | `404` | `session` mal formée sur `/sync/commit` | Bug de l'application : la session doit être reprise telle quelle de `/sync/plan`. |
 | `422` | Champ obligatoire manquant | Bug de l'application. Le détail indique le champ. |

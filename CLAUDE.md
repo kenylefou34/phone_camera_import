@@ -120,79 +120,146 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   reprise complète, et trois commentaires faux corrigés. Rapport détaillé
   (non versionné, local à cette machine) :
   `.superpowers/sdd/2026-09-23-app-android-lot2/correction-finale-report.md`.
+- ✅ **Recette du lot 2 commencée sur un vrai téléphone (24/09)** : HONOR 90
+  Lite (Android 15), NUC alors en `192.168.1.31`. Le téléphone ne portait
+  encore que l'APK du lot 1 bis (23/09) : premier APK du lot 2 installé par
+  `adb install -r` en débogage sans fil (même clé de signature, appairage
+  conservé), serveur du NUC mis à jour jusqu'à `066a062`. Étapes **1 à 8**,
+  **9 bis** (reprise partielle refusée tant que les travaux ne sont pas
+  finis — variante testée avec un début au 20/09), **10**, **13 à 17**
+  validées (`docs/APPLICATION-ANDROID.md` §9). Restent l'étape 11 (nuit en
+  charge, lancée le soir du 24/09, résultat à relever) et l'étape 12
+  (croisement manuel/automatique), constatée partielle — détail en section
+  REPRISE.
+- ✅ **Cinq constats de cette recette corrigés, plus #36 et #38** — tous sur
+  cette branche, **pas encore sur `dev`, pas réinstallés sur le téléphone ni
+  le NUC** : C1 (verrou muet), C2 (aucun journal côté app), C3 (écran « Cet
+  appareil » après réappairage), C4 (QR bloqué en paysage), C5 (champ date de
+  `/pair` retiré), #36 (l'accueil annonce les dossiers gelés), #38 (décocher
+  annonce les sous-dossiers emportés). Détail des cinq premiers en section
+  REPRISE.
+- ✅ **Journal serveur + sessions abandonnées ÉCRIT** (issue #30, et #27
+  réglée) : base à part `~/phototheque_journal.db` (synchros, mouvements par
+  fichier, événements), purge des sessions oubliées depuis plus de 24 h
+  (démarrage + après chaque commit, quarantaine `_echecs` jamais touchée),
+  `POST /sync/abandon` (bouton « Interrompre »), quatre pages d'historique
+  (`/historique`, `/historique/<id>`, `/historique/recherche`,
+  `/evenements`), chaque commit du téléphone porte désormais son identifiant
+  de synchro et son bilan applicatif. Le trieur en ligne de commande affiche
+  enfin le compte des fichiers ignorés (issue #27). Documenté dans
+  `docs/CONTRAT-APP.md` et `docs/DEPLOIEMENT.md` — les nouveaux exemples y
+  sont **illustratifs**, restent à capturer sur un échange réel à la
+  prochaine recette. **356 tests** côté serveur (299 en début de session),
+  **262** côté app (240 en début de session).
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
 ## ⚠️ REPRISE — première chose à faire
 
-**La recette manuelle sur un vrai téléphone.** Le lot 1 bis a bien tourné une
-fois, le 23/09 — installation, appairage, une sauvegarde réelle — et ce sont
-les manques constatés ce jour-là qui ont produit le lot 2. Mais **aucune
-recette formelle n'a jamais été déroulée**, et **le lot 2 n'a jamais été
-exécuté du tout** : il a été écrit, relu tâche par tâche par des agents neufs,
-et corrigé, rien de plus. Le lot 2 s'appuie entièrement sur les mécanismes du
-lot 1 bis
-(service de premier plan, `WorkManager`, paquets) : les éprouver séparément
-n'a plus grand sens. La recette à suivre est désormais celle du lot 2 —
-**`docs/APPLICATION-ANDROID.md` §9** — qui exerce les deux à la fois.
+**Continuer la recette du lot 2**, commencée pour de vrai le 24/09 sur un
+HONOR 90 Lite (Android 15) — voir `docs/APPLICATION-ANDROID.md` §9. Neuf
+étapes sur dix-sept sont déjà validées (**1 à 8**, **9 bis**, **10**, **13 à
+17** — détail dans l'État actuel ci-dessus). Dans l'ordre, ce qu'il reste à
+faire :
 
-```bash
-cd ~/dev/phone_camera_import && ./deploy/envoyer-apk.sh
-# puis sur le telephone : page d'admin -> « Telecharger l'application »
-```
+1. **Relever l'étape 11** : une nuit en charge sur le WiFi, « dernière
+   sauvegarde » mise à jour sans intervention. Lancée le soir du 24/09,
+   résultat non encore constaté.
+2. **Réinstaller** l'APK et le serveur de **cette branche**
+   (`worktree-constats-recette-lot2`) sur le téléphone et sur le NUC : la
+   recette a commencé avec l'APK du lot 2 tel qu'écrit, et cinq constats
+   (C1 à C5, ci-dessous) plus #36 et #38 ont été corrigés **après**, sans
+   jamais être réinstallés.
+   ```bash
+   cd ~/dev/phone_camera_import && ./deploy/envoyer-apk.sh
+   # puis sur le telephone : page d'admin -> « Telecharger l'application »
+   # (ou adb install -r en debogage sans fil, meme cle de signature : appairage conserve)
+   # NUC : git pull (cette branche) puis ./deploy/install.sh
+   ```
+3. **Rejouer l'étape 12** (croisement synchro manuelle / automatique) et ce
+   que les correctifs touchent :
+   - réappairer le téléphone tenu en **portrait** (C4) et vérifier qu'on
+     arrive sur l'accueil, pas sur l'écran « Cet appareil » (C3, un vrai
+     désappairage accidentel a eu lieu pendant la recette du 24/09) ;
+   - `adb logcat -s Phototheque` pendant une sauvegarde (C2 : l'app
+     n'écrivait auparavant **aucun** journal) ;
+   - une sauvegarde réelle, puis `/historique` (une ligne y apparaît),
+     `/historique/<id>`, une recherche, `/evenements` (#30) ;
+   - **capturer sur cet échange réel** les exemples aujourd'hui
+     **illustratifs** de `docs/CONTRAT-APP.md` (`synchro`, `bilan_app`,
+     `POST /sync/abandon`), comme le veut l'usage établi par l'issue #15.
+4. Puis **#31** (galerie de consultation, phase 2 — spec
+   `docs/superpowers/specs/2026-09-21-galerie-consultation-design.md`).
 
-**Pourquoi cette recette pèse lourd :** il n'existe dans ce projet **aucun test
-d'instrumentation Android**. `WorkManager`, le service de premier plan, les
-notifications, le `BroadcastReceiver`, tout Compose et `VerrouSynchro` ne sont
-couverts par **rien** d'automatique. Les 240 tests côté app ne disent rien de
-ces chemins-là ; les relectures les ont jugés par la lecture, pas par
-l'exécution.
+**Les cinq constats de la recette du 24/09, tous corrigés sur cette branche**
+(pas sur `dev`, pas réinstallés — voir l'étape 2 ci-dessus) :
 
-La recette (`docs/APPLICATION-ANDROID.md` §9) fait **17 étapes** et chacune
-existe pour une raison précise — la suivre telle quelle plutôt que
-d'improviser. Si c'est la toute première fois que l'application tourne sur un
-appareil, la recette d'origine du lot 1 bis (tâche 10 de
-`docs/superpowers/plans/2026-09-21-app-android-lot1bis.md`, 18 étapes) reste
-la référence la plus détaillée pour ce que celle du lot 2 ne redemande pas
-explicitement : le contenu exact de la notification, la reprise après une
-coupure subie, le bouton d'arrêt de la notification elle-même.
+- **C1** : une synchro arrêtée par Android pendant un appel réseau bloquant
+  gardait `VerrouSynchro` pris — tout lancement pendant ce temps sortait en
+  « réussite » muette, et la passe automatique perdait 6 h. Corrigé : relance
+  plus tard, sans plafond (`Reprise.apresRefusDuVerrou`, commit `7792efb`).
+- **C2** : l'application n'écrivait rien dans le journal Android. Corrigé :
+  départ et issue de chaque synchro, avec sa file (`manuelle`/`auto`),
+  visibles par `adb logcat -s Phototheque` (commit `d28e221`).
+- **C3** : après un réappairage, l'app rouvrait l'écran « Cet appareil » (et
+  son bouton désappairer) — un vrai désappairage accidentel a eu lieu pendant
+  la recette (journal du NUC, 13:30:36). Corrigé (`Navigation.demandeApres`,
+  commit `c4bb1b3`).
+- **C4** : le scan du QR restait bloqué en paysage — le correctif du 23/09 ne
+  suffisait pas, il fallait surcharger le manifeste de la bibliothèque de
+  scan. Corrigé, contrôlé sur le manifeste **fusionné** (commit `c4bb1b3`).
+- **C5** : le champ date de `/pair` semait le doute, alors que la date du
+  téléphone prime toujours. Retiré avec la route `POST /pair` (commit
+  `a6d5d48`).
+
+Sur l'étape 12, la recette a confirmé qu'un second lancement pendant qu'une
+synchro tourne est bien **refusé par `VerrouSynchro`** (constaté dans la base
+WorkManager) — mais pas que « Interrompre » arrête la bonne synchro ni que
+l'écran n'affiche qu'un seul avancement : le croisement n'a pas été rejoué à
+la demande, la passe automatique refusée attendant ensuite ses 6 h avant de se
+représenter. À revérifier à l'étape 3 ci-dessus.
+
+**Pourquoi cette recette pèse lourd :** il n'existe toujours dans ce projet
+**aucun test d'instrumentation Android**. `WorkManager`, le service de premier
+plan, les notifications, le `BroadcastReceiver`, tout Compose et
+`VerrouSynchro` ne sont couverts par **rien** d'automatique ; les 262 tests
+côté app ne disent rien de ces chemins-là.
 
 **Deux limites restent ASSUMÉES** (issue #33, héritées du lot 1 bis), à ne pas
 prendre pour des régressions : interrompre pendant l'envoi d'une grosse vidéo
 n'arrête pas le téléversement en cours, et l'écran reste figé pendant ce
 temps.
 
-**Ce qu'aucun test ne peut trancher, par ordre d'importance :** qu'un arrêt
+**Ce qu'aucun test ne peut trancher, encore jamais constaté :** qu'un arrêt
 demandé affiche le compte réel et non trois zéros ; qu'une permission retirée
 donne « Nouvelle tentative programmée » et jamais « En attente d'un réseau » ;
-qu'une révocation suivie d'un réappairage ne laisse pas revenir le bandeau
-« révoqué » ; que le bouton de la notification arrête sans rouvrir l'app ;
-**(lot 2)** qu'une synchro manuelle lancée pendant que l'automatique tourne
-n'affiche qu'un seul avancement et que « Interrompre » arrête la bonne —
-`VerrouSynchro` n'est exercé par aucun test ; **(lot 2)** qu'un réappairage
-reprogramme RÉELLEMENT l'automatique (`WorkManager`, pas seulement
-l'interrupteur affiché coché) ; **(lot 2)** que « dernière sauvegarde »
-disparaît bien de l'accueil après un réappairage plutôt que d'afficher une
-ancienne réussite qui ne dit plus rien du nouveau serveur.
-
-**Après la recette** : les issues #30 (journal serveur + purge des sessions
-abandonnées) et #31 (galerie).
+que le bouton de la notification arrête sans rouvrir l'app ; **(lot 2)**
+qu'un réappairage reprogramme RÉELLEMENT l'automatique (`WorkManager`, pas
+seulement l'interrupteur affiché coché) ; **(lot 2)** que « dernière
+sauvegarde » disparaît bien de l'accueil après un réappairage plutôt que
+d'afficher une ancienne réussite qui ne dit plus rien du nouveau serveur.
 
 ## Feuille de route (issues GitHub)
-Prochaine étape : **la recette manuelle sur un téléphone** (voir REPRISE) —
-le lot 2 attend sa première exécution réelle, et le lot 1 bis sa première
-recette formelle. **#29** lot 1 bis (fait, à éprouver), **#12** l'application
-elle-même (reste ouverte pour la même raison), puis **#30** journal serveur + purge des sessions abandonnées,
-**#31** galerie de consultation (phase 2).
+Prochaine étape : **continuer la recette du lot 2** (voir REPRISE) — relever
+l'étape 11, réinstaller cette branche sur le téléphone et le NUC, rejouer
+l'étape 12, capturer les exemples réels de `docs/CONTRAT-APP.md`, puis **#31**
+galerie de consultation (phase 2). **#29** (lot 1 bis) et **#12**
+(l'application elle-même) restent ouvertes tant que la recette n'est pas menée
+à son terme. **#30** (journal serveur + purge des sessions abandonnées) et
+**#27** (compteur d'ignorés du trieur en ligne de commande) sont **FAITES sur
+cette branche**, à fermer à la fusion.
 
-**Quatre issues ouvertes le 24/09 par la relecture finale du lot 2**, toutes
-non bloquantes pour la recette : **#36** le gel d'horizon d'un dossier amputé
-coûte une réempreinte complète à chaque passe (coût muet, à rendre visible) ;
-**#37** la ligne de l'arborescence ne livre qu'une partie de la spec §3.4
-(période couverte, noms des sous-dossiers, indice de nature) ; **#38** décocher
-largement n'affiche pas toujours le message qui nomme les sous-dossiers
-emportés (une ligne) ; **#39** interrompre une sauvegarde *manuelle* repousse
+**Quatre issues ouvertes le 24/09 par la relecture finale du lot 2.** **#36**
+(l'accueil annonce désormais les dossiers gelés par la date de début) et
+**#38** (décocher largement annonce désormais les sous-dossiers emportés)
+sont **CORRIGÉES sur cette branche**, à fermer à la fusion. Restent ouvertes,
+non bloquantes pour la recette : **#37** la ligne de l'arborescence ne livre
+qu'une partie de la spec §3.4 (période couverte, noms des sous-dossiers,
+indice de nature) ; **#39** interrompre une sauvegarde *manuelle* repousse
 aussi la passe automatique de 6 h.
+
+**#40**, ouverte le 24/09 : passer le code du projet à l'anglais en gardant la
+documentation en français — non prioritaire, pour plus tard.
 
 **#16 est CORRIGÉE** (23/09) : le serveur ne détruit plus les médias qu'il n'a
 pas su ranger. Ils partent en quarantaine sous `INCOMING_DIR/_echecs/<chemin
@@ -212,20 +279,21 @@ retenue en commentaire. **#34** les constats mineurs différés du lot 1 bis. Am
 
 **Les constats mineurs différés ne vivent plus dans un journal de session** :
 #24 pour le lot Android, **#26 pour le lot serveur** (transport/auth/horizon du
-17/09 — ils n'avaient aucune trace jusqu'au 21/09). **#27** porte la moitié
-restante du constat C2 de ce lot : le serveur refuse désormais les extensions
-qu'il ne sait pas ranger, mais le trieur en ligne de commande les ignore
-toujours **sans le moindre compteur** — l'utilisateur ne peut pas savoir. Le seul qui ait *gagné* en
-portée depuis son signalement est le court-circuit temporel sur le nom
+17/09 — ils n'avaient aucune trace jusqu'au 21/09). **#27, la moitié restante
+du constat C2 de ce lot, est CORRIGÉE sur cette branche** : le trieur en ligne
+de commande affiche désormais le compte des fichiers ignorés (extension non
+gérée) dans son bilan (`mediasort/cli.py`). Le seul qui ait *gagné* en portée
+depuis son signalement est le court-circuit temporel sur le nom
 d'utilisateur, devenu un secret partiel depuis `identifiants.sh`.
 
 **PR #13 (`dev` → `main`) a été fusionnée** : les issues qui portaient un
 `closes #N` se sont fermées toutes seules (#2, #3, #10, #14, #15, #19, #21).
 #12 reste ouverte, l'application n'ayant jamais été éprouvée sur un appareil.
 
-**Pas de nouvelle PR avant la recette** : tout le lot 1 bis reste sur `dev`
-tant que rien n'est validé sur un vrai téléphone. C'est tout l'intérêt de
-l'avoir gardé là.
+**Pas de nouvelle PR avant la recette** : tout le lot 1 bis et le lot 2 —
+corrections C1 à C5, #30, #27, #36, #38 comprises — restent sur
+`worktree-constats-recette-lot2` tant que rien n'est validé sur un vrai
+téléphone. C'est tout l'intérêt de l'avoir gardé là.
 
 ## NUC (machine cible)
 - `ssh izquierdo@192.168.1.21` (clé configurée, hôte `IZQUIERDO-NUC`, Ubuntu 26.04,
@@ -370,6 +438,19 @@ l'avoir gardé là.
   la borne haute arrêterait la fenêtre à midi UTC le jour choisi — ~14 h à
   Paris — et ferait disparaître en silence toutes les photos de l'après-midi
   et de la soirée du dernier jour.
+- **Le débogage sans fil (`adb`) change d'adresse ET de port à chaque
+  activation** (constaté le 24/09 : l'adresse du téléphone est passée de
+  `.27` à `.18` dans la même journée). Un premier `adb connect` peut échouer
+  si le téléphone dort — réessayer suffit, ce n'est pas une panne.
+- **Toujours vérifier la version réellement installée avant une recette** :
+  `adb shell dumpsys package fr.izquierdo.phototheque | grep lastUpdateTime`.
+  Le 24/09, le téléphone portait encore l'APK du lot 1 bis (23/09) alors que
+  la recette du lot 2 était censée démarrer — elle n'avait donc jamais pu
+  tourner jusque-là.
+- **Pour un APK antérieur à C2 (aucun journal Android)**, l'état réel d'une
+  synchro se lit dans la base `WorkManager` plutôt que dans les journaux :
+  `adb exec-out run-as fr.izquierdo.phototheque cat no_backup/androidx.work.workdb`
+  (+ `-wal`, `-shm`) et `adb shell dumpsys jobscheduler`.
 
 **Pièges du serveur**
 - **FastAPI publie `/docs`, `/redoc` et `/openapi.json` sans authentification.**
@@ -402,6 +483,23 @@ l'avoir gardé là.
   téléphone. Un réappairage ne relit donc PAS l'historique complet : il
   faut reposer une date de début côté application pour reprendre les médias
   plus anciens que le jour du réappairage — voir `docs/CONTRAT-APP.md` §4.1.
+- **La quarantaine `_echecs` vit DANS `INCOMING_DIR`** (issue #30) : toute
+  purge de ce dossier doit l'écarter, sous peine de réintroduire l'issue #16
+  (médias non rangés détruits) avec un simple délai. La purge des sessions
+  abandonnées de 24 h l'écarte déjà par construction, sans avoir à la nommer :
+  elle ne considère que les dossiers dont le nom a la forme d'un identifiant
+  de session (32 hexadécimaux), et `_echecs` n'a pas cette forme.
+- **`sync_commit` traite un dossier de session ABSENT comme une session
+  VIDE, et fait quand même avancer l'horizon** (voir sa docstring) : la purge
+  des sessions abandonnées (24 h) suppose donc qu'une session n'attend jamais
+  plus de 24 h entre son premier envoi et son commit. Vrai aujourd'hui, car
+  l'application fait plan/envoi/commit d'une seule traite — à reconsidérer si
+  elle se met un jour à garder une session ouverte plus longtemps.
+- **Un `/sync/commit` rejoué pour la même session n'est pas recompté dans le
+  journal** (table `commits` de `phototheque/journal.py`) : si la réponse
+  HTTP se perd (WiFi instable du NUC) et que le téléphone retente avec le
+  même identifiant de session, le bilan cumulé de la synchro n'est pas
+  doublé.
 
 **Tests**
 - Simuler une machine d'origine : `TestClient(app, client=("192.168.1.50", 1))`.

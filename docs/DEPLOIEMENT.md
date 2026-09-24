@@ -439,7 +439,8 @@ déménager :
 
 ```bash
 scp -r ~/.config/phototheque nouvelle-machine:~/.config/
-scp ~/mediasort_catalog.db ~/phototheque_devices.db nouvelle-machine:~/
+scp ~/mediasort_catalog.db ~/phototheque_devices.db ~/phototheque_journal.db \
+    nouvelle-machine:~/
 ```
 
 Puis `./deploy/install.sh` sur la nouvelle machine. Les téléphones continuent de
@@ -542,6 +543,75 @@ ls -R /media/izquierdo/Famille/incoming/_echecs/     # voir
 rm -rf /media/izquierdo/Famille/incoming/_echecs/    # vider (irréversible)
 ```
 
+### Le journal des synchronisations (issue #30)
+
+Le service tient un journal de tout ce qui se passe, dans une base séparée :
+
+```
+~/phototheque_journal.db
+```
+
+**Créée au premier usage**, comme `phototheque_devices.db` : importer le module
+ne suffit pas à la faire apparaître, il faut qu'une synchronisation, un
+appairage ou un démarrage ait réellement eu lieu. Surchargeable par
+`JOURNAL_DB` (voir Paramétrage ci-dessous).
+
+Elle contient trois choses : une ligne par synchronisation (`synchros`), une
+ligne par fichier reçu avec son sort — rangé, doublon, à trier, refusé, exclu,
+erreur — (`mouvements`), et une ligne par événement ponctuel — démarrage,
+purge, appairage, confirmation, révocation, échec d'authentification —
+(`evenements`).
+
+**Quatre pages, toutes derrière le mot de passe d'administration :**
+
+| Page | Contenu |
+|---|---|
+| `/historique` | Les synchronisations, la plus récente en haut : appareil, date, nombre de fichiers, état (« sans erreur » / « en erreur »). Chaque ligne mène au détail. |
+| `/historique/<id>` | Le détail d'une synchronisation : ses mouvements, origine sur le téléphone → destination dans la bibliothèque. |
+| `/historique/recherche?q=` | Retrouver un média par nom (partiel) ou par empreinte exacte, à travers toutes les synchronisations — la réponse à « où est passée cette photo ». |
+| `/evenements` | Démarrages, appairages, révocations, échecs d'authentification — tout ce qui n'est pas une synchronisation. |
+
+Des liens vers `/historique` et `/evenements` sont sur la page d'administration
+(`/`).
+
+**Une panne du journal ne fait jamais échouer une route.** Toute écriture y
+passe par une fonction qui attrape l'exception et se contente de la
+journaliser dans `journalctl -u phototheque` : un disque plein ou une base
+verrouillée ne doit jamais empêcher un commit d'aboutir, sous peine de bloquer
+l'avancée de l'horizon pour une simple trace.
+
+**À inclure dans toute sauvegarde du NUC**, au même titre que le catalogue et
+la base des appareils :
+
+```bash
+~/mediasort_catalog.db
+~/phototheque_devices.db
+~/phototheque_journal.db
+```
+
+### La purge des sessions abandonnées (issue #30)
+
+Un dossier de réception (`INCOMING_DIR/<session>/`) dont **rien n'a été
+modifié depuis plus de 24 heures** — fichier le plus récent de toute
+l'arborescence, pas seulement le dossier lui-même — est supprimé
+automatiquement, **au démarrage du service ET après chaque commit**. Pas de
+tâche planifiée à installer ni à surveiller. Chaque session emportée laisse un
+événement `purge` dans le journal, visible sur `/evenements`, avec le nombre
+de fichiers et les octets récupérés.
+
+**La quarantaine `INCOMING_DIR/_echecs/` n'est jamais touchée par cette
+purge** : la purge ne considère que les dossiers dont le nom a la forme d'un
+identifiant de session (32 caractères hexadécimaux) ; `_echecs` n'a pas cette
+forme et en est donc écarté par construction, sans qu'il ait fallu l'exclure
+explicitement nulle part dans le code. La purger reviendrait à réintroduire
+l'issue #16 — les médias non rangés détruits — avec un simple délai au lieu
+d'un vrai correctif.
+
+Le téléphone peut aussi demander la suppression immédiate de sa session en
+cours (bouton « Interrompre ») par `POST /sync/abandon` — voir
+`docs/CONTRAT-APP.md` §4.6. Sans surprise si cet appel échoue : la purge de
+24 h sert de filet.
+
 ---
 
 ## Paramétrage
@@ -556,6 +626,7 @@ Tout est surchargeable par variables d'environnement (voir
 | `CATALOG_DB` | `~/mediasort_catalog.db` | Catalogue anti-doublon |
 | `INCOMING_DIR` | `<LIBRARY_DIR>/incoming` | Dépôt temporaire des envois |
 | `DEVICES_DB` | `~/phototheque_devices.db` | Appareils appairés |
+| `JOURNAL_DB` | `~/phototheque_journal.db` | Journal des synchronisations, mouvements et événements (issue #30) |
 | `CONFIG_DIR` | `~/.config/phototheque` | Dossier du certificat, du mot de passe et du nom convivial |
 | `ADMIN_FILE` | `<CONFIG_DIR>/admin` | Empreinte du mot de passe d'administration |
 | `ADMIN_USER_FILE` | `<CONFIG_DIR>/utilisateur` | Identifiant d'administration. **Absent = `admin`.** |
