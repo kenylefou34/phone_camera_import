@@ -17,9 +17,13 @@ import java.util.concurrent.atomic.AtomicBoolean
  * le même défaut que les tâches 5b et 7 ont déjà corrigé ailleurs).
  *
  * Pas de préemption : celle qui a déjà pris le verrou le garde jusqu'à sa
- * fin, l'autre ressort aussitôt sans rien publier ni réinitialiser. Ce n'est
- * pas un silence : l'exécution qui tient le verrou est déjà en train de
- * publier son propre avancement, ou est sur le point de le faire. Préempter
+ * fin, l'autre ressort aussitôt sans rien publier ni réinitialiser, et
+ * demande à être relancée plus tard (`Reprise.apresRefusDuVerrou`). On
+ * croyait cette sortie sans conséquence, l'exécution qui tient le verrou
+ * publiant déjà son avancement ; la recette du 24/09 (constat C1) a montré
+ * que ce n'est pas toujours vrai : une exécution arrêtée par Android mais
+ * encore bloquée dans un appel réseau garde le verrou sans plus rien
+ * publier, et ce qui démarrait pendant ce temps disparaissait. Préempter
  * romprait une synchronisation déjà engagée en plein milieu d'un fichier —
  * exactement la limite déjà connue et assumée ailleurs (issue #33, gros
  * fichier interrompu) que ce projet évite d'aggraver.

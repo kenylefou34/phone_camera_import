@@ -29,4 +29,17 @@ class RepriseTest {
         // Seul un nouveau QR debloque : relancer tournerait en boucle.
         assertFalse(Reprise.fautIlRelancer(bilan(echecs = 2, revoque = true)))
     }
+
+    @Test fun un_lancement_refuse_par_le_verrou_se_relance_toujours() {
+        // Constat C1 de la recette du 24/09 : un lancement refusé par
+        // VerrouSynchro sortait en « réussite » muette. La passe automatique
+        // attendait alors six heures, et « Sauvegarder maintenant » ne
+        // faisait rien. Sans plafond, à la différence d'une panne : le verrou
+        // finit toujours par être rendu, et plafonner retomberait dans
+        // l'abandon muet dès que la synchro qui le tient dure plus de
+        // quelques minutes (gros fichier, issue #33).
+        for (tentatives in 0..50) {
+            assertTrue(Reprise.apresRefusDuVerrou(tentatives))
+        }
+    }
 }

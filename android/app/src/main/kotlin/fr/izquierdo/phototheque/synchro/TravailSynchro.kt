@@ -58,9 +58,9 @@ class TravailSynchro(
         // la file automatique (« synchro-auto ») peuvent démarrer en même
         // temps (voir VerrouSynchro), et tout ce qui suit touche un état
         // partagé par TOUTE exécution. Si une autre exécution tient déjà le
-        // verrou, elle publie déjà son propre avancement : on ressort sans
-        // rien toucher, ce n'est donc pas un silence, seulement une
-        // exécution de trop.
+        // verrou, on ressort sans rien toucher — mais on demande à être
+        // relancé : celle qui tient le verrou n'est pas toujours vivante
+        // (constat C1, voir Reprise.apresRefusDuVerrou).
         val file = Journal.file(tags)
         // Toute issue publiée passe par ici, pour être aussi écrite dans le
         // journal Android (constat C2 de la recette du 24/09 : une passe
@@ -71,10 +71,15 @@ class TravailSynchro(
             Journal.info("synchro $file : ${Journal.decrire(issue)}")
         }
         if (!VerrouSynchro.tenter()) {
-            // Sortie muette pour l'écran (voir VerrouSynchro), mais plus pour
-            // le journal : c'est le seul endroit où elle se voit.
-            Journal.info("synchro $file : une autre synchro tient le verrou, sortie sans rien faire")
-            return Result.success()
+            // Plus une « réussite » muette (constat C1, voir
+            // Reprise.apresRefusDuVerrou) : relancé plus tard, ce lancement
+            // s'affiche « Nouvelle tentative programmée » sur l'accueil
+            // (EtatTravail.combiner) pour la file manuelle, et la passe
+            // automatique ne perd plus ses six heures.
+            val relancer = Reprise.apresRefusDuVerrou(runAttemptCount)
+            Journal.info("synchro $file : une autre synchro tient le verrou" +
+                if (relancer) ", nouvelle tentative programmée" else ", abandon")
+            return if (relancer) Result.retry() else Result.success()
         }
         Journal.info("synchro $file : départ (tentative ${runAttemptCount + 1})")
 

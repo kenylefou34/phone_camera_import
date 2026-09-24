@@ -22,4 +22,24 @@ object Reprise {
         bilan.revoque -> false
         else -> bilan.echecs > 0
     }
+
+    /**
+     * Un lancement refusé parce qu'une autre synchronisation tient
+     * `VerrouSynchro` : on relance plus tard, TOUJOURS.
+     *
+     * Il sortait en « réussite » muette (constat C1 de la recette du 24/09).
+     * Le cas n'a rien de théorique : une synchronisation arrêtée par Android
+     * pendant un appel réseau bloquant garde le verrou jusqu'à la fin de cet
+     * appel, alors que WorkManager la croit déjà finie. Tout ce qui démarrait
+     * pendant ce temps disparaissait — la passe automatique attendait six
+     * heures, un appui sur « Sauvegarder maintenant » ne faisait rien.
+     *
+     * Pas de plafond, contrairement à une panne : le verrou finit toujours
+     * par être rendu, et WorkManager espace lui-même les essais (délai qui
+     * double, borné à 5 h). Plafonner ramènerait l'abandon muet dès que la
+     * synchronisation qui tient le verrou dure plus de quelques minutes.
+     * `tentatives` n'est pris que pour le dire explicitement.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun apresRefusDuVerrou(tentatives: Int): Boolean = true
 }
