@@ -136,8 +136,8 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   (croisement manuel/automatique), constatée partielle — détail en section
   REPRISE.
 - ✅ **Cinq constats de cette recette corrigés, plus #36 et #38** — tous sur
-  la branche `worktree-constats-recette-lot2`, **à fusionner dans `dev` par
-  le mainteneur, pas encore réinstallés sur le téléphone ni le NUC** : C1 (verrou muet), C2 (aucun journal côté app), C3 (écran « Cet
+  `dev` (branche `worktree-constats-recette-lot2` fusionnée le 24/09),
+  **pas encore réinstallés sur le téléphone ni le NUC** : C1 (verrou muet), C2 (aucun journal côté app), C3 (écran « Cet
   appareil » après réappairage), C4 (QR bloqué en paysage), C5 (champ date de
   `/pair` retiré), #36 (l'accueil annonce les dossiers gelés), #38 (décocher
   annonce les sous-dossiers emportés). Détail des cinq premiers en section
@@ -174,8 +174,8 @@ actuel ci-dessus). Dans l'ordre, ce qu'il reste à faire :
 1. **Relever l'étape 11** : une nuit en charge sur le WiFi, « dernière
    sauvegarde » mise à jour sans intervention. Lancée le soir du 24/09,
    résultat non encore constaté.
-2. **Fusionner `worktree-constats-recette-lot2` dans `dev`** (le
-   mainteneur), **puis réinstaller** l'APK et le serveur : la recette a
+2. **Réinstaller l'APK et le serveur depuis `dev`** (la branche
+   `worktree-constats-recette-lot2` y a été fusionnée le 24/09) : la recette a
    commencé avec l'APK du lot 2 tel qu'écrit, et cinq constats (C1 à C5,
    ci-dessous) plus #36, #38, #30 et la relecture finale ont été corrigés
    **après**, sans jamais être réinstallés. **Avant `install.sh` sur le
@@ -206,8 +206,8 @@ actuel ci-dessus). Dans l'ordre, ce qu'il reste à faire :
 4. Puis **#31** (galerie de consultation, phase 2 — spec
    `docs/superpowers/specs/2026-09-21-galerie-consultation-design.md`).
 
-**Les cinq constats de la recette du 24/09, tous corrigés sur cette branche**
-(à fusionner dans `dev`, pas réinstallés — voir l'étape 2 ci-dessus) :
+**Les cinq constats de la recette du 24/09, tous corrigés sur `dev`**
+(pas encore réinstallés — voir l'étape 2 ci-dessus) :
 
 - **C1** : une synchro arrêtée par Android pendant un appel réseau bloquant
   gardait `VerrouSynchro` pris — tout lancement pendant ce temps sortait en
@@ -256,19 +256,22 @@ d'afficher une ancienne réussite qui ne dit plus rien du nouveau serveur.
 
 ## Feuille de route (issues GitHub)
 Prochaine étape : **continuer la recette du lot 2** (voir REPRISE) — relever
-l'étape 11, fusionner cette branche dans `dev` puis réinstaller sur le
-téléphone et le NUC (inventaire de `incoming/` d'abord), rejouer
+l'étape 11, réinstaller `dev` sur le téléphone et le NUC (inventaire de
+`incoming/` d'abord), rejouer
 l'étape 12, capturer les exemples réels de `docs/CONTRAT-APP.md`, puis **#31**
 galerie de consultation (phase 2). **#29** (lot 1 bis) et **#12**
 (l'application elle-même) restent ouvertes tant que la recette n'est pas menée
 à son terme. **#30** (journal serveur + purge des sessions abandonnées) et
 **#27** (compteur d'ignorés du trieur en ligne de commande) sont **FAITES sur
-cette branche**, à fermer à la fusion.
+`dev`** ; leurs commits ne portent pas de `closes`, elles seront à fermer à la
+main une fois la recette passée.
 
 **Quatre issues ouvertes le 24/09 par la relecture finale du lot 2.** **#36**
 (l'accueil annonce désormais les dossiers gelés par la date de début) et
 **#38** (décocher largement annonce désormais les sous-dossiers emportés)
-sont **CORRIGÉES sur cette branche**, à fermer à la fusion. Restent ouvertes,
+sont **CORRIGÉES sur `dev`** ; leurs commits portent `Closes`, elles se
+fermeront seules à la fusion dans `main` (`gh` ne ferme qu'à la branche par
+défaut). Restent ouvertes,
 non bloquantes pour la recette : **#37** la ligne de l'arborescence ne livre
 qu'une partie de la spec §3.4 (période couverte, noms des sous-dossiers,
 indice de nature) ; **#39** interrompre une sauvegarde *manuelle* repousse
@@ -296,7 +299,7 @@ retenue en commentaire. **#34** les constats mineurs différés du lot 1 bis. Am
 **Les constats mineurs différés ne vivent plus dans un journal de session** :
 #24 pour le lot Android, **#26 pour le lot serveur** (transport/auth/horizon du
 17/09 — ils n'avaient aucune trace jusqu'au 21/09). **#27, la moitié restante
-du constat C2 de ce lot, est CORRIGÉE sur cette branche** : le trieur en ligne
+du constat C2 de ce lot, est CORRIGÉE sur `dev`** : le trieur en ligne
 de commande affiche désormais le compte des fichiers ignorés (extension non
 gérée) dans son bilan (`mediasort/cli.py`). Le seul qui ait *gagné* en portée
 depuis son signalement est le court-circuit temporel sur le nom
@@ -312,9 +315,8 @@ correctifs C1 à C5 n'y ont pas encore été réinstallés ni rejoués.
 le lot 2 restent sur `dev` tant que rien n'est validé sur un vrai téléphone.
 C'est tout l'intérêt de les avoir gardés là. La branche
 `worktree-constats-recette-lot2` (corrections C1 à C5, #30, #27, #36, #38 et
-la relecture finale) est **à fusionner dans `dev`** — par le mainteneur, pas
-dans `main` : tant que ce n'est pas fait, ces correctifs ne sont pas encore
-sur `dev`.
+la relecture finale) a été **fusionnée dans `dev` le 24/09** (avance rapide) ;
+les constats différés de sa relecture finale sont dans **#41**.
 
 ## NUC (machine cible)
 - `ssh izquierdo@192.168.1.21` (clé configurée, hôte `IZQUIERDO-NUC`, Ubuntu 26.04,
