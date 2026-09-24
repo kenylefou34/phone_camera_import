@@ -243,13 +243,17 @@ class Orchestrateur(
 
             if (abandonne) {
                 // Arret immediat : le paquet en cours est jete. On previent
-                // le serveur au mieux -- si l'appel echoue (le reseau vient
-                // souvent d'etre la CAUSE meme de l'abandon), la session
-                // n'est pas perdue pour autant : le serveur purge desormais
-                // toute session intacte depuis 24 h, au demarrage et apres
-                // chaque commit (POST /sync/abandon, issue #30). Appeler
-                // abandonner() ici sert quand meme a liberer la place TOUT
-                // DE SUITE plutot que d'attendre ce delai.
+                // le serveur au mieux (POST /sync/abandon) -- si l'appel
+                // echoue (le reseau vient souvent d'etre la CAUSE meme de
+                // l'abandon), la place n'est pas perdue pour autant : le
+                // serveur purge de lui-meme toute session sans ecriture
+                // depuis 24 h, au demarrage et apres chaque commit (issue
+                // #30 ; cette purge-la n'a rien a voir avec POST
+                // /sync/abandon). Appeler abandonner() ici sert quand meme a
+                // liberer la place TOUT DE SUITE plutot que d'attendre ce
+                // delai. Et on sort sans jamais valider cette session : le
+                // serveur refuserait desormais son commit (410, session
+                // retiree, docs/CONTRAT-APP.md §4.6).
                 serveur.abandonner(reponse.session)
                 break
             }

@@ -72,16 +72,14 @@ class TravailSynchro(
         }
         if (!VerrouSynchro.tenter()) {
             // Plus une « réussite » muette (constat C1, voir
-            // Reprise.apresRefusDuVerrou) : relancé plus tard, ce lancement
-            // s'affiche « Nouvelle tentative programmée » sur l'accueil
-            // (EtatTravail.combiner) pour la file manuelle, et la passe
-            // automatique ne perd plus ses six heures.
-            val relancer = Reprise.apresRefusDuVerrou(runAttemptCount)
-            Journal.info("synchro $file : une autre synchro tient le verrou" +
-                if (relancer) ", nouvelle tentative programmée" else ", abandon")
-            return if (relancer) Result.retry() else Result.success()
+            // Reprise.apresRefusDuVerrou, qui vaut toujours vrai) : relancé
+            // plus tard, ce lancement s'affiche « Nouvelle tentative
+            // programmée » sur l'accueil (EtatTravail.combiner) pour la file
+            // manuelle, et la passe automatique ne perd plus ses six heures.
+            Journal.info("synchro $file : une autre synchro tient le verrou, " +
+                "nouvelle tentative programmée")
+            return if (Reprise.apresRefusDuVerrou()) Result.retry() else Result.success()
         }
-        Journal.info("synchro $file : départ (tentative ${runAttemptCount + 1})")
 
         // Retenu au fil des publications de l'orchestrateur : c'est la seule
         // source de `dossiersVus`, et sans cette variable la valeur serait
@@ -111,6 +109,12 @@ class TravailSynchro(
         // prochain redémarrage du processus. Pire mode de panne de ce
         // fichier, et silencieux comme les autres qu'il corrige déjà.
         try {
+            // La première ligne SOUS le `try`, et pas entre `tenter()` et lui
+            // comme avant (relecture finale, M14) : la règle ci-dessus vaut
+            // pour elle aussi. `Log.i` ne lève pas sur un téléphone, mais
+            // rien ne doit pouvoir sortir entre la prise du verrou et le
+            // `finally` qui le rend.
+            Journal.info("synchro $file : départ (tentative ${runAttemptCount + 1})")
             // `_derniereIssue` est un StateFlow de companion object, donc de
             // la duree de vie du processus : sans cette remise a zero, un
             // nouveau collecteur (ecran recree, nouvelle synchro) rejouerait

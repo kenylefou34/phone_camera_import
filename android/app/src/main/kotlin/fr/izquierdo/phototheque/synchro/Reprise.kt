@@ -38,8 +38,8 @@ object Reprise {
      * par être rendu, et WorkManager espace lui-même les essais (délai qui
      * double, borné à 5 h). Plafonner ramènerait l'abandon muet dès que la
      * synchronisation qui tient le verrou dure plus de quelques minutes.
-     * `tentatives` n'est pris que pour le dire explicitement.
+     * D'où l'absence de paramètre : le nombre de tentatives déjà faites n'y
+     * change rien (il était reçu puis ignoré — relecture finale, M14).
      */
-    @Suppress("UNUSED_PARAMETER")
-    fun apresRefusDuVerrou(tentatives: Int): Boolean = true
+    fun apresRefusDuVerrou(): Boolean = true
 }

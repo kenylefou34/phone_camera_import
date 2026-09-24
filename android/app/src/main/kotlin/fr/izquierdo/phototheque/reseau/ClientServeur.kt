@@ -203,15 +203,16 @@ class ClientServeur(
     /**
      * Demande au serveur d'oublier une session abandonnée.
      *
-     * **N'échoue jamais.** Deux raisons : la route n'existe pas encore côté
-     * serveur (lot serveur, issue #30), et quand on abandonne c'est souvent
-     * PARCE QUE le réseau est tombé. Un échec ici masquerait l'arrêt que
-     * l'utilisateur vient de demander.
+     * **N'échoue jamais.** Deux raisons : un serveur antérieur à l'issue #30
+     * n'a pas cette route (il répond 404), et quand on abandonne c'est
+     * souvent PARCE QUE le réseau est tombé. Un échec ici masquerait l'arrêt
+     * que l'utilisateur vient de demander.
      *
-     * Il n'y a PAS de filet : le serveur ne purge rien (la seule purge qui
-     * existe, `devices.purge_pending`, concerne les appairages). Une session
-     * abandonnée reste donc sur le disque du NUC jusqu'à ce que l'issue #30
-     * soit faite, ou qu'on l'efface à la main.
+     * Le filet existe depuis l'issue #30 : le serveur purge de lui-même toute
+     * session sans écriture depuis 24 h (au démarrage et après chaque
+     * commit). Cet appel ne sert qu'à libérer la place TOUT DE SUITE. Une
+     * session abandonnée ne doit ensuite jamais être validée : le serveur
+     * refuse son commit (410, `docs/CONTRAT-APP.md` §4.6).
      */
     fun abandonner(session: String) {
         try {

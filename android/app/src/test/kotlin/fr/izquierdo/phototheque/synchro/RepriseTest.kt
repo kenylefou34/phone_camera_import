@@ -37,9 +37,9 @@ class RepriseTest {
         // faisait rien. Sans plafond, à la différence d'une panne : le verrou
         // finit toujours par être rendu, et plafonner retomberait dans
         // l'abandon muet dès que la synchro qui le tient dure plus de
-        // quelques minutes (gros fichier, issue #33).
-        for (tentatives in 0..50) {
-            assertTrue(Reprise.apresRefusDuVerrou(tentatives))
-        }
+        // quelques minutes (gros fichier, issue #33). D'où l'absence de tout
+        // paramètre : aucun compte de tentatives ne peut y changer quoi que
+        // ce soit (relecture finale, M14).
+        assertTrue(Reprise.apresRefusDuVerrou())
     }
 }
