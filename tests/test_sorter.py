@@ -257,8 +257,9 @@ def test_report_nomme_l_echec_d_une_source_modifiee(tmp_path, monkeypatch):
 
 def test_chaque_fichier_produit_un_mouvement(tmp_path, monkeypatch):
     """Issue #30 : le détail fichier par fichier, perdu jusqu'ici."""
-    # source contient : une photo datée par son nom, un doublon d'une photo
-    # déjà au catalogue, un .txt, un fichier sous « WhatsApp Images/Sent ».
+    # source contient : une photo (date forcée via les métadonnées, comme les
+    # tests voisins), un doublon d'une photo déjà au catalogue, un .txt, un
+    # fichier sous « WhatsApp Images/Sent ».
     _force_date(monkeypatch, datetime.date(2023, 5, 26))
     from mediasort.hashing import file_hash, quick_signature
     source = tmp_path / "src"; source.mkdir()
@@ -295,6 +296,31 @@ def test_une_extension_inconnue_est_comptee(tmp_path):
     rapport = sorter.sort_folder(source, tmp_path / "b", Catalog(tmp_path / "c.db"))
     assert rapport.ignored == 1
     assert rapport.to_dict()["ignores"] == 1
+
+
+def test_erreur_produit_un_mouvement_avec_le_detail(tmp_path, monkeypatch):
+    """Un échec (issue #16/#30) doit aussi atteindre sur_mouvement, detail inclus.
+
+    Reprend le scénario de test_report_nomme_l_echec_d_une_erreur_systeme
+    (disque plein pendant la copie) en y ajoutant sur_mouvement.
+    """
+    _force_date(monkeypatch, datetime.date(2023, 5, 26))
+    src = tmp_path / "src"; src.mkdir()
+    lib = tmp_path / "lib"; lib.mkdir()
+    (src / "a.jpg").write_bytes(b"photo-a")
+    cat = Catalog(":memory:")
+    def disque_plein(source, destination):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(sorter, "copy_and_hash", disque_plein)
+
+    vus = []
+    report = sorter.sort_folder(src, lib, cat, dry_run=False, sur_mouvement=vus.append)
+
+    erreurs = [m for m in vus if m["issue"] == "erreur"]
+    assert len(erreurs) == 1
+    assert erreurs[0]["detail"]
+    assert "space" in erreurs[0]["detail"]
+    cat.close()
 
 
 def test_sans_consommateur_aucun_mouvement_n_est_retenu(tmp_path):
