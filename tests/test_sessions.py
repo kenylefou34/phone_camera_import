@@ -278,6 +278,71 @@ def test_un_dossier_qui_n_est_pas_une_session_n_est_jamais_purge(tmp_path):
     assert (autre / "a.jpg").exists()
 
 
+# --- relecture finale, I2 : une purge reste traçable fichier par fichier ----
+
+
+def test_la_purge_annonce_chaque_fichier_avant_de_le_supprimer(tmp_path):
+    """I2 : avant le `rmtree`, l'appelant reçoit la liste nominative des
+    fichiers (chemin relatif à la session, taille) — pendant qu'ils
+    existent ENCORE. Sans elle, le journal ne gardait qu'un compte (« 12
+    fichier(s) ») et « où est passée cette photo » n'avait plus de réponse."""
+    s = tmp_path / ("a" * 32); (s / "DCIM" / "Camera").mkdir(parents=True)
+    (s / "DCIM" / "Camera" / "x.jpg").write_bytes(b"123")
+    (s / "y.mp4.partiel").write_bytes(b"12345")
+    _vieillir(s, 25 * 3600)
+    vus = []
+
+    def avant_suppression(session, fichiers):
+        encore_la = all((s / chemin).exists() for chemin, _ in fichiers)
+        vus.append((session, sorted(fichiers), encore_la))
+
+    emportees = sessions.purger_abandonnees(tmp_path, avant_suppression=avant_suppression)
+
+    assert vus == [("a" * 32, [("DCIM/Camera/x.jpg", 3), ("y.mp4.partiel", 5)], True)]
+    assert emportees == [{"session": "a" * 32, "fichiers": 2, "octets": 8}]
+    assert not s.exists()
+
+
+def test_une_session_recente_n_est_pas_annoncee(tmp_path):
+    """Seules les sessions réellement supprimées sont annoncées."""
+    s = tmp_path / ("b" * 32); s.mkdir(); (s / "y.jpg").write_bytes(b"1")
+    vus = []
+    sessions.purger_abandonnees(tmp_path, avant_suppression=lambda *a: vus.append(a))
+    assert vus == [] and s.exists()
+
+
+def test_abandonner_annonce_chaque_fichier_avant_de_le_supprimer(tmp_path):
+    """I2, même règle pour le bouton « Interrompre » (POST /sync/abandon)."""
+    s = tmp_path / ("d" * 32); (s / "DCIM").mkdir(parents=True)
+    (s / "DCIM" / "a.jpg").write_bytes(b"12345")
+    vus = []
+
+    def avant_suppression(session, fichiers):
+        vus.append((session, fichiers, (s / "DCIM" / "a.jpg").exists()))
+
+    resultat = sessions.abandonner(tmp_path, "d" * 32, avant_suppression=avant_suppression)
+
+    assert vus == [("d" * 32, [("DCIM/a.jpg", 5)], True)]
+    assert resultat == {"supprimes": 1, "octets": 5}
+    assert not s.exists()
+
+
+def test_abandonner_une_session_sans_dossier_est_quand_meme_annonce(tmp_path):
+    """Une session abandonnée avant tout envoi n'a pas de dossier : elle doit
+    quand même être annoncée, pour qu'un commit ultérieur soit refusé (M6)."""
+    vus = []
+    sessions.abandonner(tmp_path, "f" * 32, avant_suppression=lambda *a: vus.append(a))
+    assert vus == [("f" * 32, [])]
+
+
+def test_abandonner_refuse_avant_toute_annonce(tmp_path):
+    """Un identifiant hors norme n'est même pas annoncé."""
+    vus = []
+    with pytest.raises(ValueError):
+        sessions.abandonner(tmp_path, "../voisin", avant_suppression=lambda *a: vus.append(a))
+    assert vus == []
+
+
 def test_abandonner_ne_supprime_rien_si_la_session_est_un_lien_symbolique(tmp_path):
     """Un identifiant valide (32 hex) qui désigne un LIEN SYMBOLIQUE n'est
     jamais produit par ce service (`save_upload` ne crée que des dossiers) :

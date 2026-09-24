@@ -109,26 +109,65 @@ class _Disjoncteur:
         return True
 
 
+def _tracer_retrait(session: str, fichiers: list, motif: str, detail: str,
+                    disjoncteur: _Disjoncteur) -> None:
+    """Trace une session qu'on s'apprête à supprimer SANS commit.
+
+    Branché comme rappel `avant_suppression` de `sessions.purger_abandonnees`
+    et de `sessions.abandonner` : appelé juste AVANT la suppression, pendant
+    que les fichiers existent encore (`sessions.py` ne connaît pas le
+    journal, c'est voulu). Deux traces, dans cet ordre :
+
+    1. la session est retenue comme RETIRÉE (relecture finale, M6) — AVANT
+       la suppression, pour qu'un commit dont le tri serait en train de
+       tourner la voie au second contrôle de `sync_commit` et soit refusé ;
+    2. un mouvement `purge` par fichier, chemin relatif et taille (I2) :
+       « où est passée cette photo » garde une réponse, retrouvable par la
+       recherche de l'historique. Avant, seul un compte restait.
+
+    Tout passe par le disjoncteur de l'opération (voir `_Disjoncteur`) : une
+    base verrouillée ne coûte qu'un délai, pas un par fichier — et une purge
+    tourne aussi au démarrage du service, qu'elle ne doit pas retarder.
+    """
+    disjoncteur.journaliser(lambda j: j.retirer_session(session, motif))
+    for origine, taille in fichiers:
+        mouvement = {"origine": origine, "taille": taille, "empreinte": None,
+                     "issue": "purge", "destination": None, "detail": detail}
+        # Lambda appelée tout de suite (même itération) : pas de capture tardive.
+        if not disjoncteur.journaliser(lambda j: j.ajouter_mouvement(session, mouvement)):
+            break
+
+
 def _purger() -> None:
     """Purge les sessions de synchro abandonnées (spec §5, issue #30).
 
     Appelée au démarrage du service ET après chaque commit : pas de tâche
     planifiée à installer ni à surveiller. Chaque session emportée laisse un
-    événement « purge » dans le journal — personne ne surveille ce service en
-    continu, seule une trace permet de comprendre APRÈS COUP qu'un ménage a
-    eu lieu. `sessions.purger_abandonnees` isole déjà chaque session dans son
+    événement « purge » dans le journal, et chacun de ses fichiers un
+    mouvement `purge` (voir `_tracer_retrait`) — personne ne surveille ce
+    service en continu, seule une trace permet de comprendre APRÈS COUP
+    qu'un ménage a eu lieu, et ce qu'il a emporté.
+    `sessions.purger_abandonnees` isole déjà chaque session dans son
     propre `try/except` (une session à problème n'empêche pas les autres) :
     c'est à l'appelant de décider si une panne plus large (qui remonterait
     quand même jusqu'ici) doit l'arrêter — ici, jamais (voir _cycle_de_vie et
     sync_commit, qui attrapent tous deux `Exception`, pas seulement
     `OSError`).
     """
-    for e in sessions.purger_abandonnees(config.INCOMING_DIR):
-        # La lambda est appelée tout de suite par _journaliser(), dans cette
+    disjoncteur = _Disjoncteur(
+        "journal indisponible : la suite de cette purge ne sera pas journalisée")
+
+    def avant_suppression(session, fichiers):
+        _tracer_retrait(session, fichiers, "purge",
+                        "session sans écriture depuis plus de 24 h", disjoncteur)
+
+    for e in sessions.purger_abandonnees(config.INCOMING_DIR,
+                                         avant_suppression=avant_suppression):
+        # La lambda est appelée tout de suite par journaliser(), dans cette
         # même itération : pas de piège de capture tardive à contourner ici,
         # `detail` porte déjà la bonne valeur au moment de l'appel.
         detail = f"session {e['session']} : {e['fichiers']} fichier(s), {e['octets']} octets"
-        _journaliser(lambda j: j.evenement("purge", detail=detail))
+        disjoncteur.journaliser(lambda j: j.evenement("purge", detail=detail))
 
 
 @asynccontextmanager
@@ -377,6 +416,27 @@ def sync_upload(session: str = Form(...), path: str = Form(...),
     return {"ok": True, "hash": file_hash(dest)}
 
 
+_SESSION_RETIREE = ("session abandonnée ou purgée : ses fichiers ont été supprimés "
+                    "sans être rangés — relancez une synchronisation")
+
+
+def _session_retiree(session: str) -> bool:
+    """Vrai si le journal dit que `session` a été purgée ou abandonnée (M6).
+
+    Un journal illisible (base verrouillée, disque plein, fichier absent)
+    rend FAUX : le commit se comporte alors exactement comme avant ce
+    contrôle. Le journal n'est qu'une défense en profondeur ; il ne doit
+    JAMAIS faire échouer un commit légitime — même règle que `_journaliser`.
+    """
+    try:
+        return journal().session_retiree(session)
+    except Exception:
+        _log_journal.exception(
+            "journal illisible : impossible de vérifier si la session %s a été "
+            "retirée, commit traité comme avant", session)
+        return False
+
+
 @app.post("/sync/commit")
 def sync_commit(req: CommitRequest, request: Request,
                 dev_id: str = Depends(require_device)) -> dict:
@@ -399,9 +459,21 @@ def sync_commit(req: CommitRequest, request: Request,
     lui-même juste après (issue #30) : la réponse HTTP, elle, GARDE EXACTEMENT
     sa forme actuelle (l'application la lit comme un dictionnaire de
     nombres) — le bilan du journal n'y figure jamais.
+
+    Une session PURGÉE ou ABANDONNÉE, elle, n'est pas une session vide : ses
+    fichiers ont été supprimés sans être rangés. La traiter comme vide ferait
+    avancer l'horizon par-dessus eux (relecture finale, M6). Le journal les
+    retient (`sessions_retirees`) et le commit répond 410 sans toucher aux
+    horizons — contrôlé AVANT le tri, et de nouveau APRÈS : une session
+    retirée PENDANT son tri (abandon ou purge concurrents) a pu perdre des
+    fichiers avant que le trieur ne les voie, sans que le bilan compte la
+    moindre erreur. Un journal illisible ne bloque jamais rien : le commit se
+    comporte alors comme avant (voir `_session_retiree`).
     """
     if not sessions.identifiant_valide(req.session):
         raise HTTPException(status_code=404, detail="session inconnue")
+    if _session_retiree(req.session):
+        raise HTTPException(status_code=410, detail=_SESSION_RETIREE)
     # Un identifiant de synchro hors norme (absent, fantaisiste, trop long)
     # est remplacé par un neuf : un téléphone qui n'envoie rien reste quand
     # même journalisé, sous une seule ligne (spec §8.2).
@@ -439,6 +511,14 @@ def sync_commit(req: CommitRequest, request: Request,
     _journaliser(lambda j: j.enregistrer_commit(
         synchro, req.session, dev_id, devices().label(dev_id), adresse, bilan,
         req.bilan_app.model_dump() if req.bilan_app else None))
+    # Second contrôle, APRÈS le tri (voir la docstring) : la session a pu être
+    # retirée pendant qu'il tournait. `_tracer_retrait` la retient comme
+    # retirée AVANT de supprimer quoi que ce soit, donc toute suppression qui
+    # a pu toucher ce tri est déjà visible ici. Le commit, lui, reste
+    # journalisé juste au-dessus : les fichiers que le tri a vus ont bel et
+    # bien été rangés. Seul l'horizon n'avance pas.
+    if _session_retiree(req.session):
+        raise HTTPException(status_code=410, detail=_SESSION_RETIREE)
     # L'horizon n'avance qu'après un tri INTÉGRALEMENT réussi. Avancer dirait
     # au téléphone « bien reçu » pour un média que la bibliothèque n'a pas ;
     # il ne le proposerait plus jamais. On préfère qu'il repropose tout le
@@ -485,12 +565,14 @@ def sync_commit(req: CommitRequest, request: Request,
     # Hypothèse dont dépend cette purge en fin de commit : plus haut,
     # sync_commit traite un dossier de session ABSENT comme une session VIDE
     # et fait quand même avancer l'horizon (voir la docstring de cette
-    # fonction). Une session ne doit donc jamais rester inactive plus de
-    # 24 h (age_max_s par défaut) entre son premier upload et son commit —
-    # vrai aujourd'hui car l'application fait plan/upload/commit en une
-    # seule passe (lot 1 bis) ; à reconsidérer si l'application se met un
-    # jour à garder une session ouverte plus longtemps (reprise différée
-    # d'un très gros envoi, par exemple).
+    # fonction). Une session ne doit donc jamais rester SANS ÉCRITURE plus de
+    # 24 h (age_max_s par défaut ; le critère est la date du fichier le plus
+    # récent de toute l'arborescence) — vrai aujourd'hui car l'application
+    # fait plan/upload/commit en une seule passe (lot 1 bis) ; à
+    # reconsidérer si l'application se met un jour à garder une session
+    # ouverte plus longtemps (reprise différée d'un très gros envoi, par
+    # exemple). Si l'hypothèse casse quand même (horloge qui saute), le refus
+    # 410 des sessions retirées est le filet : l'horizon n'avance pas.
     try:
         _purger()
     except Exception:
@@ -511,13 +593,25 @@ def sync_abandon(req: AbandonRequest, dev_id: str = Depends(require_device)) -> 
     plusieurs gigaoctets d'une grosse vidéo à moitié envoyée. L'application
     appelle déjà cette route depuis le lot 1 bis ; elle recevait jusqu'ici un
     404 silencieux.
+
+    Comme pour la purge : la session est retenue comme retirée (un commit
+    ultérieur sur elle répondra 410) et chaque fichier supprimé laisse un
+    mouvement `purge` (voir `_tracer_retrait`).
     """
+    disjoncteur = _Disjoncteur(
+        "journal indisponible : la suite de cet abandon ne sera pas journalisée")
+
+    def avant_suppression(session, fichiers):
+        _tracer_retrait(session, fichiers, "abandon",
+                        "abandon demandé par le téléphone", disjoncteur)
+
     try:
-        resultat = sessions.abandonner(config.INCOMING_DIR, req.session)
+        resultat = sessions.abandonner(config.INCOMING_DIR, req.session,
+                                       avant_suppression=avant_suppression)
     except ValueError:
         raise HTTPException(status_code=400, detail="identifiant de session non autorisé")
     detail = f"session {req.session} : {resultat['supprimes']} fichier(s), {resultat['octets']} octets"
-    _journaliser(lambda j: j.evenement("abandon", appareil=dev_id, detail=detail))
+    disjoncteur.journaliser(lambda j: j.evenement("abandon", appareil=dev_id, detail=detail))
     return resultat
 
 

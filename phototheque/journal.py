@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS evenements (
   appareil TEXT, adresse TEXT, detail TEXT);
 CREATE TABLE IF NOT EXISTS commits (
   session TEXT PRIMARY KEY, synchro TEXT NOT NULL, horodatage TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS sessions_retirees (
+  session TEXT PRIMARY KEY, horodatage TEXT NOT NULL, motif TEXT NOT NULL);
 """
 
 
@@ -220,6 +222,34 @@ class Journal:
             self._cx.execute(
                 f"UPDATE synchros SET {', '.join(champs)} WHERE id=?", valeurs
             )
+
+    def retirer_session(self, session: str, motif: str) -> None:
+        """Retient qu'une session a été supprimée sans commit (purge ou abandon).
+
+        Défense en profondeur (relecture finale, M6) : `sync_commit` traite un
+        dossier de session ABSENT comme une session VIDE et fait avancer
+        l'horizon. Un commit qui arriverait APRÈS la suppression de sa
+        session — horloge qui saute de plus de 24 h, client qui abandonne
+        la session qu'il est en train de valider — ferait donc passer des
+        médias jamais rangés sous l'horizon. Cette table permet de le refuser.
+
+        `INSERT OR IGNORE` : la première raison est la bonne, une seconde
+        suppression de la même session ne la remplace pas.
+        """
+        with self._lock, self._cx:
+            self._cx.execute(
+                "INSERT OR IGNORE INTO sessions_retirees (session, horodatage, motif)"
+                " VALUES (?,?,?)",
+                (session, _maintenant(), motif),
+            )
+
+    def session_retiree(self, session: str) -> bool:
+        """Vrai si `session` a été purgée ou abandonnée (voir `retirer_session`)."""
+        with self._lock:
+            ligne = self._cx.execute(
+                "SELECT 1 FROM sessions_retirees WHERE session=?", (session,)
+            ).fetchone()
+        return ligne is not None
 
     def synchros(self, limite: int = 200) -> list[dict]:
         """Les synchros, plus récente d'abord."""

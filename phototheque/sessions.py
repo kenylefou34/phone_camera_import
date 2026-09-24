@@ -102,26 +102,29 @@ def cleanup(base: Path, session: str) -> None:
     shutil.rmtree(base / session, ignore_errors=True)
 
 
-def _inventaire(dossier: Path) -> tuple[int, int]:
-    """(nombre de fichiers, octets) sous `dossier`, lui compris s'il en contient.
+def _lister_fichiers(dossier: Path) -> list[tuple[str, int]]:
+    """Les fichiers sous `dossier` : (chemin relatif à `dossier`, taille).
+
+    Le chemin est relatif et en « / » (`as_posix`) : c'est exactement le
+    `path` qu'avait envoyé le téléphone, donc ce que le mainteneur tapera
+    dans la recherche de l'historique.
 
     Un fichier qui disparaît ENTRE le listage (`rglob`) et le `stat()` qui lit
     sa taille — course avec une autre synchro qui déplace ses fichiers, ou un
     « .partiel » renommé au même instant — est compté pour ce qu'il est
-    devenu : absent. On rend ce qu'on a pu compter plutôt que de faire échouer
-    tout le décompte pour UNE entrée qui n'existe déjà plus.
+    devenu : absent. On rend ce qu'on a pu lister plutôt que de faire échouer
+    tout l'inventaire pour UNE entrée qui n'existe déjà plus.
     """
-    fichiers = 0
-    octets = 0
+    fichiers = []
     for p in dossier.rglob("*"):
         if not p.is_file():
             continue
         try:
-            octets += p.stat().st_size
+            taille = p.stat().st_size
         except OSError:
             continue
-        fichiers += 1
-    return fichiers, octets
+        fichiers.append((p.relative_to(dossier).as_posix(), taille))
+    return fichiers
 
 
 def _mtime_le_plus_recent(dossier: Path) -> float:
@@ -130,7 +133,7 @@ def _mtime_le_plus_recent(dossier: Path) -> float:
     `dossier` lui-même doit exister (son `stat()` n'est pas protégé : s'il a
     disparu, il n'y a de toute façon plus rien à purger — l'appelant attrape
     l'exception). En revanche une entrée sous `dossier` qui disparaît PENDANT
-    le parcours (même course qu'`_inventaire`) est ignorée pour la datation :
+    le parcours (même course que dans `_lister_fichiers`) est ignorée pour la datation :
     elle n'existe plus, elle ne peut donc plus dater quoi que ce soit. Sans ce
     filtrage, une session qui reçoit régulièrement des fichiers éphémères
     (« .partiel » renommés pendant qu'on purge) ne serait JAMAIS purgeable :
@@ -146,8 +149,19 @@ def _mtime_le_plus_recent(dossier: Path) -> float:
 
 
 def purger_abandonnees(base: Path, age_max_s: float = 24 * 3600,
-                        maintenant: float | None = None) -> list[dict]:
+                        maintenant: float | None = None,
+                        avant_suppression=None) -> list[dict]:
     """Supprime les dossiers de session abandonnés depuis plus de `age_max_s`.
+
+    `avant_suppression(session, fichiers)`, si fourni, est appelé pour chaque
+    session JUSTE AVANT son `rmtree`, avec la liste nominative de ses fichiers
+    (`_lister_fichiers` : chemin relatif, taille) — pendant qu'ils existent
+    encore (relecture finale, I2). C'est ainsi que l'application écrit un
+    mouvement par fichier supprimé et retient la session comme retirée, sans
+    que ce module ait à connaître le journal. Le rappel ne doit pas lever :
+    s'il levait quand même une `OSError`, la session serait laissée en place
+    (même traitement qu'une panne de disque), et toute autre exception
+    remonterait à l'appelant.
 
     Ne considère QUE les dossiers dont le nom passe `identifiant_valide` :
     c'est ce qui écarte `_echecs` (quarantaine des médias non rangés, issue
@@ -184,7 +198,9 @@ def purger_abandonnees(base: Path, age_max_s: float = 24 * 3600,
             plus_recent = _mtime_le_plus_recent(dossier)
             if maintenant - plus_recent <= age_max_s:
                 continue
-            fichiers, octets = _inventaire(dossier)
+            fichiers = _lister_fichiers(dossier)
+            if avant_suppression is not None:
+                avant_suppression(dossier.name, fichiers)
             shutil.rmtree(dossier)
         except OSError:
             _log.exception("purge de la session %s impossible, poursuite avec les suivantes",
@@ -192,14 +208,22 @@ def purger_abandonnees(base: Path, age_max_s: float = 24 * 3600,
             continue
         # Ajouté seulement APRÈS un rmtree réussi : une session qu'on n'a pas
         # su supprimer ne doit jamais apparaître comme retirée.
-        emportees.append({"session": dossier.name, "fichiers": fichiers, "octets": octets})
+        emportees.append({"session": dossier.name, "fichiers": len(fichiers),
+                          "octets": sum(taille for _, taille in fichiers)})
     return emportees
 
 
-def abandonner(base: Path, session: str) -> dict:
+def abandonner(base: Path, session: str, avant_suppression=None) -> dict:
     """Supprime la session `session` sur demande explicite du téléphone
     (bouton « Interrompre », `POST /sync/abandon`), et rend ce qui a été
     supprimé.
+
+    `avant_suppression(session, fichiers)` : même rappel que pour
+    `purger_abandonnees`, appelé juste avant la suppression — y compris pour
+    une session SANS dossier (abandonnée avant le moindre envoi), avec une
+    liste vide : elle n'a rien à tracer fichier par fichier, mais elle doit
+    quand même être retenue comme retirée (un commit ultérieur sur elle sera
+    refusé, voir `sync_commit`).
 
     Le contrôle de forme est fait EN PREMIER, avant même de regarder le
     disque : un identifiant hors norme ne doit strictement rien supprimer, ni
@@ -223,8 +247,10 @@ def abandonner(base: Path, session: str) -> dict:
     if dossier.is_symlink():
         return {"supprimes": 0, "octets": 0}
     try:
-        fichiers, octets = _inventaire(dossier) if dossier.is_dir() else (0, 0)
+        fichiers = _lister_fichiers(dossier) if dossier.is_dir() else []
     except OSError:
-        fichiers, octets = 0, 0
+        fichiers = []
+    if avant_suppression is not None:
+        avant_suppression(session, fichiers)
     cleanup(base, session)
-    return {"supprimes": fichiers, "octets": octets}
+    return {"supprimes": len(fichiers), "octets": sum(taille for _, taille in fichiers)}

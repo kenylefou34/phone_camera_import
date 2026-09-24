@@ -1660,6 +1660,184 @@ def test_une_purge_en_panne_ne_fait_pas_echouer_le_commit(tmp_path, monkeypatch)
     assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1.0e9}
 
 
+# --- relecture finale, I2 : une purge reste traçable fichier par fichier ----
+
+
+def _vieille_session(a, nom, fichiers):
+    """Crée une session `nom` avec `fichiers` ({chemin: contenu}), vieille de 25 h."""
+    import os, time
+    dossier = a.config.INCOMING_DIR / nom
+    for chemin, contenu in fichiers.items():
+        (dossier / chemin).parent.mkdir(parents=True, exist_ok=True)
+        (dossier / chemin).write_bytes(contenu)
+    t = time.time() - 25 * 3600
+    for p in [dossier, *dossier.rglob("*")]:
+        os.utime(p, (t, t))
+    return dossier
+
+
+def test_une_session_purgee_laisse_un_mouvement_par_fichier(tmp_path, monkeypatch):
+    """I2 : « où est passée cette photo » doit avoir une réponse après une
+    purge. Avant, le journal ne gardait qu'un compte (« 2 fichier(s) »)."""
+    a, client = _client(tmp_path, monkeypatch)
+    nom = "e" * 32
+    vieille = _vieille_session(a, nom, {"DCIM/Camera/IMG_7.jpg": b"123",
+                                        "DCIM/Camera/VID_8.mp4.partiel": b"12345"})
+
+    with TestClient(a.app):            # le `with` déclenche la purge du démarrage
+        pass
+
+    assert not vieille.exists()
+    trouves = a.journal().rechercher("IMG_7")
+    assert len(trouves) == 1
+    m = trouves[0]
+    assert (m["issue"], m["origine"], m["taille"], m["session"]) == (
+        "purge", "DCIM/Camera/IMG_7.jpg", 3, nom)
+    assert [x["issue"] for x in a.journal().rechercher("VID_8")] == ["purge"]
+
+
+def test_un_journal_verrouille_ne_retarde_pas_la_purge(tmp_path, monkeypatch):
+    """La purge tourne AUSSI au démarrage : un journal verrouillé ne doit lui
+    coûter qu'un délai, pas un par fichier (même disjoncteur que le tri, M3).
+    Et la session est quand même supprimée — la trace passe après le ménage."""
+    import sqlite3
+    a, client = _client(tmp_path, monkeypatch)
+    vieille = _vieille_session(a, "e" * 32, {f"DCIM/{n}.jpg": b"1" for n in "abc"})
+    appels = []
+    def verrouille(*args, **kwargs):
+        appels.append(args)
+        raise sqlite3.OperationalError("database is locked")
+    j = a.journal()
+    for methode in ("retirer_session", "ajouter_mouvement", "evenement"):
+        monkeypatch.setattr(j, methode, verrouille)
+
+    a._purger()
+
+    assert len(appels) == 1, appels
+    assert not vieille.exists()
+
+
+def test_une_session_abandonnee_laisse_un_mouvement_par_fichier(tmp_path, monkeypatch):
+    """I2, même règle pour « Interrompre » (POST /sync/abandon)."""
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = _session_ouverte(client, h)
+    assert _envoyer(client, h, session, "DCIM/Camera/IMG_9.jpg", b"abc").status_code == 200
+
+    assert client.post("/sync/abandon", headers=h, json={"session": session}).status_code == 200
+
+    trouves = a.journal().rechercher("IMG_9")
+    assert [(m["issue"], m["taille"], m["session"]) for m in trouves] == [
+        ("purge", 3, session)]
+
+
+def test_la_recherche_dit_qu_un_fichier_a_ete_supprime_et_quand(tmp_path, monkeypatch):
+    """Le mouvement `purge` se lit « supprimé (session abandonnée) », daté de
+    la suppression : il n'a pas de synchro, donc pas d'autre date à montrer."""
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    a.journal().ajouter_mouvement("e" * 32, {
+        "origine": "DCIM/Camera/IMG_7.jpg", "taille": 3, "empreinte": None,
+        "issue": "purge", "destination": None, "detail": "session abandonnée"})
+
+    texte = client.get("/historique/recherche?q=IMG_7", headers=entetes).text
+
+    assert "supprimé (session abandonnée)" in texte
+    assert 'class="quand"' in texte
+
+
+# --- relecture finale, M6 : un commit de session retirée est refusé (410) ---
+
+
+def test_le_commit_d_une_session_abandonnee_est_refuse(tmp_path, monkeypatch):
+    """M6 : sans ce refus, le dossier absent passait pour une session VIDE et
+    l'horizon avançait par-dessus des médias jamais rangés."""
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = _session_ouverte(client, h)
+    assert _envoyer(client, h, session, "DCIM/Camera/a.jpg", b"abc").status_code == 200
+    client.post("/sync/abandon", headers=h, json={"session": session})
+
+    r = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": 1.0e9}})
+
+    assert r.status_code == 410
+    assert a.devices().get_horizons(dev_id) == {}
+    # Refusé AVANT le tri : pas de ligne d'historique fantôme « terminée,
+    # 0 fichier » pour une session dont les fichiers ont été supprimés.
+    assert a.journal().synchros() == []
+    # Un commit normal, lui, reste inchangé.
+    autre = _session_ouverte(client, h)
+    r = client.post("/sync/commit", headers=h, json={
+        "session": autre, "horizons": {"DCIM/Camera": 1.0e9}})
+    assert r.status_code == 200
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1.0e9}
+
+
+def test_le_commit_d_une_session_purgee_est_refuse(tmp_path, monkeypatch):
+    """M6, même règle pour la purge des 24 h (horloge qui saute, par exemple)."""
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    nom = "c" * 32
+    _vieille_session(a, nom, {"DCIM/Camera/a.jpg": b"abc"})
+    with TestClient(a.app):
+        pass
+
+    r = client.post("/sync/commit", headers=h, json={
+        "session": nom, "horizons": {"DCIM/Camera": 1.0e9}})
+
+    assert r.status_code == 410
+    assert a.devices().get_horizons(dev_id) == {}
+
+
+def test_une_session_retiree_pendant_le_tri_n_avance_pas_l_horizon(tmp_path, monkeypatch):
+    """M6, la course : la session est abandonnée (ou purgée) PENDANT son tri.
+    Les fichiers supprimés avant que le trieur ne les voie ne comptent pas
+    comme erreurs — sans le second contrôle, APRÈS le tri, l'horizon
+    avançait quand même."""
+    from phototheque import ingest
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = _session_ouverte(client, h)
+    assert _envoyer(client, h, session, "DCIM/Camera/a.jpg", b"abc").status_code == 200
+
+    vrai_tri = ingest.sort_session
+    def tri_pendant_lequel_on_abandonne(*args, **kwargs):
+        a.journal().retirer_session(session, "abandon")     # l'abandon arrive
+        return vrai_tri(*args, **kwargs)
+    monkeypatch.setattr(ingest, "sort_session", tri_pendant_lequel_on_abandonne)
+
+    r = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": 1.0e9}})
+
+    assert r.status_code == 410
+    assert a.devices().get_horizons(dev_id) == {}
+
+
+def test_un_journal_illisible_ne_bloque_pas_un_commit_legitime(tmp_path, monkeypatch):
+    """M6 : le contrôle des sessions retirées ne doit JAMAIS faire échouer un
+    commit légitime. Journal illisible = comportement d'avant."""
+    import sqlite3
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = _session_ouverte(client, h)
+
+    def illisible(_session):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(a.journal(), "session_retiree", illisible)
+
+    r = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": 1.0e9}})
+
+    assert r.status_code == 200
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1.0e9}
+
+
 # --- relecture round 1 : les deux garde-fous de purge attrapent Exception ----
 
 

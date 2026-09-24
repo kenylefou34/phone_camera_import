@@ -380,11 +380,14 @@ def pair_html(qr_svg: str, url: str) -> str:
 
 # « refuse » : reçu par le serveur, puis ignoré par le trieur (extension non
 # gérée, reliquat « .partiel ») ; « refuse_envoi » : refusé dès l'envoi, le
-# fichier n'a jamais été écrit sur le NUC (relecture finale, M1).
+# fichier n'a jamais été écrit sur le NUC (relecture finale, M1) ;
+# « purge » : supprimé avec une session jamais validée — purge des 24 h ou
+# bouton « Interrompre » (relecture finale, I2).
 _MOTS_ISSUE = {
     "range": "rangé", "a_trier": "à trier", "doublon": "doublon",
     "refuse": "refusé", "refuse_envoi": "refusé à l'envoi",
     "exclu": "exclu", "erreur": "erreur",
+    "purge": "supprimé (session abandonnée)",
 }
 
 _MOTS_EVENEMENT = {
@@ -431,15 +434,18 @@ def _ligne_mouvement(m: dict, avec_date: bool = False) -> str:
 
     `avec_date` ajoute la date de la synchro d'origine : utile en recherche,
     où les résultats mélangent plusieurs synchros — inutile sur la page d'une
-    synchro unique, qui l'affiche déjà dans son en-tête.
+    synchro unique, qui l'affiche déjà dans son en-tête. Un mouvement sans
+    synchro (fichier supprimé avec une session jamais validée, relecture
+    finale I2) montre à la place sa propre date : celle de la suppression.
     """
     origine = html.escape(str(m["origine"]))
     destination = (f' → <code>{html.escape(str(m["destination"]))}</code>'
                    if m.get("destination") else "")
     taille = (f'<span class="pousse">{_go(m["taille"])}</span>'
               if m.get("taille") is not None else "")
-    date = (f'<span class="quand">{_date(str(m["date_synchro"]))}</span>'
-            if avec_date and m.get("date_synchro") else "")
+    quand = m.get("date_synchro") or m.get("horodatage")
+    date = (f'<span class="quand">{_date(str(quand))}</span>'
+            if avec_date and quand else "")
     # Le détail peut porter un message construit à partir de ce qu'a envoyé
     # le téléphone (ex. une extension refusée) : échappé comme le reste, et
     # dans un <code> pour profiter de son retour à la ligne sur les mots

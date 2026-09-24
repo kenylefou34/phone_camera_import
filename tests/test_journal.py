@@ -103,6 +103,20 @@ def test_les_evenements_sont_rendus_du_plus_recent_au_plus_ancien(tmp_path):
     assert [e["type"] for e in j.evenements()] == ["appairage", "demarrage"]
 
 
+def test_le_journal_retient_les_sessions_retirees(tmp_path):
+    """M6 : une session purgée ou abandonnée est retenue, pour qu'un commit
+    tardif sur elle soit refusé au lieu de passer pour une session vide."""
+    j = Journal(tmp_path / "j.db")
+    assert j.session_retiree("a" * 32) is False
+    j.retirer_session("a" * 32, "abandon")
+    j.retirer_session("a" * 32, "purge")          # deuxième fois : sans erreur
+    assert j.session_retiree("a" * 32) is True
+    assert j.session_retiree("b" * 32) is False
+    # Et ça survit à la réouverture de la base (le service redémarre).
+    j.close()
+    assert Journal(tmp_path / "j.db").session_retiree("a" * 32) is True
+
+
 def test_un_commit_qui_casse_au_milieu_ne_laisse_rien_a_moitie_ecrit(tmp_path):
     """M2 (relecture finale) : chaque écriture est une transaction entière.
 
