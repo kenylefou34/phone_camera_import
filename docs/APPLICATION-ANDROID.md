@@ -509,6 +509,29 @@ rangés qu'au **`commit`**, à la toute fin.
 
 ## 11. Dépannage
 
+### Savoir ce qu'une synchronisation a fait (surtout une passe automatique)
+
+Chaque synchronisation écrit une ligne dans le journal Android à son départ
+et une à sa sortie, quelle qu'elle soit, en disant quelle file l'a lancée
+(`manuelle` ou `auto`) :
+
+```bash
+~/outils/android-sdk/platform-tools/adb logcat -d -s Phototheque
+```
+
+```
+I Phototheque: synchro auto : départ (tentative 1)
+I Phototheque: synchro auto : terminée : 3 envoyés, 12 refusés, 0 en échec, 4 dossiers
+I Phototheque: synchro manuelle : une autre synchro tient le verrou, sortie sans rien faire
+```
+
+La dernière forme est la seule trace d'un lancement refusé par
+`VerrouSynchro` : l'écran, lui, n'en montre rien. Jusqu'au 24/09
+l'application n'écrivait rien du tout (constat C2 de la recette du lot 2),
+et il fallait reconstituer l'histoire depuis la base interne de
+`WorkManager` (`run-as fr.izquierdo.phototheque cat
+no_backup/androidx.work.workdb`) et `adb shell dumpsys jobscheduler`.
+
 ### « La sauvegarde a échoué » alors que tout est arrivé
 
 **Le défaut le plus déroutant, constaté le 2026-09-21.** Le client HTTP est

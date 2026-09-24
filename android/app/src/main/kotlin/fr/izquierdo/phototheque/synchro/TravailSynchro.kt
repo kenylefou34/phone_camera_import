@@ -61,7 +61,22 @@ class TravailSynchro(
         // verrou, elle publie déjà son propre avancement : on ressort sans
         // rien toucher, ce n'est donc pas un silence, seulement une
         // exécution de trop.
-        if (!VerrouSynchro.tenter()) return Result.success()
+        val file = Journal.file(tags)
+        // Toute issue publiée passe par ici, pour être aussi écrite dans le
+        // journal Android (constat C2 de la recette du 24/09 : une passe
+        // automatique ne laissait jusque-là aucune trace de ce qu'elle avait
+        // fait).
+        fun publier(issue: IssueSynchro) {
+            _derniereIssue.value = issue
+            Journal.info("synchro $file : ${Journal.decrire(issue)}")
+        }
+        if (!VerrouSynchro.tenter()) {
+            // Sortie muette pour l'écran (voir VerrouSynchro), mais plus pour
+            // le journal : c'est le seul endroit où elle se voit.
+            Journal.info("synchro $file : une autre synchro tient le verrou, sortie sans rien faire")
+            return Result.success()
+        }
+        Journal.info("synchro $file : départ (tentative ${runAttemptCount + 1})")
 
         // Retenu au fil des publications de l'orchestrateur : c'est la seule
         // source de `dossiersVus`, et sans cette variable la valeur serait
@@ -107,7 +122,10 @@ class TravailSynchro(
             // pour ne pas avoir à le sortir d'ici.
             val contexte = applicationContext
 
-            val charge = Coffre(contexte).charge() ?: return Result.success()
+            val charge = Coffre(contexte).charge() ?: run {
+                Journal.info("synchro $file : aucun appairage, sortie sans rien faire")
+                return Result.success()
+            }
             val depot = Depot(contexte)
             val reglages = MagasinReglages(contexte).lire()
 
@@ -128,7 +146,7 @@ class TravailSynchro(
                     // qu'on soit a la maison, donc rien ici ne redeclenchera au
                     // retour. C'est un prochain lancement, manuel ou planifie,
                     // qui retentera.
-                    _derniereIssue.value = IssueSynchro(serveurIntrouvable = true)
+                    publier(IssueSynchro(serveurIntrouvable = true))
                     return Result.success()
                 }
 
@@ -244,18 +262,19 @@ class TravailSynchro(
                 ))
             }
 
-            _derniereIssue.value = IssueSynchro(
+            publier(IssueSynchro(
                 bilan = bilan.pourLEcran(), revoque = bilan.revoque, dossiersVus = dossiersVus,
-                dossiersNouveaux = nouveaux)
-            return if (Reprise.fautIlRelancer(bilan) && runAttemptCount < TENTATIVES_MAX)
-                Result.retry() else Result.success()
+                dossiersNouveaux = nouveaux))
+            val relancer = Reprise.fautIlRelancer(bilan) && runAttemptCount < TENTATIVES_MAX
+            if (relancer) Journal.info("synchro $file : nouvelle tentative programmée")
+            return if (relancer) Result.retry() else Result.success()
 
         } catch (e: ServeurRevoqueException) {
             // `applicationContext` directement, et non la `contexte` locale
             // du `try` : elle n'est plus visible ici depuis qu'elle est
             // déclarée à l'intérieur (voir le commentaire au-dessus du `try`).
             Coffre(applicationContext).oublier()
-            _derniereIssue.value = IssueSynchro(revoque = true, dossiersVus = dossiersVus)
+            publier(IssueSynchro(revoque = true, dossiersVus = dossiersVus))
             return Result.success()
         } catch (e: CancellationException) {
             // Un arret, pas une panne. `cancelUniqueWork` annule le job du
@@ -264,7 +283,7 @@ class TravailSynchro(
             // CancellationException herite d'Exception sur la JVM. Sans ce
             // catch dedie AVANT le generique, celui-ci afficherait
             // « La sauvegarde a echoue : Job was cancelled ».
-            _derniereIssue.value = IssueSynchro(
+            publier(IssueSynchro(
                 // `bilanPartiel` et non des zeros : on peut arreter apres
                 // vingt paquets valides et six cents fichiers montes.
                 // `interrompu = true` sur le repli, et ce n'est pas
@@ -279,16 +298,18 @@ class TravailSynchro(
                                                bilanServeur = emptyMap(),
                                                interrompu = true)).pourLEcran(),
                 dossiersVus = dossiersVus,
-            )
+            ))
             throw e          // une annulation se relance TOUJOURS
         } catch (e: Exception) {
-            _derniereIssue.value = IssueSynchro(
-                erreur = e.message ?: e.javaClass.simpleName, dossiersVus = dossiersVus)
+            publier(IssueSynchro(
+                erreur = e.message ?: e.javaClass.simpleName, dossiersVus = dossiersVus))
             // Bornee : une SecurityException (permission retiree) ne se
             // reglera jamais toute seule, et sans plafond WorkManager
             // relancerait a l'infini (delai double jusqu'a 5 h), recalculant
             // toutes les empreintes a chaque tentative.
-            return if (runAttemptCount < TENTATIVES_MAX) Result.retry() else Result.success()
+            val relancer = runAttemptCount < TENTATIVES_MAX
+            if (relancer) Journal.info("synchro $file : nouvelle tentative programmée")
+            return if (relancer) Result.retry() else Result.success()
         } finally {
             // Un seul endroit, et il couvre TOUTES les sorties : il n'existe
             // plus d'etat dont l'ecran d'avancement ne sorte jamais. Ne touche
@@ -316,12 +337,12 @@ class TravailSynchro(
     private fun Bilan.pourLEcran(): Bilan = copy(interrompu = interrompu && arretDemande)
 
     companion object {
-        private const val NOM = "synchro"
+        internal const val NOM = "synchro"
 
         // Nom distinct de NOM : le travail périodique (planifier) et le
         // travail unique (lancer) ne doivent jamais se marcher dessus - deux
         // noms identiques feraient qu'annuler l'un annulerait aussi l'autre.
-        private const val NOM_PERIODIQUE = "synchro-auto"
+        internal const val NOM_PERIODIQUE = "synchro-auto"
 
         /** Au-dela, on arrete de relancer : un media illisible ou une
          *  permission retiree ne se reglent jamais tout seuls, et sans ce
@@ -344,6 +365,8 @@ class TravailSynchro(
                 .setBackoffCriteria(BackoffPolicy.EXPONENTIAL,
                                     WorkRequest.MIN_BACKOFF_MILLIS,
                                     java.util.concurrent.TimeUnit.MILLISECONDS)
+                // Lue par Journal.file : dit dans le journal quelle file a tourné.
+                .addTag(NOM)
                 .build()
             // KEEP et non REPLACE : deux appuis sur le bouton ne doivent pas
             // faire tourner deux synchros en parallele sur la meme
@@ -439,6 +462,8 @@ class TravailSynchro(
                 // l'interrupteur, lui, doit pouvoir donner une première passe
                 // dans la foulée.
                 .apply { if (apresUnArret) setInitialDelay(6, TimeUnit.HOURS) }
+                // Lue par Journal.file : dit dans le journal quelle file a tourné.
+                .addTag(NOM_PERIODIQUE)
                 .build()
             // KEEP : reprogrammer à chaque ouverture de l'écran remettrait le
             // compteur à zéro, et la passe n'aurait jamais lieu sur un
