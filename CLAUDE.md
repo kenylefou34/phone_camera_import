@@ -76,8 +76,10 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   dédiées. Plan : `docs/superpowers/plans/2026-09-21-app-android-lot1bis.md`.
   **A tourné sur le téléphone du mainteneur le 2026-09-23** : APK installé, QR
   scanné, une sauvegarde réelle menée. C'est cet usage qui a produit les sept
-  retours dont est né le lot 2. Sa **recette formelle**, elle, n'a jamais été
-  déroulée — voir la section REPRISE.
+  retours dont est né le lot 2. Sa **recette formelle** à elle seule n'a
+  jamais été déroulée à part : c'est celle du lot 2, qui exerce les mêmes
+  mécanismes (service de premier plan, `WorkManager`, paquets), qui est en
+  cours depuis le 24/09 — voir la section REPRISE.
 - ✅ **APK téléchargeable depuis la page d'admin** : `./deploy/envoyer-apk.sh`
   le dépose sur le NUC (empreinte recalculée à l'arrivée, mise en place atomique),
   route `/apk` derrière le mot de passe. Mode d'emploi complet et rejouable depuis
@@ -97,7 +99,9 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   l'accueil par « Réglages » — mode d'emploi et recette de validation :
   `docs/APPLICATION-ANDROID.md` §8-§9. **240 tests** côté app (144 au lot
   1 bis), **301** côté serveur (264 au lot 1 bis).
-  **Écrit et relu, jamais exécuté sur un appareil** — voir la section REPRISE.
+  **Exécuté sur un vrai téléphone depuis le 24/09** (HONOR 90 Lite),
+  partiellement validé — étapes 1 à 8, 9 bis, 10, 13 à 17 faites, étapes 11 et
+  12 restantes — voir la section REPRISE.
 - ✅ **Relecture finale du lot 2 (24/09)** : la première à regarder les
   **interactions** entre les douze tâches, chacune relue isolément jusque-là.
   Trois défauts critiques, tous trouvés là et nulle part ailleurs.
@@ -288,7 +292,9 @@ d'utilisateur, devenu un secret partiel depuis `identifiants.sh`.
 
 **PR #13 (`dev` → `main`) a été fusionnée** : les issues qui portaient un
 `closes #N` se sont fermées toutes seules (#2, #3, #10, #14, #15, #19, #21).
-#12 reste ouverte, l'application n'ayant jamais été éprouvée sur un appareil.
+#12 reste ouverte : l'application tourne sur un appareil depuis le 24/09, mais
+la recette n'est pas finie (étape 11 à relever, étape 12 partielle) et les
+correctifs C1 à C5 n'y ont pas encore été réinstallés ni rejoués.
 
 **Pas de nouvelle PR avant la recette** : tout le lot 1 bis et le lot 2 —
 corrections C1 à C5, #30, #27, #36, #38 comprises — restent sur

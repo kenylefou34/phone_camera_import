@@ -559,8 +559,8 @@ appairage ou un démarrage ait réellement eu lieu. Surchargeable par
 Elle contient trois choses : une ligne par synchronisation (`synchros`), une
 ligne par fichier reçu avec son sort — rangé, doublon, à trier, refusé, exclu,
 erreur — (`mouvements`), et une ligne par événement ponctuel — démarrage,
-purge, appairage, confirmation, révocation, échec d'authentification —
-(`evenements`).
+purge, abandon (`POST /sync/abandon`), appairage, confirmation, révocation,
+échec d'authentification — (`evenements`).
 
 **Quatre pages, toutes derrière le mot de passe d'administration :**
 
