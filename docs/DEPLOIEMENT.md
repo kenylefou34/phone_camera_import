@@ -326,6 +326,11 @@ git pull
 ./deploy/install.sh
 ```
 
+> ⚠️ **Première installation d'une version qui purge les sessions abandonnées
+> (issue #30) :** faire d'abord l'inventaire de `incoming/` — voir « Au premier
+> démarrage d'une version qui purge » plus bas. Le démarrage supprime les
+> sessions de plus de 24 h.
+
 **Le code n'est jamais rechargé tout seul.** `uvicorn` tourne sans `--reload` en
 production : tant qu'on ne redémarre pas le service, il continue d'exécuter la
 version chargée en mémoire au démarrage. Le script s'en charge (`systemctl
@@ -528,7 +533,8 @@ sa raison, sa taille et sa date.
 automatique**, et c'est délibéré : une purge à l'ancienneté redeviendrait
 exactement le défaut qu'on vient de corriger, avec un délai. Le bouton
 « Vider la quarantaine » de la page d'administration est le seul moyen, et il
-demande confirmation.
+demande confirmation. Chaque appui laisse un événement « purge manuelle de la
+quarantaine » (nombre de médias retirés) sur `/evenements`.
 
 **Ce dossier ne grossit que quand quelque chose ne va pas.** Qu'il grossisse est
 un signal, pas un déchet. Traitez la cause avant de vider — sinon le téléphone
@@ -557,10 +563,15 @@ appairage ou un démarrage ait réellement eu lieu. Surchargeable par
 `JOURNAL_DB` (voir Paramétrage ci-dessous).
 
 Elle contient trois choses : une ligne par synchronisation (`synchros`), une
-ligne par fichier reçu avec son sort — rangé, doublon, à trier, refusé, exclu,
-erreur — (`mouvements`), et une ligne par événement ponctuel — démarrage,
-purge, abandon (`POST /sync/abandon`), appairage, confirmation, révocation,
-échec d'authentification — (`evenements`).
+ligne par fichier avec son sort — rangé, doublon, à trier, refusé (reçu puis
+ignoré par le trieur), refusé à l'envoi (jamais écrit sur le NUC), exclu,
+erreur, supprimé (session abandonnée) — (`mouvements`), et une ligne par
+événement ponctuel — démarrage, purge d'une session abandonnée, purge
+manuelle de la quarantaine, abandon (`POST /sync/abandon`), appairage,
+confirmation, révocation, échec d'authentification, horizon aberrant écarté —
+(`evenements`). Plus deux petites tables techniques : `commits` (un commit
+rejoué n'est pas recompté) et `sessions_retirees` (une session purgée ou
+abandonnée ne peut plus être validée).
 
 **Quatre pages, toutes derrière le mot de passe d'administration :**
 
@@ -569,7 +580,7 @@ purge, abandon (`POST /sync/abandon`), appairage, confirmation, révocation,
 | `/historique` | Les synchronisations, la plus récente en haut : appareil, date, nombre de fichiers, état (« sans erreur » / « en erreur »). Chaque ligne mène au détail. |
 | `/historique/<id>` | Le détail d'une synchronisation : ses mouvements, origine sur le téléphone → destination dans la bibliothèque. |
 | `/historique/recherche?q=` | Retrouver un média par nom (partiel) ou par empreinte exacte, à travers toutes les synchronisations — la réponse à « où est passée cette photo ». |
-| `/evenements` | Démarrages, appairages, révocations, échecs d'authentification — tout ce qui n'est pas une synchronisation. |
+| `/evenements` | Démarrages, appairages, révocations, échecs d'authentification, purges (sessions abandonnées, quarantaine), horizons écartés — tout ce qui n'est pas une synchronisation. |
 
 Des liens vers `/historique` et `/evenements` sont sur la page d'administration
 (`/`).
@@ -578,7 +589,13 @@ Des liens vers `/historique` et `/evenements` sont sur la page d'administration
 passe par une fonction qui attrape l'exception et se contente de la
 journaliser dans `journalctl -u phototheque` : un disque plein ou une base
 verrouillée ne doit jamais empêcher un commit d'aboutir, sous peine de bloquer
-l'avancée de l'horizon pour une simple trace.
+l'avancée de l'horizon pour une simple trace. Une base **tenue par un autre
+programme** (DB Browser ouvert dessus, une sauvegarde en cours) fait attendre
+chaque écriture 5 s avant d'échouer : au premier échec d'un tri ou d'une
+purge, le service cesse d'écrire les mouvements suivants de cette opération
+(une seule ligne dans `journalctl`, un seul délai) plutôt que de ralentir tout
+le tri de 5 s par fichier. Fermer l'outil suffit : l'opération suivante
+réécrit normalement.
 
 **À inclure dans toute sauvegarde du NUC**, au même titre que le catalogue et
 la base des appareils :
@@ -596,8 +613,55 @@ modifié depuis plus de 24 heures** — fichier le plus récent de toute
 l'arborescence, pas seulement le dossier lui-même — est supprimé
 automatiquement, **au démarrage du service ET après chaque commit**. Pas de
 tâche planifiée à installer ni à surveiller. Chaque session emportée laisse un
-événement `purge` dans le journal, visible sur `/evenements`, avec le nombre
-de fichiers et les octets récupérés.
+événement « purge d'une session abandonnée » sur `/evenements`, avec le nombre
+de fichiers et les octets récupérés, **et chacun de ses fichiers un mouvement
+nominatif** (« supprimé (session abandonnée) », chemin envoyé par le
+téléphone, taille, date de la suppression) : « où est passée cette photo »
+garde une réponse dans `/historique/recherche`. Même trace pour une session
+abandonnée par le bouton « Interrompre » du téléphone.
+
+Le journal retient aussi ces sessions **retirées** : si un téléphone tentait
+ensuite de valider l'une d'elles, le serveur refuserait (`410`) sans faire
+avancer aucun horizon — sans ce refus, le dossier disparu passait pour une
+session vide et des médias jamais rangés passaient sous l'horizon (voir
+`docs/CONTRAT-APP.md` §4.6).
+
+#### ⚠️ Au premier démarrage d'une version qui purge : faire l'inventaire AVANT
+
+La première fois que le service démarre avec cette purge, **toutes les
+sessions de plus de 24 h déjà présentes dans `incoming/` sont supprimées**,
+d'un coup, dès le démarrage — c'est-à-dire pendant `./deploy/install.sh`.
+Ces dossiers ont pu s'accumuler avant : chaque synchro interrompue (bouton
+« Interrompre » face à un serveur qui ne connaissait pas encore
+`/sync/abandon`, coupure réseau, téléphone éteint en route) laissait le sien.
+Leurs fichiers sont presque toujours des doublons de médias renvoyés plus
+tard — l'horizon du téléphone ne les avait jamais dépassés — mais un fichier
+dont l'original a été effacé du téléphone depuis n'existerait plus **que**
+là. La trace nominative du journal dit ce qui a disparu ; elle ne le rend pas.
+
+Donc, **sur le NUC, avant `./deploy/install.sh`** :
+
+```bash
+cd ~/phone_camera_import
+# 1. Les sessions en attente : les dossiers de 32 caractères hexadécimaux.
+find /media/izquierdo/Famille/incoming -maxdepth 1 -type d \
+    -regextype posix-extended -regex '.*/[0-9a-f]{32}'
+# 2. Pour CHACUNE, simuler le rangement (--dry-run : rien n'est copié) :
+python3 -m mediasort --source /media/izquierdo/Famille/incoming/<id> \
+    --library /media/izquierdo/Famille --catalog ~/mediasort_catalog.db --dry-run
+```
+
+Lire la ligne `[SIMULATION] Bilan : …`. Ce que le bilan ne classe **pas** en
+« doublons ignorés » **n'est pas dans la bibliothèque** : les « rangés » et
+les « à trier » sont à ranger d'abord (même commande **sans** `--dry-run`),
+puis seulement installer. Les « ignorés (extension non gérée) » sont en
+pratique des reliquats `.partiel` d'envois coupés — des fichiers tronqués,
+pas des médias.
+
+Si la première commande n'affiche rien, il n'y a rien à perdre. **Au 24/09,
+le dossier `incoming/` du NUC était vide** (ni session, ni `_echecs`) : le
+premier démarrage n'y purgera rien. Refaire quand même la première commande
+si une synchro ou une recette a eu lieu entre-temps.
 
 **La quarantaine `INCOMING_DIR/_echecs/` n'est jamais touchée par cette
 purge** : la purge ne considère que les dossiers dont le nom a la forme d'un
@@ -777,7 +841,7 @@ Deux endroits, à ne pas confondre :
 | Donnée | Où elle vit | Perdue si… |
 |---|---|---|
 | **Tes photos et vidéos** | sur ta machine, dans le dossier que tu as indiqué à l'étape 2 | jamais par Docker — c'est ton dossier |
-| **Catalogue + appareils appairés** | dans un volume Docker nommé `phototheque-data` | seulement si tu le supprimes explicitement |
+| **Catalogue + appareils appairés + journal des synchronisations** | dans un volume Docker nommé `phototheque-data` (`JOURNAL_DB=/data/journal.db` dans le `Dockerfile` : sans cette ligne, le journal vivait dans le conteneur et disparaissait à chaque reconstruction) | seulement si tu le supprimes explicitement |
 
 Pour sauvegarder le catalogue, commence par **relever le nom exact du volume** :
 Docker le préfixe par le nom du projet, qui dépend du dossier depuis lequel tu

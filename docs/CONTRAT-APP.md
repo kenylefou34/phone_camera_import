@@ -8,7 +8,8 @@ le serveur, le 2026-09-18, et non rédigés de mémoire. C'est la seule façon
 d'éviter qu'ils divergent du code.
 
 **Exception, ajoutée le 24/09 (issue #30) :** les exemples des champs
-`synchro` / `bilan_app` (§4.4) et de `POST /sync/abandon` (§4.6) sont
+`synchro` / `bilan_app` (§4.4), de la clé `ignores` de la réponse du `commit`
+(§4.4), de `POST /sync/abandon` et du refus `410` (§4.6) sont
 **illustratifs**, pas capturés — la recette sur téléphone qui aurait permis de
 les capturer sur un échange réel n'a pas encore eu lieu (voir `CLAUDE.md`,
 section REPRISE). Ils seront remplacés par un échange réel à la prochaine
@@ -276,6 +277,7 @@ serveur — la ligne de synchronisation ne double pas son bilan.
   "to_triage": 0,
   "skipped": 0,
   "errors": 0,
+  "ignores": 0,
   "photos": 1,
   "videos": 0,
   "whatsapp": 0,
@@ -292,7 +294,15 @@ Le chemin est relatif au dossier de session, c'est-à-dire **exactement le
 `path` envoyé par l'application**. Champ additif : une application qui ne lit
 que `errors` continue de fonctionner sans rien changer.
 
-> ⚠️ **Ces douze champs ne sont pas construits par le serveur.** Ils viennent de
+`ignores` (ajouté le 24/09, issues #27 et #30) compte les fichiers reçus que
+le trieur a écartés faute de savoir les ranger (extension non gérée, reliquat
+`.partiel` d'un envoi coupé). Normalement toujours `0` : le serveur refuse ces
+extensions dès l'envoi (§6). Champ additif lui aussi — l'application lit la
+réponse comme un dictionnaire de nombres, une clé de plus ne change rien pour
+elle. L'exemple ci-dessus, capturé avant cet ajout, a été complété à la main
+(voir l'exception en tête de document).
+
+> ⚠️ **Ces treize champs ne sont pas construits par le serveur.** Ils viennent de
 > `Report.to_dict()` dans **`mediasort/sorter.py`**, c'est-à-dire du trieur.
 > Conséquence : une modification du trieur peut faire disparaître une ligne de
 > l'écran de détail de l'application **sans que personne ne touche à
@@ -386,9 +396,10 @@ tête de document) :
 { "supprimes": 12, "octets": 384102912 }
 ```
 
-`supprimes` compte les fichiers du dossier de session au moment de l'appel
-(paquets déjà reçus compris) ; `octets` leur taille cumulée. Les deux valent
-zéro si la session n'existait déjà plus.
+`supprimes` compte les fichiers du dossier de session au moment de l'appel —
+ceux du seul paquet en cours : une session correspond à un paquet, les paquets
+précédents ont déjà été validés et rangés ; `octets` leur taille cumulée. Les
+deux valent zéro si la session n'existait déjà plus.
 
 **`400`** si `session` n'a pas la forme attendue (32 caractères hexadécimaux,
 celle que rend `/sync/plan`) :
@@ -413,6 +424,26 @@ supprime tout de suite plutôt que d'attendre la purge des sessions abandonnées
 précis où l'on interrompt, le réseau est souvent la raison de l'interruption :
 si l'appel échoue, ne pas réessayer ni bloquer l'interface. La purge des 24 h
 est le filet — le dossier disparaîtra de toute façon, avec un délai plus long.
+Cette purge concerne tout dossier de session **sans écriture depuis 24 h**
+(date du fichier le plus récent de toute l'arborescence), pas le temps écoulé
+depuis le premier envoi.
+
+> ⚠️ **N'abandonnez JAMAIS une session que vous êtes en train de valider**
+> (ni pendant, ni avant d'appeler `/sync/commit` sur elle). Abandonner
+> supprime ses fichiers **sans les ranger**. Le serveur retient les sessions
+> abandonnées ou purgées, et un `commit` sur l'une d'elles reçoit :
+>
+> ```
+> 410  { "detail": "session abandonnée ou purgée : ses fichiers ont été supprimés sans être rangés — relancez une synchronisation" }
+> ```
+>
+> **aucun horizon n'est alors enregistré.** L'application doit traiter ce
+> paquet comme un échec (horizons gelés, nouvelle synchronisation plus tard) :
+> c'est déjà ce que fait `ClientServeur.commit`, qui lève sur tout code autre
+> que 2xx. Sans ce refus, le dossier absent passait pour une session **vide**
+> — cas normal d'une synchro sans rien à envoyer, §8 — et l'horizon avançait
+> par-dessus des médias jamais rangés. Le refus est une défense en profondeur :
+> si le journal du serveur est illisible, le `commit` se comporte comme avant.
 
 ---
 
@@ -502,6 +533,7 @@ sacrifiant tous les médias suivants pour un seul.
 | `400` | `session` mal formée (`/sync/abandon`) | Bug de l'application : l'identifiant doit être repris tel quel de `/sync/plan`. Sans conséquence pratique — l'application ignore de toute façon l'échec de cet appel (§4.6). |
 | `401` | Jeton absent, invalide, ou **appareil révoqué depuis la page d'administration** | Effacer l'appairage local et demander un nouveau QR. Ne pas réessayer en boucle : le jeton ne redeviendra jamais valable. |
 | `404` | `session` mal formée sur `/sync/commit` | Bug de l'application : la session doit être reprise telle quelle de `/sync/plan`. |
+| `410` | `/sync/commit` sur une session **abandonnée** (`/sync/abandon`) ou **purgée** (24 h sans écriture) | Le paquet est un échec : ne pas faire avancer l'horizon, relancer une synchronisation plus tard (§4.6). |
 | `422` | Champ obligatoire manquant | Bug de l'application. Le détail indique le champ. |
 | `429` | Uniquement sur les pages d'administration | Ne concerne pas l'application. |
 | `5xx` | Panne serveur | Réessayer plus tard. **Ne pas faire avancer l'horizon.** |

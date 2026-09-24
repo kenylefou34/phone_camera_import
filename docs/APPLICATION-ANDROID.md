@@ -436,9 +436,26 @@ les prendre pour des régressions de cette recette.
     lancer une synchro manuelle.** Vérifier qu'un **seul** avancement est
     affiché (pas deux qui se mélangent), et que le bouton « Interrompre »
     arrête bien celle qui tourne.
+    Ce qu'on doit voir depuis la correction du constat C1 (24/09), avec
+    `adb logcat -s Phototheque` ouvert à côté :
+    - le lancement manuel est **refusé** par le verrou, et le dit — une
+      ligne `synchro manuelle : une autre synchro tient le verrou, nouvelle
+      tentative programmée` — au lieu de « réussir » sans rien faire ;
+    - l'accueil affiche alors **« Nouvelle tentative programmée »** pour la
+      file manuelle (jamais « En attente d'un réseau ») ;
+    - **une fois l'autre synchro finie**, la synchro manuelle refusée se
+      relance **toute seule** (une ligne `synchro manuelle : départ
+      (tentative N)` dans le journal) et s'exécute normalement — le délai
+      est celui de `WorkManager`, qui double à chaque refus (10 s, 20 s,
+      40 s…), pas un départ immédiat ;
+    - **« Interrompre » efface cette attente** : appuyé pendant que la
+      tentative est programmée, il ne doit rester ni la mention « Nouvelle
+      tentative programmée » ni de relance ultérieure de la file manuelle
+      dans le journal.
     *Pourquoi :* `VerrouSynchro` n'est exercé par **aucun test** — c'est la
     seule protection entre deux `WorkManager` réels (la file manuelle et la
-    file automatique) qui pourraient démarrer ensemble.
+    file automatique) qui pourraient démarrer ensemble. Et la relance
+    après refus (C1) ne se voit que sur un vrai `WorkManager`.
 
 13. **Couper le WiFi, puis désappairer depuis Réglages → Appareil.** Vérifier
     que l'application revient à l'écran de scan **malgré le serveur
