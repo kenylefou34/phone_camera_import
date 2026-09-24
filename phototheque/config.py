@@ -9,6 +9,11 @@ LIBRARY_DIR: Path = Path(os.environ.get("LIBRARY_DIR", "/media/izquierdo/Famille
 CATALOG_DB: Path = Path(os.environ.get("CATALOG_DB", str(Path.home() / "mediasort_catalog.db")))
 INCOMING_DIR: Path = Path(os.environ.get("INCOMING_DIR", str(LIBRARY_DIR / "incoming")))
 DEVICES_DB: Path = Path(os.environ.get("DEVICES_DB", str(Path.home() / "phototheque_devices.db")))
+# Journal des synchronisations (issue #30) : base à part de DEVICES_DB, qui
+# reste petite et sensible, et de CATALOG_DB, qui appartient au trieur en
+# ligne de commande. Un journal qui grossit n'a rien à faire dans l'une ou
+# l'autre.
+JOURNAL_DB: Path = Path(os.environ.get("JOURNAL_DB", str(Path.home() / "phototheque_journal.db")))
 
 # Secrets et certificat du service. Dossier créé par deploy/install.sh en 0700 ;
 # la clé privée et le fichier de mot de passe y sont mis en 0600. Le certificat,
