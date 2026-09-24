@@ -52,6 +52,18 @@ def test_la_recherche_trouve_par_nom_et_par_empreinte(tmp_path):
     assert j.rechercher("%") == []      # un joker SQL ne doit pas tout ramener
 
 
+def test_un_commit_rejoue_ne_recompte_pas(tmp_path):
+    """Fix round 1 : une reponse HTTP perdue fait rejouer /sync/commit avec la
+    meme session -> le bilan ne doit pas doubler."""
+    j = Journal(tmp_path / "j.db")
+    j.enregistrer_commit("s1", "sess0", "tel", "Pixel", None, BILAN, None)
+    j.enregistrer_commit("s1", "sess0", "tel", "Pixel", None, BILAN, None)  # rejeu
+    ligne = j.synchros()[0]
+    assert ligne["paquets"] == 1
+    assert ligne["ranges"] == 2 and ligne["doublons"] == 1
+    assert ligne["octets"] == 300 and ligne["envoyes"] == 3
+
+
 def test_les_evenements_sont_rendus_du_plus_recent_au_plus_ancien(tmp_path):
     j = Journal(tmp_path / "j.db")
     j.evenement("demarrage")

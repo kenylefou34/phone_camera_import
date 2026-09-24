@@ -27,6 +27,8 @@ CREATE INDEX IF NOT EXISTS idx_mouvements_empreinte ON mouvements(empreinte);
 CREATE TABLE IF NOT EXISTS evenements (
   id INTEGER PRIMARY KEY, horodatage TEXT NOT NULL, type TEXT NOT NULL,
   appareil TEXT, adresse TEXT, detail TEXT);
+CREATE TABLE IF NOT EXISTS commits (
+  session TEXT PRIMARY KEY, synchro TEXT NOT NULL, horodatage TEXT NOT NULL);
 """
 
 
@@ -76,6 +78,21 @@ class Journal:
             )
             self._cx.commit()
 
+    def _inserer_mouvement(self, session: str, origine: str, taille, empreinte,
+                            issue: str, destination, detail) -> None:
+        """INSERT partagé par `ajouter_mouvement` et `noter_refus`.
+
+        Le verrou est tenu par l'appelant (qui fait aussi le commit) : cette
+        méthode privée ne fait qu'exécuter la requête, pour ne pas dupliquer
+        les neuf colonnes dans les deux méthodes publiques.
+        """
+        self._cx.execute(
+            "INSERT INTO mouvements (synchro, session, horodatage, origine,"
+            " taille, empreinte, issue, destination, detail)"
+            " VALUES (NULL,?,?,?,?,?,?,?,?)",
+            (session, _maintenant(), origine, taille, empreinte, issue, destination, detail),
+        )
+
     def ajouter_mouvement(self, session: str, m: dict) -> None:
         """Enregistre le sort d'un fichier (dict produit par sort_folder, tâche 1).
 
@@ -83,12 +100,9 @@ class Journal:
         lors du commit qui le suit (voir `enregistrer_commit`).
         """
         with self._lock:
-            self._cx.execute(
-                "INSERT INTO mouvements (synchro, session, horodatage, origine,"
-                " taille, empreinte, issue, destination, detail)"
-                " VALUES (NULL,?,?,?,?,?,?,?,?)",
-                (session, _maintenant(), m["origine"], m.get("taille"),
-                 m.get("empreinte"), m["issue"], m.get("destination"), m.get("detail")),
+            self._inserer_mouvement(
+                session, m["origine"], m.get("taille"), m.get("empreinte"),
+                m["issue"], m.get("destination"), m.get("detail"),
             )
             self._cx.commit()
 
@@ -99,12 +113,7 @@ class Journal:
         `ajouter_mouvement` pour un fichier passé par le trieur.
         """
         with self._lock:
-            self._cx.execute(
-                "INSERT INTO mouvements (synchro, session, horodatage, origine,"
-                " taille, empreinte, issue, destination, detail)"
-                " VALUES (NULL,?,?,?,NULL,NULL,'refuse',NULL,?)",
-                (session, _maintenant(), origine, detail),
-            )
+            self._inserer_mouvement(session, origine, None, None, "refuse", None, detail)
             self._cx.commit()
 
     def enregistrer_commit(self, synchro: str, session: str, appareil: str,
@@ -119,9 +128,25 @@ class Journal:
 
         `bilan.get(clé, 0)` partout : un vieux bilan sans `ignores` (avant la
         tâche 1) ne doit pas faire lever d'exception.
+
+        Idempotent par session : si la réponse HTTP d'un /sync/commit se
+        perd (WiFi instable du NUC), le client retente avec la MÊME session.
+        Sans garde, ce rejeu doublerait tout le bilan cumulé (paquets,
+        ranges, octets...) — la table `commits` retient les sessions déjà
+        appliquées, et un rejeu ne recompte rien : la transaction se termine
+        normalement, sans erreur visible côté client.
         """
         maintenant = _maintenant()
         with self._lock:
+            deja_connue = self._cx.execute(
+                "INSERT OR IGNORE INTO commits (session, synchro, horodatage)"
+                " VALUES (?,?,?)",
+                (session, synchro, maintenant),
+            ).rowcount == 0
+            if deja_connue:
+                self._cx.commit()
+                return
+
             self._cx.execute(
                 "INSERT OR IGNORE INTO synchros (id, appareil, label, adresse,"
                 " debut, etat) VALUES (?,?,?,?,?, 'en cours')",
