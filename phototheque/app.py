@@ -296,9 +296,11 @@ def require_admin(request: Request, authorization: str = Header(default="")) -> 
         # haut : celle-ci est le passage obligé du navigateur avant d'afficher
         # sa fenêtre, pas une tentative. Ici, des identifiants ont réellement
         # été présentés et refusés — c'est un échec au sens du journal
-        # (issue #30). Le mot de passe lui-même n'y figure jamais.
+        # (issue #30). Le mot de passe lui-même n'y figure jamais. Le nom
+        # tenté est tronqué à 64 caractères : il vient de n'importe qui sur
+        # le réseau, et rien d'autre ne bornait ce qu'il fait écrire en base.
         _journaliser(lambda j: j.evenement(
-            "auth_echec", adresse=source, detail=f"utilisateur « {utilisateur} »"))
+            "auth_echec", adresse=source, detail=f"utilisateur « {utilisateur[:64]} »"))
         raise refus
     # Réussite : on efface l'ardoise, le mainteneur ne traîne pas ses fautes
     # de frappe de la veille.
@@ -544,7 +546,10 @@ def sync_commit(req: CommitRequest, request: Request,
             # On ignore le dossier fautif plutôt que de rejeter tout l'envoi :
             # un horodatage aberrant sur un dossier ne doit pas faire échouer
             # la synchro des autres, ni empêcher de valider des médias déjà
-            # rangés. Silencieusement, faute de journal dans ce module.
+            # rangés. Plus en silence : un événement `horizon_ecarte`
+            # (appareil, « <dossier> : <valeur> ») le signale sur
+            # /evenements (relecture finale, M9) — c'était l'exemple même,
+            # dans la spec, de ce qu'un journal devait rendre visible.
             #
             # Le contrôle porte sur la valeur BORNÉE et non sur `ts` : c'est
             # ce qu'on s'apprête à écrire qui doit être un instant réel. +inf
@@ -553,6 +558,10 @@ def sync_commit(req: CommitRequest, request: Request,
             # rattrape pas, sont les seuls écartés.
             horizon = min(ts, maintenant)
             if not math.isfinite(horizon):
+                # Lambda appelée tout de suite : `dossier` et `ts` sont ceux
+                # de cette itération.
+                _journaliser(lambda j: j.evenement(
+                    "horizon_ecarte", appareil=dev_id, detail=f"{dossier} : {ts}"))
                 continue
             devices().set_horizon(dev_id, dossier, horizon)
     # APRÈS que les horizons ont été écrits, et dans son propre garde-fou :
@@ -668,9 +677,15 @@ def purge_echecs(_: None = Depends(require_admin)) -> dict:
     serveur qui supprime des médias sur commande. La purge reste manuelle,
     jamais automatique — une purge à l'ancienneté redeviendrait le défaut
     qu'on a corrigé, avec un délai.
+
+    Journalisée (relecture finale, I1) : c'est la seule suppression de
+    médias sur commande, elle doit se retrouver après coup sur `/evenements`
+    — y compris quand elle n'a rien retiré.
     """
-    return {"retires": quarantaine.purger(
-        config.INCOMING_DIR / quarantaine.DOSSIER)}
+    retires = quarantaine.purger(config.INCOMING_DIR / quarantaine.DOSSIER)
+    _journaliser(lambda j: j.evenement(
+        "purge_echecs", detail=f"{retires} média(s) retiré(s) de la quarantaine"))
+    return {"retires": retires}
 
 
 @app.post("/devices/{device_id}/revoke")

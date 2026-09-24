@@ -390,11 +390,19 @@ _MOTS_ISSUE = {
     "purge": "supprimé (session abandonnée)",
 }
 
+# « purge » et « purge_echecs » ne se ressemblent que par le nom (relecture
+# finale, I1) : la première est la purge AUTOMATIQUE des sessions abandonnées
+# depuis 24 h ; la seconde, le bouton « Vider la quarantaine » — la seule
+# suppression de médias sur commande. Confondre les deux faisait croire que
+# la quarantaine (#16) se vidait toute seule, ce qu'elle ne fait JAMAIS.
 _MOTS_EVENEMENT = {
-    "demarrage": "démarrage du service", "purge": "purge de la quarantaine",
+    "demarrage": "démarrage du service",
+    "purge": "purge d'une session abandonnée",
+    "purge_echecs": "purge manuelle de la quarantaine",
     "abandon": "session abandonnée", "appairage": "appairage proposé",
     "confirmation": "appairage confirmé", "revocation": "appareil révoqué",
     "auth_echec": "authentification refusée",
+    "horizon_ecarte": "horizon aberrant écarté",
 }
 
 
@@ -499,7 +507,8 @@ def synchro_html(s: dict, mouvements: list[dict]) -> str:
     app_echecs = s.get("app_echecs") or 0
     bloc_app_echecs = (
         f'<p class="detail">{_nombre(app_echecs)} échec(s) signalé(s) par '
-        "l'application elle-même (fichiers jamais même tentés).</p>"
+        "l'application elle-même (lecture sur le téléphone ou envoi : le "
+        "serveur ne les a pas reçus).</p>"
         if app_echecs else ""
     )
 

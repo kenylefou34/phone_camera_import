@@ -520,6 +520,65 @@ def test_les_evenements_s_affichent(tmp_path, monkeypatch):
     assert "192.168.1.18" in texte
 
 
+def test_les_deux_purges_ne_se_confondent_plus(tmp_path, monkeypatch):
+    """I1 (relecture finale) : l'événement `purge` vient de la purge des
+    SESSIONS abandonnées ; il se lisait « purge de la quarantaine » — faux et
+    alarmant (la quarantaine n'est JAMAIS purgée toute seule). La vraie purge
+    de la quarantaine, manuelle, a désormais son propre libellé."""
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    a.journal().evenement("purge", detail="session x : 1 fichier(s), 3 octets")
+    a.journal().evenement("purge_echecs", detail="2 média(s) retiré(s) de la quarantaine")
+
+    texte = client.get("/evenements", headers=entetes).text
+
+    assert "purge d&#x27;une session abandonnée" in texte
+    assert "purge manuelle de la quarantaine" in texte
+    assert "purge de la quarantaine" not in texte
+
+
+def test_la_purge_manuelle_de_la_quarantaine_laisse_une_trace(tmp_path, monkeypatch):
+    """I1 : la seule route qui supprime des médias sur commande n'écrivait
+    rien au journal."""
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    session = a.config.INCOMING_DIR / ("b" * 32)
+    session.mkdir(parents=True)
+    (session / "a.jpg").write_bytes(b"photo")
+    (session / "b.jpg").write_bytes(b"photo 2")
+    a.quarantaine.mettre_de_cote(
+        session, [{"fichier": "a.jpg", "raison": "disque plein"},
+                  {"fichier": "b.jpg", "raison": "disque plein"}],
+        a.config.INCOMING_DIR / a.quarantaine.DOSSIER)
+
+    assert client.post("/echecs/purge", headers=entetes).status_code == 200
+
+    purges = [e for e in a.journal().evenements() if e["type"] == "purge_echecs"]
+    assert [e["detail"] for e in purges] == ["2 média(s) retiré(s) de la quarantaine"]
+
+
+def test_un_nom_d_utilisateur_demesure_est_tronque_dans_le_journal(tmp_path, monkeypatch):
+    """Registre (T5) : le nom tenté était stocké sans limite de longueur."""
+    _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    client.get("/", headers=_entetes("x" * 5000, "faux"))
+    echec = next(e for e in a.journal().evenements() if e["type"] == "auth_echec")
+    assert "x" * 64 in echec["detail"] and "x" * 65 not in echec["detail"]
+
+
+def test_la_page_d_une_synchro_ne_ment_pas_sur_les_echecs_de_l_app(tmp_path, monkeypatch):
+    """M13 : les échecs comptés par l'application comprennent aussi les
+    échecs d'ENVOI (Orchestrateur.kt) — pas seulement des fichiers « jamais
+    même tentés »."""
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    a.journal().enregistrer_commit("s1", "sess0", "tel", "Pixel", None, {},
+                                   {"envoyes": 0, "refuses": 0, "echecs": 2})
+    texte = client.get("/historique/s1", headers=entetes).text
+    assert "jamais même tentés" not in texte
+    assert "lecture sur le téléphone ou envoi" in texte
+
+
 def test_horizon_exige_un_jeton_d_appareil(tmp_path, monkeypatch):
     a, client = _client(tmp_path, monkeypatch)
     assert client.get("/sync/horizon").status_code == 401
@@ -1116,6 +1175,25 @@ def test_un_horizon_non_fini_est_ignore_sans_bloquer_les_autres_dossiers(
 
     assert r.status_code == 200
     assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1726574400.0}
+
+
+def test_un_horizon_ecarte_laisse_une_trace(tmp_path, monkeypatch):
+    """M9 (relecture finale) : l'exemple même de la spec — un horizon
+    aberrant écarté « silencieusement, faute de journal » — l'était encore."""
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    r = _horizons_bruts(client, h, session,
+                        '{"session": "%s", "horizons":'
+                        ' {"DCIM/Camera": 1726574400.0, "Zbug": NaN}}' % session)
+
+    assert r.status_code == 200
+    ecartes = [e for e in a.journal().evenements() if e["type"] == "horizon_ecarte"]
+    assert [(e["appareil"], e["detail"]) for e in ecartes] == [(dev_id, "Zbug : nan")]
+    assert "horizon aberrant écarté" in client.get("/evenements", headers=entetes).text
 
 
 def test_un_horizon_moins_l_infini_ne_casse_pas_le_contrat_de_l_app(
