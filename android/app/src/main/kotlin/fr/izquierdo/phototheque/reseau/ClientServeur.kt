@@ -170,10 +170,21 @@ class ClientServeur(
      * affiche. Les deux champs imbriqués du bilan — `par_source_date` et
      * `par_annee_mois` — sont volontairement écartés ici : ils n'ont pas
      * d'usage dans le lot 1 et les lire demanderait un modèle de plus.
+     *
+     * @param synchro identifiant partagé par tous les paquets d'une même
+     *        synchronisation (issue #30) : c'est lui qui permet au serveur
+     *        de regrouper N commits en une seule ligne d'historique.
+     *        `null` par défaut pour les appels qui n'en fournissent pas
+     *        (tests) ; l'orchestrateur, lui, en passe TOUJOURS un.
+     * @param bilanApp cumul des envois/refus/échecs vus par l'application
+     *        elle-même à cet instant, pour que le journal du serveur puisse
+     *        comparer ce que l'app croit avoir fait à ce qu'il a rangé.
      */
-    fun commit(session: String, horizons: Map<String, Double>): Map<String, Double> {
+    fun commit(session: String, horizons: Map<String, Double>,
+              synchro: String? = null, bilanApp: BilanApp? = null): Map<String, Double> {
         val corps = Contrat.json
-            .encodeToString(RequeteCommit.serializer(), RequeteCommit(session, horizons))
+            .encodeToString(RequeteCommit.serializer(),
+                            RequeteCommit(session, horizons, synchro, bilanApp))
             .toRequestBody("application/json".toMediaType())
         return http.newCall(requete("/sync/commit").post(corps).build()).execute().use { r ->
             // Sur 401/404/500, le corps s'analysait sans lever et donnait une

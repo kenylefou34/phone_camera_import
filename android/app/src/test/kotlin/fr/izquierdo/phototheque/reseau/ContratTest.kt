@@ -62,4 +62,24 @@ class ContratTest {
         assertTrue(encode.contains("\"size\""))
         assertTrue(encode.contains("\"hash\""))
     }
+
+    @Test fun la_requete_du_commit_porte_synchro_et_bilan_app_en_snake_case() {
+        // Issue #30 : c'est le SERVEUR qui regroupe les commits d'une meme
+        // synchro en une seule ligne d'historique, mais seulement si
+        // l'application lui envoie le MEME identifiant a chaque paquet --
+        // d'ou ces deux champs, facultatifs pour ne pas casser un vieux
+        // serveur qui ne les connaitrait pas encore.
+        val encode = Contrat.json.encodeToString(
+            RequeteCommit.serializer(),
+            RequeteCommit(
+                session = "s".repeat(32),
+                horizons = mapOf("DCIM/Camera" to 100.0),
+                synchro = "f47ac10b58cc4372a5670e02b2c3d479",
+                bilanApp = BilanApp(envoyes = 3, refuses = 1, echecs = 2)))
+        // bilan_app en snake_case : c'est ce que @SerialName impose et ce
+        // que le serveur attend (voir phototheque/app.py, CommitRequest).
+        assertTrue(encode.contains("\"synchro\":\"f47ac10b58cc4372a5670e02b2c3d479\""))
+        assertTrue(encode.contains(
+            "\"bilan_app\":{\"envoyes\":3,\"refuses\":1,\"echecs\":2}"))
+    }
 }

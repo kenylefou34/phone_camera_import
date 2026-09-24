@@ -183,3 +183,60 @@ def test_la_destination_predite_par_l_app_correspond_au_serveur(tmp_path):
             tmp_path, tmp_path / relatif, Resultat(jour), mtype)
         obtenu = str(chemin.parent.relative_to(tmp_path))
         assert obtenu == attendu, f"{relatif} -> {obtenu}, attendu {attendu}"
+
+
+def test_le_commit_lit_synchro_et_bilan_app_envoyes_par_l_app(tmp_path, monkeypatch):
+    """Pont de contrat (tâche 7, issue #30) : POSTe le JSON produit MOT POUR
+    MOT par `RequeteCommit`, tel qu'affirmé côté Kotlin par
+    ContratTest.la_requete_du_commit_porte_synchro_et_bilan_app_en_snake_case
+    (capturé le 24/09/2026) :
+
+        {"session":"ssssssssssssssssssssssssssssssss",
+         "horizons":{"DCIM/Camera":100.0},
+         "synchro":"f47ac10b58cc4372a5670e02b2c3d479",
+         "bilan_app":{"envoyes":3,"refuses":1,"echecs":2}}
+
+    Seul le champ « session » est remplacé par une session réelle : la
+    chaîne de 32 « s » que Kotlin fabrique pour le test de sérialisation
+    n'est pas un hexadécimal valide, et le serveur répondrait 404
+    (sessions.identifiant_valide) avant même de lire `bilan_app`.
+
+    Vérifie deux choses à la fois :
+    1. Le serveur sait lire un `bilan_app` en snake_case envoyé tel quel par
+       l'application (pas de cérémonie de désérialisation côté test qui
+       masquerait un décalage de nom de champ).
+    2. Un échec signalé par le téléphone (`app_echecs` > 0) se voit dans
+       /historique comme « en erreur » MÊME quand le serveur, lui, n'a
+       constaté aucune erreur de tri (`erreurs` == 0 ici, puisque la
+       session est vide) — exactement le cas que _etat_synchro (web.py)
+       est censé couvrir.
+    """
+    from tests.test_app import _client, _avec_admin
+    entetes_admin = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("tel")
+    entetes = {"Authorization": f"Bearer {secret}"}
+
+    session = client.post(
+        "/sync/plan", headers=entetes, json={"files": []}).json()["session"]
+
+    corps = (
+        '{"session":"%s","horizons":{"DCIM/Camera":100.0},'
+        '"synchro":"f47ac10b58cc4372a5670e02b2c3d479",'
+        '"bilan_app":{"envoyes":3,"refuses":1,"echecs":2}}' % session)
+
+    r = client.post(
+        "/sync/commit",
+        headers={**entetes, "Content-Type": "application/json"},
+        content=corps)
+    assert r.status_code == 200
+
+    ligne = a.journal().synchro("f47ac10b58cc4372a5670e02b2c3d479")
+    assert ligne is not None, "la synchro doit être journalisée sous CET identifiant"
+    assert ligne["id"] == "f47ac10b58cc4372a5670e02b2c3d479"
+    assert ligne["app_echecs"] == 2
+
+    page = client.get("/historique", headers=entetes_admin).text
+    assert "en erreur" in page, (
+        "un échec signalé par l'app doit se voir dans l'historique, même "
+        "quand le serveur n'a lui-même constaté aucune erreur de tri")

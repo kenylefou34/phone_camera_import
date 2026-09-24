@@ -33,6 +33,15 @@ class OrchestrateurTest {
          *  paquet, la ou l'ancien code n'en faisait qu'un pour toute la
          *  synchronisation. */
         val commits = mutableListOf<Map<String, Double>>()
+        /** Les identifiants de synchro recus, un par appel a `commit` (issue
+         *  #30) : c'est LUI qui doit etre identique sur tous les paquets
+         *  d'une meme synchronisation, pour que le serveur les regroupe en
+         *  une seule ligne d'historique. */
+        val synchrosRecues = mutableListOf<String>()
+        /** Les bilans cote application recus, un par appel a `commit` :
+         *  doivent etre CUMULES (le dernier porte le total de la synchro),
+         *  pas seulement ceux du paquet en cours. */
+        val bilansAppRecus = mutableListOf<BilanApp>()
         /** Les sessions que l'orchestrateur a demande d'oublier, suite a une
          *  interruption en cours de paquet. */
         val abandons = mutableListOf<String>()
@@ -48,8 +57,10 @@ class OrchestrateurTest {
             if (chemin in echouerSur) return ResultatEnvoi.ECHEC
             return if (resultats.isEmpty()) ResultatEnvoi.OK else resultats.removeAt(0)
         }
-        override fun commit(session: String, horizons: Map<String, Double>): Map<String, Double> {
+        override fun commit(session: String, horizons: Map<String, Double>,
+                            synchro: String, bilanApp: BilanApp): Map<String, Double> {
             horizonsEnvoyes = horizons; commitAppele = true; commits += horizons
+            synchrosRecues += synchro; bilansAppRecus += bilanApp
             return if (bilansCommit.isEmpty()) mapOf("sorted" to 1.0) else bilansCommit.removeAt(0)
         }
         override fun abandonner(session: String) { abandons += session }
@@ -194,6 +205,48 @@ class OrchestrateurTest {
             .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
         assertEquals(2, serveur.commits.size)
         assertEquals(3, bilan.envoyes)
+    }
+
+    @Test fun tous_les_paquets_d_une_synchro_portent_le_meme_identifiant() {
+        // Issue #30 : c'est lui qui regroupe N commits en UNE ligne d'historique.
+        // Trois medias de 600 octets, paquets de 1000 : deux ne tiennent
+        // jamais ensemble (1200 > 1000), donc un paquet par media -> 3 commits.
+        val medias = (1L..3L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val serveur = FauxServeur()
+        Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
+        assertEquals(1, serveur.synchrosRecues.toSet().size)
+        assertEquals(3, serveur.synchrosRecues.size)
+    }
+
+    @Test fun deux_synchronisations_ont_deux_identifiants() {
+        // Deux appels a synchroniser() -- meme instance d'Orchestrateur, pour
+        // verifier que rien n'est memorise au niveau de la classe -- doivent
+        // produire deux identifiants distincts : sans quoi deux sauvegardes
+        // separees se retrouveraient regroupees en une seule ligne
+        // d'historique cote serveur.
+        val serveur = FauxServeur()
+        val orchestrateur = Orchestrateur(FausseSource(listOf(media(100.0))), serveur)
+        orchestrateur.synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
+        orchestrateur.synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
+        assertEquals(2, serveur.synchrosRecues.toSet().size)
+    }
+
+    @Test fun le_bilan_app_envoye_est_cumule() {
+        // Le dernier commit porte les comptes de TOUTE la synchro, pas du
+        // seul paquet : sans cumul, un lecteur qui ne regarderait que le
+        // dernier commit sous-estimerait le nombre de fichiers envoyes.
+        val medias = (1L..3L).map {
+            Media(it, "DCIM/Camera", "m$it.jpg", 600, it.toDouble() * 1000)
+        }
+        val serveur = FauxServeur()
+        Orchestrateur(FausseSource(medias), serveur, taillePaquet = 1000)
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
+        assertEquals(
+            listOf(BilanApp(1, 0, 0), BilanApp(2, 0, 0), BilanApp(3, 0, 0)),
+            serveur.bilansAppRecus)
     }
 
     @Test fun un_echec_au_premier_paquet_gele_le_dossier_pour_les_suivants() {

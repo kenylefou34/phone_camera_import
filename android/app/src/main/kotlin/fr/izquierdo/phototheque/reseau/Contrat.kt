@@ -49,8 +49,27 @@ data class ReponsePlan(val session: String, val needed: List<String>)
 @Serializable
 data class ReponseUpload(val ok: Boolean, val hash: String)
 
+/** Bilan cote application (issue #30) : cumul depuis le debut de LA
+ *  synchronisation, pas seulement du paquet en cours -- voir
+ *  `Orchestrateur.synchroniser`. Facultatif dans `RequeteCommit` pour ne pas
+ *  casser un vieux serveur qui ne connaitrait pas encore ce champ. */
 @Serializable
-data class RequeteCommit(val session: String, val horizons: Map<String, Double> = emptyMap())
+data class BilanApp(val envoyes: Int, val refuses: Int, val echecs: Int)
+
+/**
+ * `synchro` et `bilanApp` sont l'un et l'autre facultatifs cote contrat --
+ * un ancien serveur les ignore sans broncher (ignoreUnknownKeys du cote
+ * serveur) -- mais l'orchestrateur les fournit TOUJOURS (issue #30) : c'est
+ * le MEME `synchro` porte par tous les paquets d'une synchronisation qui
+ * permet au serveur de les regrouper en une seule ligne d'historique.
+ */
+@Serializable
+data class RequeteCommit(
+    val session: String,
+    val horizons: Map<String, Double> = emptyMap(),
+    val synchro: String? = null,
+    @SerialName("bilan_app") val bilanApp: BilanApp? = null,
+)
 
 /** Corps de POST /sync/abandon (lot serveur, issue #30). */
 @Serializable

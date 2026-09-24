@@ -21,7 +21,14 @@ interface Serveur {
      *  seul moyen de reperer un transfert abime. */
     fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long,
                 empreinteAttendue: String): ResultatEnvoi
-    fun commit(session: String, horizons: Map<String, Double>): Map<String, Double>
+    /** @param synchro identifiant partage par TOUS les paquets d'une meme
+     *  synchronisation (issue #30) : c'est lui qui permet au serveur de
+     *  regrouper N commits en une seule ligne d'historique.
+     *  @param bilanApp cumul envoyes/refuses/echecs vu par l'application,
+     *  depuis le debut de la synchronisation -- pas seulement du paquet en
+     *  cours. */
+    fun commit(session: String, horizons: Map<String, Double>,
+              synchro: String, bilanApp: BilanApp): Map<String, Double>
     /** Oublie une session abandonnée. N'échoue jamais — voir ClientServeur. */
     fun abandonner(session: String)
 }
@@ -73,6 +80,13 @@ class Orchestrateur(
         reglages: Reglages,
         interrompu: () -> Boolean = { false },
     ): Bilan {
+        // Engendre UNE FOIS par appel, jamais dans la boucle des paquets
+        // plus bas : c'est ce meme identifiant, porte par chaque commit,
+        // qui permet au serveur de regrouper les N paquets d'une seule
+        // synchronisation en une seule ligne d'historique (issue #30). Le
+        // remplacement des tirets donne 32 caracteres hexadecimaux,
+        // compatible avec la forme que le serveur exige (_MOTIF_SYNCHRO).
+        val synchroId = java.util.UUID.randomUUID().toString().replace("-", "")
         val etat = serveur.horizon()
         // La date de début choisie sur le téléphone prime sur la date de
         // depuis d'appairage du serveur : elle est le plancher PERMANENT des
@@ -228,10 +242,14 @@ class Orchestrateur(
             }
 
             if (abandonne) {
-                // Arret immediat : le paquet en cours est jete. On previent au
-                // mieux -- si l'appel echoue, les fichiers deja montes restent
-                // sur le disque du NUC : le serveur ne purge aucune session
-                // (issue #30), il n'y a pas de filet.
+                // Arret immediat : le paquet en cours est jete. On previent
+                // le serveur au mieux -- si l'appel echoue (le reseau vient
+                // souvent d'etre la CAUSE meme de l'abandon), la session
+                // n'est pas perdue pour autant : le serveur purge desormais
+                // toute session intacte depuis 24 h, au demarrage et apres
+                // chaque commit (POST /sync/abandon, issue #30). Appeler
+                // abandonner() ici sert quand meme a liberer la place TOUT
+                // DE SUITE plutot que d'attendre ce delai.
                 serveur.abandonner(reponse.session)
                 break
             }
@@ -249,7 +267,14 @@ class Orchestrateur(
             // tardif ne peut donc jamais transmettre une date plus ancienne
             // qu'un paquet précédent du même dossier.
             val aTransmettre = Horizons.monotone(resultat.horizons, etat.dossiers)
-            val bilanPaquet = serveur.commit(reponse.session, aTransmettre)
+            // Le bilan cote application est CUMULE depuis le debut de la
+            // synchronisation (envoyes/refuses/echecs sont des compteurs de
+            // fonction, pas remis a zero par paquet) : le dernier commit
+            // porte donc le total de toute la synchro, pas du seul paquet
+            // en cours -- exactement ce que le journal serveur attend pour
+            // comparer ce que l'app croit avoir fait a ce qu'il a range.
+            val bilanPaquet = serveur.commit(
+                reponse.session, aTransmettre, synchroId, BilanApp(envoyes, refuses, echecs))
             // Le serveur n'ecrit AUCUN horizon quand son tri a echoue, et il a
             // DETRUIT le fichier fautif (app.py : le nettoyage de la session
             // s'execute avant le test sur `errors`). Si un paquet suivant

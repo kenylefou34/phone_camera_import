@@ -160,7 +160,8 @@ private class Adaptateur(private val c: ClientServeur) : Serveur {
     override fun envoyer(session: String, chemin: String, flux: InputStream, taille: Long,
                          empreinteAttendue: String) =
         c.envoyer(session, chemin, flux, taille, empreinteAttendue)
-    override fun commit(session: String, horizons: Map<String, Double>) =
-        c.commit(session, horizons)
+    override fun commit(session: String, horizons: Map<String, Double>,
+                        synchro: String, bilanApp: BilanApp) =
+        c.commit(session, horizons, synchro, bilanApp)
     override fun abandonner(session: String) = c.abandonner(session)
 }
