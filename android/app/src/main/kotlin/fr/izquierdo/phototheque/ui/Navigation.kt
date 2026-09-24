@@ -27,6 +27,21 @@ object Navigation {
     }
 
     /**
+     * La demande à retenir quand l'appairage change.
+     *
+     * Perdre l'appairage oublie l'écran demandé. Sans ça, la demande restait
+     * mémorisée pendant tout le passage par l'écran de scan : désappairer
+     * depuis « Cet appareil » faisait rouvrir ce même écran — et son bouton
+     * « désappairer » — dès le réappairage suivant (constat C3 de la recette
+     * du 24/09, qui a produit un vrai désappairage accidentel).
+     *
+     * Rester appairé garde la demande : c'est ce qui empêche une rotation de
+     * ramener à l'accueil (issue #24).
+     */
+    fun demandeApres(demande: Ecran, appaire: Boolean): Ecran =
+        if (appaire) demande else Ecran.ACCUEIL
+
+    /**
      * Où mène le bouton retour du système, ou `null` pour laisser le système
      * fermer l'application.
      *

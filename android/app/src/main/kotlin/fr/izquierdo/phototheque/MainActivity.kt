@@ -72,6 +72,13 @@ class MainActivity : ComponentActivity() {
                 // rememberSaveable et non remember : l'écran affiché retombait
                 // sur l'accueil à chaque rotation (issue #24).
                 var demande by rememberSaveable { mutableStateOf(Ecran.ACCUEIL) }
+                // Au moment où l'appairage disparaît (l'écran de scan est
+                // alors affiché de toute façon), et pas au réappairage : le
+                // premier écran vu après un scan réussi est l'accueil, jamais
+                // « Cet appareil » (constat C3 de la recette du 24/09).
+                LaunchedEffect(etat.appaire) {
+                    demande = Navigation.demandeApres(demande, etat.appaire)
+                }
                 val affiche = Navigation.ecranAffiche(
                     demande, appaire = etat.appaire, synchroEnCours = avancement != null)
 
@@ -98,7 +105,11 @@ class MainActivity : ComponentActivity() {
                                     // donc tourner le telephone pour scanner un QR
                                     // affiche a l'ecran d'un ordinateur — signale
                                     // par le mainteneur au premier appairage reel,
-                                    // le 23/09.
+                                    // le 23/09. NECESSAIRE MAIS PAS SUFFISANT :
+                                    // l'orientation imposee par le manifeste de
+                                    // la bibliotheque reste, et il faut aussi la
+                                    // surcharger dans AndroidManifest.xml
+                                    // (constat C4 de la recette du 24/09).
                                     .setOrientationLocked(false))
                         })
                     Ecran.ACCUEIL ->

@@ -32,6 +32,24 @@ class NavigationTest {
             Navigation.ecranAffiche(Ecran.ACCUEIL, appaire = false, synchroEnCours = true))
     }
 
+    @Test fun perdre_l_appairage_oublie_l_ecran_demande() {
+        // Constat C3 de la recette du 24/09 : on désappaire depuis « Cet
+        // appareil », la demande mémorisée reste APPAREIL, et le réappairage
+        // suivant rouvre directement l'écran... qui propose de désappairer.
+        // Un scan fait le téléphone tourné l'a fait appuyer dessus : un vrai
+        // désappairage accidentel, constaté dans le journal du NUC.
+        for (demande in Ecran.values()) {
+            assertEquals(Ecran.ACCUEIL, Navigation.demandeApres(demande, appaire = false))
+        }
+    }
+
+    @Test fun rester_appaire_garde_l_ecran_demande() {
+        // Sans quoi une rotation ramènerait à l'accueil (issue #24).
+        for (demande in Ecran.values()) {
+            assertEquals(demande, Navigation.demandeApres(demande, appaire = true))
+        }
+    }
+
     @Test fun l_ecran_demande_est_affiche_quand_rien_ne_s_y_oppose() {
         assertEquals(Ecran.DOSSIERS,
             Navigation.ecranAffiche(Ecran.DOSSIERS, appaire = true, synchroEnCours = false))

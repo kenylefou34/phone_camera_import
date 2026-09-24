@@ -68,5 +68,19 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+
+        <!-- zxing-android-embedded declare son ecran de scan en
+             sensorLandscape. `setOrientationLocked(false)` (MainActivity) ne
+             suffit PAS : il ne leve que le verrou pose par la bibliotheque
+             elle-meme, pas l'orientation imposee par le manifeste. Le
+             correctif du 23/09 n'avait donc rien change — il fallait toujours
+             tourner le telephone pour scanner un QR affiche sur un ordinateur,
+             et un scan fait de biais a fini par un desappairage accidentel
+             (constats C3 et C4 de la recette du 24/09). Controle :
+             grep -A3 CaptureActivity sur le manifeste FUSIONNE. -->
+        <activity
+            android:name="com.journeyapps.barcodescanner.CaptureActivity"
+            android:screenOrientation="fullSensor"
+            tools:replace="screenOrientation" />
     </application>
 </manifest>
