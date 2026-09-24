@@ -185,6 +185,15 @@ recette formelle. **#29** lot 1 bis (fait, à éprouver), **#12** l'application
 elle-même (reste ouverte pour la même raison), puis **#30** journal serveur + purge des sessions abandonnées,
 **#31** galerie de consultation (phase 2).
 
+**Quatre issues ouvertes le 24/09 par la relecture finale du lot 2**, toutes
+non bloquantes pour la recette : **#36** le gel d'horizon d'un dossier amputé
+coûte une réempreinte complète à chaque passe (coût muet, à rendre visible) ;
+**#37** la ligne de l'arborescence ne livre qu'une partie de la spec §3.4
+(période couverte, noms des sous-dossiers, indice de nature) ; **#38** décocher
+largement n'affiche pas toujours le message qui nomme les sous-dossiers
+emportés (une ligne) ; **#39** interrompre une sauvegarde *manuelle* repousse
+aussi la passe automatique de 6 h.
+
 **#16 est CORRIGÉE** (23/09) : le serveur ne détruit plus les médias qu'il n'a
 pas su ranger. Ils partent en quarantaine sous `INCOMING_DIR/_echecs/<chemin
 envoyé>`, visibles dans un bloc « Médias non rangés » de la page d'admin, et
