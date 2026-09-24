@@ -19,6 +19,9 @@ class Report:
     to_triage: int = 0
     skipped: int = 0
     errors: int = 0
+    # Extensions non gérées (ni photo ni vidéo) : ignorées mais comptées,
+    # sinon impossible de savoir qu'on en a perdu (issue #27).
+    ignored: int = 0
     photos: int = 0
     videos: int = 0
     whatsapp: int = 0
@@ -36,7 +39,7 @@ class Report:
         return {
             "sorted": self.sorted, "duplicates": self.duplicates,
             "to_triage": self.to_triage, "skipped": self.skipped,
-            "errors": self.errors, "photos": self.photos,
+            "errors": self.errors, "ignores": self.ignored, "photos": self.photos,
             "videos": self.videos, "whatsapp": self.whatsapp,
             "octets_ranges": self.bytes_sorted,
             "par_source_date": self.by_source_date,
@@ -71,15 +74,39 @@ def _retirer_copie_douteuse(destination: Path) -> None:
         log.error("Copie douteuse impossible à retirer : %s", destination)
 
 
-def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> Report:
-    """Range tous les médias de 'source' dans 'library'. Renvoie un Report détaillé."""
+def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True,
+                 sur_mouvement=None) -> Report:
+    """Range tous les médias de 'source' dans 'library'. Renvoie un Report détaillé.
+
+    'sur_mouvement', si fourni, est appelé pour CHAQUE fichier rencontré avec
+    le détail de son sort (issue #30) : rien n'est gardé en mémoire côté
+    Report, c'est au consommateur de faire ce qu'il veut de chaque appel.
+    """
     report = Report()
+
+    def noter(p: Path, issue: str, empreinte=None, destination=None, detail=None):
+        """Transmet le sort d'un fichier au consommateur, s'il y en a un.
+
+        Rien n'est retenu ici : sur un tri de 20 000 médias en ligne de
+        commande, garder la liste jusqu'à la fin coûterait pour rien.
+        """
+        if sur_mouvement is None:
+            return
+        try:
+            taille = p.stat().st_size
+        except OSError:
+            taille = None
+        sur_mouvement({"origine": p.relative_to(source).as_posix(), "taille": taille,
+                       "empreinte": empreinte,
+                       "destination": str(destination) if destination else None,
+                       "issue": issue, "detail": detail})
 
     def echec(p: Path, raison: str) -> None:
         """Compte l'erreur ET retient le fichier, pour que l'appelant le sauve."""
         report.errors += 1
         report.echecs.append({"fichier": p.relative_to(source).as_posix(),
                               "raison": raison})
+        noter(p, "erreur", detail=raison)
 
     fichiers = [p for p in sorted(source.rglob("*")) if p.is_file()]
     # Pré-chargement des dates de métadonnées en un seul appel exiftool (perf).
@@ -92,9 +119,12 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
     for p in fichiers:
         mtype = classify.media_type(p.suffix)
         if mtype is None:
-            continue  # ni photo ni vidéo : ignoré ici (le bruit est traité à part)
+            report.ignored += 1  # ni photo ni vidéo : désormais compté (issue #27)
+            noter(p, "refuse", detail="extension non gérée")
+            continue
         if classify.is_excluded(p):
             report.skipped += 1
+            noter(p, "exclu")
             continue
         report.listed += 1
         try:
@@ -111,6 +141,7 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
                 if catalog.has_hash(empreinte):
                     report.duplicates += 1
                     log.info("DOUBLON ignoré : %s", p)
+                    noter(p, "doublon", empreinte, catalog.chemin_de(empreinte))
                     continue
 
             dr = dates.resolve_date(p)
@@ -138,6 +169,7 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
 
             log.info("%s -> %s (date: %s)", p.name, dest, dr.source)
             if dry_run:
+                noter(p, "range" if dr.date else "a_trier", empreinte, dest)
                 continue
 
             dest = _chemin_libre(dest)
@@ -162,6 +194,7 @@ def sort_folder(source: Path, library: Path, catalog, dry_run: bool = True) -> R
             catalog.add_media(empreinte_copiee, p.stat().st_size, str(dest),
                               dr.date.isoformat() if dr.date else None, dr.source,
                               signature)
+            noter(p, "range" if dr.date else "a_trier", empreinte_copiee, dest)
             p.unlink()
         except OSError as e:
             echec(p, str(e))

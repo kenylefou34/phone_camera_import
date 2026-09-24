@@ -67,6 +67,15 @@ def test_un_catalogue_existant_garde_sa_table_synchros_et_ses_lignes(tmp_path):
     cx.close()
 
 
+def test_chemin_de_rend_le_chemin_du_media_deja_range(tmp_path):
+    from mediasort.catalog import Catalog
+    cat = Catalog(tmp_path / "c.db")
+    cat.add_media("abc", 10, "/biblio/Photos/2025/01 JANVIER/a.jpg", None, "nom")
+    assert cat.chemin_de("abc") == "/biblio/Photos/2025/01 JANVIER/a.jpg"
+    assert cat.chemin_de("inconnue") is None
+    cat.close()
+
+
 def test_seed_from_library_indexes_media(tmp_path):
     (tmp_path / "Photos" / "2023").mkdir(parents=True)
     (tmp_path / "Photos" / "2023" / "a.jpg").write_bytes(b"photo-a")

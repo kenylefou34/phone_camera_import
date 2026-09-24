@@ -255,6 +255,58 @@ def test_report_nomme_l_echec_d_une_source_modifiee(tmp_path, monkeypatch):
     cat.close()
 
 
+def test_chaque_fichier_produit_un_mouvement(tmp_path, monkeypatch):
+    """Issue #30 : le détail fichier par fichier, perdu jusqu'ici."""
+    # source contient : une photo datée par son nom, un doublon d'une photo
+    # déjà au catalogue, un .txt, un fichier sous « WhatsApp Images/Sent ».
+    _force_date(monkeypatch, datetime.date(2023, 5, 26))
+    from mediasort.hashing import file_hash, quick_signature
+    source = tmp_path / "src"; source.mkdir()
+    biblio = tmp_path / "lib"; biblio.mkdir()
+    (source / "a.jpg").write_bytes(b"photo-a")
+    (source / "notes.txt").write_text("x")
+    sent = source / "WhatsApp Images" / "Sent"; sent.mkdir(parents=True)
+    (sent / "envoi.jpg").write_bytes(b"envoi")
+    # Doublon : son contenu est déjà au catalogue, sous un autre chemin.
+    (source / "b.jpg").write_bytes(b"deja-connu")
+    cat = Catalog(tmp_path / "c.db")
+    chemin_deja_range = str(tmp_path / "deja" / "b.jpg")
+    empreinte_connue = file_hash(source / "b.jpg")
+    signature_connue = quick_signature(source / "b.jpg")
+    cat.add_media(empreinte_connue, 10, chemin_deja_range, "2023-05-26", "seed",
+                  signature_connue)
+
+    vus = []
+    rapport = sorter.sort_folder(source, biblio, cat, dry_run=False, sur_mouvement=vus.append)
+    par_issue = {m["issue"]: m for m in vus}
+    assert set(par_issue) == {"range", "doublon", "refuse", "exclu"}
+    assert par_issue["range"]["destination"].startswith(str(biblio))
+    assert par_issue["range"]["empreinte"]
+    # Le doublon désigne le média DÉJÀ présent qui l'a fait écarter.
+    assert par_issue["doublon"]["destination"] == chemin_deja_range
+    assert par_issue["refuse"]["origine"] == "notes.txt"
+    cat.close()
+
+
+def test_une_extension_inconnue_est_comptee(tmp_path):
+    """Issue #27 : le trieur ignorait sans le moindre compteur."""
+    source = tmp_path / "src"; source.mkdir()
+    (source / "notes.txt").write_text("x")
+    rapport = sorter.sort_folder(source, tmp_path / "b", Catalog(tmp_path / "c.db"))
+    assert rapport.ignored == 1
+    assert rapport.to_dict()["ignores"] == 1
+
+
+def test_sans_consommateur_aucun_mouvement_n_est_retenu(tmp_path):
+    """Spec §8.10 : 20 000 médias ne doivent pas tenir 20 000 dict en mémoire."""
+    source = tmp_path / "src"; source.mkdir()
+    for i in range(50):
+        (source / f"n{i}.txt").write_text("x")
+    rapport = sorter.sort_folder(source, tmp_path / "b", Catalog(tmp_path / "c.db"))
+    assert not any(isinstance(v, list) and len(v) >= 50 for v in vars(rapport).values())
+    assert "mouvements" not in rapport.to_dict()
+
+
 def test_report_nomme_l_echec_d_une_erreur_systeme(tmp_path, monkeypatch):
     """Troisième chemin d'erreur : OSError (disque plein, fichier illisible)."""
     _force_date(monkeypatch, datetime.date(2023, 5, 26))

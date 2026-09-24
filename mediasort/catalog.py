@@ -42,6 +42,16 @@ class Catalog:
         cur = self._cx.execute("SELECT 1 FROM medias WHERE empreinte=?", (digest,))
         return cur.fetchone() is not None
 
+    def chemin_de(self, digest: str):
+        """Chemin du média déjà rangé sous cette empreinte, ou None.
+
+        Sert au journal du serveur (issue #30) : pour un doublon, c'est la
+        réponse à « pourquoi celle-là n'est pas arrivée ».
+        """
+        cur = self._cx.execute("SELECT chemin FROM medias WHERE empreinte=?", (digest,))
+        ligne = cur.fetchone()
+        return ligne[0] if ligne else None
+
     def add_media(self, digest: str, size: int, path: str,
                   date_prise, source_date: str, signature=None) -> None:
         # INSERT OR IGNORE : une empreinte n'est enregistrée qu'une fois.

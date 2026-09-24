@@ -61,7 +61,8 @@ def main(argv=None) -> int:
         report = sort_folder(args.source, args.library, cat, dry_run=args.dry_run)
         prefixe = "[SIMULATION] " if args.dry_run else ""
         print(f"{prefixe}Bilan : {report.sorted} rangés, {report.duplicates} doublons ignorés, "
-              f"{report.to_triage} à trier, {report.skipped} exclus, {report.errors} erreurs.")
+              f"{report.to_triage} à trier, {report.skipped} exclus, "
+              f"{report.ignored} ignorés (extension non gérée), {report.errors} erreurs.")
 
         if args.clean_noise:
             supprimes = clean_noise(args.source, dry_run=args.dry_run)

@@ -57,6 +57,20 @@ def test_cli_backfill_signatures_without_source(tmp_path, capsys):
     cat.close()
 
 
+def test_le_bilan_affiche_les_fichiers_ignores(tmp_path, capsys):
+    """Issue #27 : le compteur d'ignorés doit apparaître dans le bilan affiché."""
+    src = tmp_path / "src"; src.mkdir()
+    lib = tmp_path / "lib"; lib.mkdir()
+    (src / "notes.txt").write_text("x")
+    db = tmp_path / "cat.db"
+
+    code = cli.main(["--source", str(src), "--library", str(lib),
+                     "--catalog", str(db), "--dry-run"])
+
+    assert code == 0
+    assert "1 ignorés (extension non gérée)" in capsys.readouterr().out
+
+
 def test_cli_requires_source_and_library_for_sorting(tmp_path, capsys):
     """Sans --backfill-signatures, --source et --library restent obligatoires."""
     import pytest
