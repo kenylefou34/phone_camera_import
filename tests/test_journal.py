@@ -1,3 +1,5 @@
+import pytest
+
 from phototheque.journal import Journal
 
 BILAN = {"sorted": 2, "duplicates": 1, "to_triage": 0, "errors": 0,
@@ -20,11 +22,41 @@ def test_les_mouvements_sont_rattaches_a_leur_synchro(tmp_path):
     j.ajouter_mouvement("sess0", {"origine": "DCIM/Camera/a.jpg", "taille": 1,
                                   "empreinte": "e1", "issue": "range",
                                   "destination": "/b/a.jpg", "detail": None})
-    j.noter_refus("sess0", "DCIM/Camera/b.heic", "extension non prise en charge")
+    j.noter_refus("sess0", "DCIM/Camera/b.webm", "extension non prise en charge")
     j.enregistrer_commit("s1", "sess0", "tel", "Pixel", None, BILAN, None)
     issues = sorted(m["issue"] for m in j.mouvements("s1"))
-    assert issues == ["range", "refuse"]
+    assert issues == ["range", "refuse_envoi"]
     assert j.synchros()[0]["refuses"] == 1
+
+
+def test_un_fichier_ignore_par_le_trieur_n_est_pas_compte_deux_fois(tmp_path):
+    """M1 (relecture finale), cas reproduit : un refus à l'envoi + un reliquat
+    `.partiel` (processus tué pendant un envoi, issue #21) ignoré par le trieur.
+
+    Le trieur écrit déjà un mouvement `refuse` pour chaque fichier qu'il
+    ignore, ET le compte dans `ignores` : compter aussi ces mouvements-là
+    donnait `refuses == 3` pour deux fichiers. Seuls les refus À L'ENVOI
+    (`refuse_envoi`, jamais vus par le trieur) s'ajoutent à `ignores`.
+    """
+    j = Journal(tmp_path / "j.db")
+    j.noter_refus("sess0", "Movies/film.webm", "extension non prise en charge")
+    j.ajouter_mouvement("sess0", {"origine": "DCIM/IMG_1.jpg.partiel", "taille": 4,
+                                  "empreinte": None, "issue": "refuse",
+                                  "destination": None, "detail": "extension non gérée"})
+    j.enregistrer_commit("s1", "sess0", "tel", None, None,
+                         dict(BILAN, sorted=0, duplicates=0, ignores=1), None)
+    assert j.synchro("s1")["refuses"] == 2
+
+
+def test_un_envoi_fait_seulement_d_exclus_compte_ses_fichiers(tmp_path):
+    """M1 : un fichier exclu (sous-dossier WhatsApp « Sent »…) a bien été REÇU
+    par le serveur. Sans `skipped` dans `envoyes`, une synchro faite
+    seulement d'exclus affichait « 0 fichier(s) » en listant N lignes."""
+    j = Journal(tmp_path / "j.db")
+    j.enregistrer_commit("s1", "sess0", "tel", None, None,
+                         {"sorted": 0, "duplicates": 0, "to_triage": 0, "errors": 0,
+                          "ignores": 0, "skipped": 3, "octets_ranges": 0}, None)
+    assert j.synchro("s1")["envoyes"] == 3
 
 
 def test_le_label_est_une_copie(tmp_path):
@@ -69,3 +101,26 @@ def test_les_evenements_sont_rendus_du_plus_recent_au_plus_ancien(tmp_path):
     j.evenement("demarrage")
     j.evenement("appairage", appareil="tel")
     assert [e["type"] for e in j.evenements()] == ["appairage", "demarrage"]
+
+
+def test_un_commit_qui_casse_au_milieu_ne_laisse_rien_a_moitie_ecrit(tmp_path):
+    """M2 (relecture finale) : chaque écriture est une transaction entière.
+
+    Reproduit : une valeur que SQLite ne sait pas stocker (entier de plus de
+    64 bits) fait lever la DERNIÈRE requête d'`enregistrer_commit`. Sans
+    transaction, les lignes `commits` et `synchros` déjà insérées restaient
+    en attente dans la connexion, et l'écriture SUIVANTE (n'importe laquelle)
+    les validait : la session passait pour « déjà appliquée » pour toujours,
+    avec une synchro figée à « en cours » et zéro paquet.
+    """
+    j = Journal(tmp_path / "j.db")
+    with pytest.raises(OverflowError):
+        j.enregistrer_commit("s1", "sess0", "tel", "Pixel", None, BILAN,
+                             {"echecs": 10**30})
+    j.evenement("demarrage")          # l'écriture suivante ne doit rien valider d'autre
+
+    assert j.synchros() == []
+    # La même session, cette fois correcte, s'enregistre normalement.
+    j.enregistrer_commit("s1", "sess0", "tel", "Pixel", None, BILAN, None)
+    ligne = j.synchro("s1")
+    assert ligne["paquets"] == 1 and ligne["etat"] == "terminee"

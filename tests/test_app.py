@@ -81,7 +81,6 @@ def test_admin_html_marks_pending_pairings():
 
 
 def _client(tmp_path, monkeypatch):
-    import os
     monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
     monkeypatch.setenv("CATALOG_DB", str(tmp_path / "cat.db"))
     monkeypatch.setenv("INCOMING_DIR", str(tmp_path / "incoming"))
@@ -91,11 +90,12 @@ def _client(tmp_path, monkeypatch):
     # personnel de celui qui les lance.
     monkeypatch.setenv("APK_FILE", str(tmp_path / "app.apk"))
     # Sans cette ligne, config.JOURNAL_DB resterait ~/phototheque_journal.db :
-    # les tests écriraient dans le dossier personnel de qui les lance. On ne
-    # remplace PAS une valeur déjà posée par le test lui-même : le test du
-    # journal en panne pose exprès un chemin illisible AVANT d'appeler
-    # _client, et cette ligne ne doit pas l'écraser.
-    monkeypatch.setenv("JOURNAL_DB", os.environ.get("JOURNAL_DB", str(tmp_path / "journal.db")))
+    # les tests écriraient dans le dossier personnel de qui les lance. Posée
+    # SANS lire l'environnement : un `JOURNAL_DB` exporté dans le shell (sur
+    # le NUC, par exemple) ne doit jamais faire écrire les tests dans la vraie
+    # base. Un test qui veut un autre chemin le pose APRÈS l'appel (voir le
+    # test du journal en panne).
+    monkeypatch.setenv("JOURNAL_DB", str(tmp_path / "journal.db"))
     import phototheque.config as c; importlib.reload(c)
     import phototheque.app as a; importlib.reload(a)
     return a, TestClient(a.app)
@@ -472,6 +472,17 @@ def test_la_page_d_une_synchro_montre_ses_mouvements(tmp_path, monkeypatch):
     texte = client.get("/historique/s1", headers=entetes).text
     assert "DCIM/Camera/a.jpg" in texte
     assert "Photos/2026/09 SEPT/a.jpg" in texte
+
+
+def test_un_refus_a_l_envoi_se_lit_comme_tel(tmp_path, monkeypatch):
+    """M1 : « refusé à l'envoi » (le serveur n'a jamais écrit le fichier)
+    ne se confond pas avec « refusé » (reçu, puis ignoré par le trieur)."""
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    a.journal().noter_refus("sess0", "Movies/film.webm", "extension non prise en charge")
+    a.journal().enregistrer_commit("s1", "sess0", "tel", "Pixel", None, {}, None)
+    texte = client.get("/historique/s1", headers=entetes).text
+    assert "refusé à l&#x27;envoi" in texte or "refusé à l'envoi" in texte
 
 
 def test_la_recherche_vide_n_interroge_pas_le_journal(tmp_path, monkeypatch):
@@ -898,8 +909,11 @@ def test_la_reponse_du_commit_ne_contient_pas_les_mouvements(tmp_path, monkeypat
 
 def test_un_journal_en_panne_ne_fait_pas_echouer_le_commit(tmp_path, monkeypatch):
     """Point d'attention 3 : l'horizon doit avancer quand même."""
-    monkeypatch.setenv("JOURNAL_DB", str(tmp_path / "absent" / "sous" / "j.db"))
     a, client = _client(tmp_path, monkeypatch)
+    # APRÈS _client, qui pose toujours un chemin sain : le journal ne s'ouvre
+    # qu'à la première écriture, donc ce chemin illisible est bien celui
+    # qu'il essaiera d'ouvrir.
+    monkeypatch.setattr(a.config, "JOURNAL_DB", tmp_path / "absent" / "sous" / "j.db")
     dev_id, secret = a.devices().pair("Pixel")
     h = {"Authorization": f"Bearer {secret}"}
     session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
@@ -908,6 +922,43 @@ def test_un_journal_en_panne_ne_fait_pas_echouer_le_commit(tmp_path, monkeypatch
         "session": session, "horizons": {"DCIM/Camera": 1.0e9}})
 
     assert r.status_code == 200
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1.0e9}
+    # Le journal n'a jamais pu s'ouvrir : c'est bien LUI qui était en panne,
+    # pas un test qui passerait sur un journal sain.
+    assert a._journal_ouvert is None
+
+
+def test_un_journal_verrouille_ne_ralentit_pas_tout_le_tri(tmp_path, monkeypatch):
+    """M3 (relecture finale) : disjoncteur par commit.
+
+    Un outil extérieur qui tient la base (DB Browser, une sauvegarde) fait
+    attendre CHAQUE écriture 5 s avant d'échouer — sous le verrou du tri :
+    ~80 min de plus sur un commit de 953 fichiers, le téléphone abandonnait
+    à 30 min. Au premier échec d'un mouvement, les suivants de ce tri ne sont
+    plus tentés ; le commit répond 200 et l'horizon avance quand même.
+    """
+    import sqlite3
+    import mediasort.dates as d
+    monkeypatch.setattr(d, "date_from_metadata", lambda p: datetime.date(2023, 5, 26))
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = _session_ouverte(client, h)
+    for nom in ("a.jpg", "b.jpg", "c.jpg"):
+        assert _envoyer(client, h, session, f"DCIM/Camera/{nom}",
+                        f"photo {nom}".encode()).status_code == 200
+
+    appels = []
+    def verrouille(session, m):
+        appels.append(m["origine"])
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(a.journal(), "ajouter_mouvement", verrouille)
+
+    r = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": 1.0e9}})
+
+    assert r.status_code == 200 and r.json()["sorted"] == 3
+    assert len(appels) == 1, appels
     assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1.0e9}
 
 
@@ -926,7 +977,28 @@ def test_une_extension_refusee_a_l_envoi_est_journalisee(tmp_path, monkeypatch):
 
     client.post("/sync/commit", headers=h, json={"session": session, "synchro": "s1"})
 
-    assert [m["issue"] for m in a.journal().mouvements("s1")] == ["refuse"]
+    assert [m["issue"] for m in a.journal().mouvements("s1")] == ["refuse_envoi"]
+
+
+@pytest.mark.parametrize("champ", ["envoyes", "refuses", "echecs"])
+def test_le_bilan_de_l_app_est_borne(champ, tmp_path, monkeypatch):
+    """M2 (relecture finale) : un nombre négatif ou démesuré n'a rien à faire
+    dans le journal. 10**30 faisait même lever SQLite (entier de plus de 64
+    bits) au milieu de l'écriture du commit. Refusé dès la lecture (422)."""
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+
+    for valeur in (-1, 2**31, 10**30):
+        session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+        r = client.post("/sync/commit", headers=h,
+                        json={"session": session, "bilan_app": {champ: valeur}})
+        assert r.status_code == 422, (champ, valeur)
+
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+    r = client.post("/sync/commit", headers=h,
+                    json={"session": session, "bilan_app": {champ: 2**31 - 1}})
+    assert r.status_code == 200
 
 
 def test_un_identifiant_de_synchro_hors_norme_est_remplace(tmp_path, monkeypatch):
@@ -1203,13 +1275,12 @@ def test_l_identifiant_est_insensible_aux_espaces_autour(tmp_path, monkeypatch):
 
 def _client_depuis(tmp_path, monkeypatch, ip="192.168.1.50"):
     """Comme _client, mais en se faisant passer pour une machine donnée."""
-    import os
     monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
     monkeypatch.setenv("CATALOG_DB", str(tmp_path / "cat.db"))
     monkeypatch.setenv("INCOMING_DIR", str(tmp_path / "incoming"))
     monkeypatch.setenv("DEVICES_DB", str(tmp_path / "dev.db"))
     # Voir le commentaire équivalent dans _client.
-    monkeypatch.setenv("JOURNAL_DB", os.environ.get("JOURNAL_DB", str(tmp_path / "journal.db")))
+    monkeypatch.setenv("JOURNAL_DB", str(tmp_path / "journal.db"))
     import phototheque.config as c; importlib.reload(c)
     import phototheque.app as a; importlib.reload(a)
     return a, TestClient(a.app, client=(ip, 12345))

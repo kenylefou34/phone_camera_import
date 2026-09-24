@@ -12,7 +12,7 @@ from pathlib import Path
 from fastapi import (Depends, FastAPI, File, Form, Header, HTTPException,
                      Request, UploadFile)
 from fastapi.responses import FileResponse, HTMLResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from mediasort import classify
 from mediasort.catalog import Catalog
@@ -63,17 +63,50 @@ def journal() -> Journal:
 _log_journal = logging.getLogger("phototheque.journal")
 
 
-def _journaliser(action) -> None:
+def _journaliser(action, message: str = "écriture du journal impossible") -> bool:
     """Écrit dans le journal sans JAMAIS faire échouer la route appelante.
 
     Un journal en panne (base verrouillée, disque plein) qui ferait échouer
     un commit empêcherait l'horizon d'avancer : le téléphone renverrait tout,
     indéfiniment, pour une simple trace. La trace passe après le travail.
+
+    Rend True si l'écriture a réussi, False sinon (l'exception est avalée et
+    écrite dans `journalctl` avec `message`). La plupart des appelants
+    ignorent ce retour ; `_Disjoncteur` s'en sert pour ne pas insister.
     """
     try:
         action(journal())
+        return True
     except Exception:
-        _log_journal.exception("écriture du journal impossible")
+        _log_journal.exception(message)
+        return False
+
+
+class _Disjoncteur:
+    """Coupe les écritures au journal d'UNE opération après le premier échec.
+
+    Une opération = un tri (un commit) ou une passe de purge : une écriture
+    par fichier. Une base tenue par un outil extérieur (DB Browser, une
+    sauvegarde) fait attendre CHAQUE écriture 5 s avant d'échouer — et
+    pendant un tri, sous le verrou qui bloque aussi tous les autres commits.
+    Sur 953 fichiers : ~80 minutes de plus, et le téléphone abandonnait à
+    30 minutes en annonçant un échec alors que le serveur finissait
+    (relecture finale, M3). Au premier échec, les écritures suivantes de la
+    même opération ne sont plus tentées : une seule ligne dans `journalctl`,
+    un seul délai de 5 s. L'opération suivante (un autre commit) réessaie.
+    """
+
+    def __init__(self, message: str) -> None:
+        self._message = message
+        self.ouvert = False        # « ouvert » comme un disjoncteur : le courant ne passe plus
+
+    def journaliser(self, action) -> bool:
+        if self.ouvert:
+            return False
+        if not _journaliser(action, self._message):
+            self.ouvert = True
+            return False
+        return True
 
 
 def _purger() -> None:
@@ -262,10 +295,15 @@ class BilanApp(BaseModel):
     Facultatif : le journal (issue #30) le garde à côté du bilan calculé côté
     serveur, sans quoi une divergence entre ce que l'app croit avoir envoyé et
     ce que le serveur a réellement rangé passerait inaperçue.
+
+    Chaque compteur est borné (0 à 2**31 - 1) dès la lecture de la requête :
+    un nombre négatif ne veut rien dire, et un entier démesuré (10**30) ne
+    tient même pas dans une colonne SQLite — il faisait lever l'écriture du
+    commit en plein milieu (relecture finale, M2). Hors bornes : 422.
     """
-    envoyes: int = 0
-    refuses: int = 0
-    echecs: int = 0
+    envoyes: int = Field(default=0, ge=0, le=2**31 - 1)
+    refuses: int = Field(default=0, ge=0, le=2**31 - 1)
+    echecs: int = Field(default=0, ge=0, le=2**31 - 1)
 
 
 # Identifiant de synchro accepté du téléphone (lot 1 bis, une grosse
@@ -371,11 +409,16 @@ def sync_commit(req: CommitRequest, request: Request,
               else sessions.new_session())
     session_dir = config.INCOMING_DIR / req.session
     if session_dir.exists():
+        # Un disjoncteur par commit (voir _Disjoncteur) : un journal
+        # verrouillé ne coûte qu'UN délai au tri, pas un par fichier.
+        disjoncteur = _Disjoncteur(
+            f"journal indisponible : les mouvements suivants du tri de la "
+            f"session {req.session} ne seront pas journalisés")
         cat = Catalog(config.CATALOG_DB)
         try:
             bilan = ingest.sort_session(
                 session_dir, config.LIBRARY_DIR, cat,
-                sur_mouvement=lambda m: _journaliser(
+                sur_mouvement=lambda m: disjoncteur.journaliser(
                     lambda j: j.ajouter_mouvement(req.session, m)))
         finally:
             cat.close()

@@ -57,6 +57,13 @@ class Journal:
     n'existe encore (elle n'est créée qu'au commit) : sa colonne `synchro`
     reste NULL jusqu'à ce que `enregistrer_commit` la rattache via la
     colonne `session`, seule connue à ce moment-là.
+
+    Chaque méthode d'écriture est UNE transaction entière, toujours sous le
+    verrou : `with self._cx:` valide tout à la sortie normale du bloc, et
+    annule tout (rollback) si une exception en sort. Sans ça, une requête qui
+    levait au milieu d'une méthode laissait les précédentes en attente dans
+    la connexion partagée — et l'écriture SUIVANTE, faite par n'importe quelle
+    autre méthode, les validait à moitié (relecture finale, M2).
     """
 
     def __init__(self, db_path) -> None:
@@ -70,21 +77,20 @@ class Journal:
     def evenement(self, type: str, appareil: str | None = None,
                   adresse: str | None = None, detail: str | None = None) -> None:
         """Trace un fait ponctuel (démarrage, appairage, révocation...)."""
-        with self._lock:
+        with self._lock, self._cx:
             self._cx.execute(
                 "INSERT INTO evenements (horodatage, type, appareil, adresse, detail)"
                 " VALUES (?,?,?,?,?)",
                 (_maintenant(), type, appareil, adresse, detail),
             )
-            self._cx.commit()
 
     def _inserer_mouvement(self, session: str, origine: str, taille, empreinte,
                             issue: str, destination, detail) -> None:
         """INSERT partagé par `ajouter_mouvement` et `noter_refus`.
 
-        Le verrou est tenu par l'appelant (qui fait aussi le commit) : cette
-        méthode privée ne fait qu'exécuter la requête, pour ne pas dupliquer
-        les neuf colonnes dans les deux méthodes publiques.
+        Le verrou ET la transaction sont tenus par l'appelant : cette méthode
+        privée ne fait qu'exécuter la requête, pour ne pas dupliquer les neuf
+        colonnes dans les deux méthodes publiques.
         """
         self._cx.execute(
             "INSERT INTO mouvements (synchro, session, horodatage, origine,"
@@ -99,22 +105,24 @@ class Journal:
         `synchro` reste NULL : ce mouvement n'est rattaché à une synchro que
         lors du commit qui le suit (voir `enregistrer_commit`).
         """
-        with self._lock:
+        with self._lock, self._cx:
             self._inserer_mouvement(
                 session, m["origine"], m.get("taille"), m.get("empreinte"),
                 m["issue"], m.get("destination"), m.get("detail"),
             )
-            self._cx.commit()
 
     def noter_refus(self, session: str, origine: str, detail: str) -> None:
-        """Un fichier refusé avant même d'atteindre le trieur (ex. extension).
+        """Un fichier refusé À L'ENVOI par le serveur (ex. extension inconnue).
 
-        Écrit un mouvement synthétique d'issue 'refuse', comme le ferait
-        `ajouter_mouvement` pour un fichier passé par le trieur.
+        Issue 'refuse_envoi', DISTINCTE de 'refuse' (fichier reçu, puis ignoré
+        par le trieur) : ce fichier-là n'a jamais été écrit sur le NUC ni vu
+        par le trieur, donc il n'est pas dans le `ignores` du bilan — c'est
+        la seule chose qui permet à `enregistrer_commit` de l'ajouter sans
+        compter deux fois un fichier ignoré (relecture finale, M1).
         """
-        with self._lock:
-            self._inserer_mouvement(session, origine, None, None, "refuse", None, detail)
-            self._cx.commit()
+        with self._lock, self._cx:
+            self._inserer_mouvement(session, origine, None, None, "refuse_envoi",
+                                    None, detail)
 
     def enregistrer_commit(self, synchro: str, session: str, appareil: str,
                             label: str | None, adresse: str | None, bilan: dict,
@@ -137,14 +145,17 @@ class Journal:
         normalement, sans erreur visible côté client.
         """
         maintenant = _maintenant()
-        with self._lock:
+        # Une seule transaction pour les quatre requêtes (voir la docstring de
+        # la classe) : si l'UPDATE final lève, la ligne `commits` insérée au
+        # début est annulée avec le reste — sans quoi la session passerait
+        # pour « déjà appliquée » et un nouvel essai ne recompterait jamais.
+        with self._lock, self._cx:
             deja_connue = self._cx.execute(
                 "INSERT OR IGNORE INTO commits (session, synchro, horodatage)"
                 " VALUES (?,?,?)",
                 (session, synchro, maintenant),
             ).rowcount == 0
             if deja_connue:
-                self._cx.commit()
                 return
 
             self._cx.execute(
@@ -156,15 +167,22 @@ class Journal:
                 "UPDATE mouvements SET synchro=? WHERE session=? AND synchro IS NULL",
                 (synchro, session),
             )
-            refuses_session = self._cx.execute(
-                "SELECT COUNT(*) FROM mouvements WHERE session=? AND issue='refuse'",
+            # Seulement les refus À L'ENVOI : ceux du trieur (issue 'refuse')
+            # sont déjà dans `ignores`, les recompter ici les doublait.
+            refuses_envoi = self._cx.execute(
+                "SELECT COUNT(*) FROM mouvements"
+                " WHERE session=? AND issue='refuse_envoi'",
                 (session,),
             ).fetchone()[0]
 
-            refuses = bilan.get("ignores", 0) + refuses_session
+            refuses = bilan.get("ignores", 0) + refuses_envoi
+            # Tout ce que le serveur a REÇU et que le trieur a vu passer, exclus
+            # (`skipped`) compris : ils ont bien été envoyés, le trieur les a
+            # seulement écartés. Les refus à l'envoi n'y sont pas — ils n'ont
+            # jamais été écrits sur le NUC.
             envoyes = (bilan.get("sorted", 0) + bilan.get("to_triage", 0)
                        + bilan.get("duplicates", 0) + bilan.get("errors", 0)
-                       + bilan.get("ignores", 0))
+                       + bilan.get("ignores", 0) + bilan.get("skipped", 0))
 
             champs = [
                 "paquets = paquets + 1",
@@ -202,7 +220,6 @@ class Journal:
             self._cx.execute(
                 f"UPDATE synchros SET {', '.join(champs)} WHERE id=?", valeurs
             )
-            self._cx.commit()
 
     def synchros(self, limite: int = 200) -> list[dict]:
         """Les synchros, plus récente d'abord."""

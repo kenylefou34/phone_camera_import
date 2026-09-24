@@ -378,9 +378,13 @@ def pair_html(qr_svg: str, url: str) -> str:
 # recherche tapé par le mainteneur...) : jamais de confiance, toujours
 # `html.escape`.
 
+# « refuse » : reçu par le serveur, puis ignoré par le trieur (extension non
+# gérée, reliquat « .partiel ») ; « refuse_envoi » : refusé dès l'envoi, le
+# fichier n'a jamais été écrit sur le NUC (relecture finale, M1).
 _MOTS_ISSUE = {
     "range": "rangé", "a_trier": "à trier", "doublon": "doublon",
-    "refuse": "refusé", "exclu": "exclu", "erreur": "erreur",
+    "refuse": "refusé", "refuse_envoi": "refusé à l'envoi",
+    "exclu": "exclu", "erreur": "erreur",
 }
 
 _MOTS_EVENEMENT = {
