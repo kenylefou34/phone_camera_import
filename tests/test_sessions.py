@@ -1,4 +1,6 @@
 import io
+import os
+import time
 
 import pytest
 from phototheque import sessions
@@ -143,3 +145,59 @@ def test_la_traversee_est_refusee_avant_la_moindre_ecriture(tmp_path):
 
     assert flux.plus_gros_bloc_demande == 0, "le flux a été lu malgré le refus"
     assert not (tmp_path / "dehors.jpg").exists()
+
+
+# --- issue #30 : purge des sessions abandonnées et POST /sync/abandon -------
+
+
+def _vieillir(chemin, secondes):
+    """Recule la date de modification de `chemin` et de tout son contenu."""
+    t = time.time() - secondes
+    for p in [chemin, *chemin.rglob("*")]:
+        os.utime(p, (t, t))
+
+
+def test_une_session_de_25_heures_est_purgee_une_recente_survit(tmp_path):
+    """Spec §8.6."""
+    vieille = tmp_path / ("a" * 32); (vieille / "DCIM").mkdir(parents=True)
+    (vieille / "DCIM" / "x.jpg").write_bytes(b"123")
+    recente = tmp_path / ("b" * 32); recente.mkdir(); (recente / "y.jpg").write_bytes(b"1")
+    _vieillir(vieille, 25 * 3600); _vieillir(recente, 60)
+    emportees = sessions.purger_abandonnees(tmp_path)
+    assert [e["session"] for e in emportees] == ["a" * 32]
+    assert emportees[0]["fichiers"] == 1 and emportees[0]["octets"] == 3
+    assert not vieille.exists() and recente.exists()
+
+
+def test_la_quarantaine_n_est_jamais_purgee(tmp_path):
+    """Point d'attention 1 : purger _echecs réintroduirait l'issue #16."""
+    abri = tmp_path / "_echecs" / "DCIM"; abri.mkdir(parents=True)
+    (abri / "z.jpg").write_bytes(b"1")
+    _vieillir(tmp_path / "_echecs", 400 * 24 * 3600)
+    assert sessions.purger_abandonnees(tmp_path) == []
+    assert (abri / "z.jpg").exists()
+
+
+def test_une_reception_en_cours_dans_un_sous_dossier_protege_la_session(tmp_path):
+    """Point d'attention 2 : la date du dossier de session ne bouge pas quand
+    un fichier arrive dans un sous-dossier — seule celle du sous-dossier."""
+    s = tmp_path / ("c" * 32); (s / "DCIM" / "Camera").mkdir(parents=True)
+    (s / "DCIM" / "Camera" / "v.mp4.partiel").write_bytes(b"1")
+    _vieillir(s, 30 * 3600)
+    os.utime(s / "DCIM" / "Camera" / "v.mp4.partiel")     # écrit à l'instant
+    assert sessions.purger_abandonnees(tmp_path) == []
+
+
+def test_abandonner_refuse_un_identifiant_hors_norme(tmp_path):
+    """Spec §8.7 : `..` ne doit rien supprimer du tout."""
+    voisin = tmp_path / "voisin"; voisin.mkdir(); (voisin / "garde.jpg").write_bytes(b"1")
+    base = tmp_path / "incoming"; base.mkdir()
+    with pytest.raises(ValueError):
+        sessions.abandonner(base, "../voisin")
+    assert (voisin / "garde.jpg").exists()
+
+
+def test_abandonner_rend_ce_qui_a_ete_supprime(tmp_path):
+    s = tmp_path / ("d" * 32); s.mkdir(); (s / "a.jpg").write_bytes(b"12345")
+    assert sessions.abandonner(tmp_path, "d" * 32) == {"supprimes": 1, "octets": 5}
+    assert not s.exists()

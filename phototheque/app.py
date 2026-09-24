@@ -6,6 +6,7 @@ import logging
 import math
 import re
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import (Depends, FastAPI, File, Form, Header, HTTPException,
@@ -73,6 +74,49 @@ def _journaliser(action) -> None:
         action(journal())
     except Exception:
         _log_journal.exception("écriture du journal impossible")
+
+
+def _purger() -> None:
+    """Purge les sessions de synchro abandonnées (spec §5, issue #30).
+
+    Appelée au démarrage du service ET après chaque commit : pas de tâche
+    planifiée à installer ni à surveiller. Chaque session emportée laisse un
+    événement « purge » dans le journal — personne ne surveille ce service en
+    continu, seule une trace permet de comprendre APRÈS COUP qu'un ménage a
+    eu lieu. `sessions.purger_abandonnees` peut lever OSError (disque,
+    permissions) : c'est à l'appelant de décider si ça doit l'arrêter — ici,
+    jamais (voir _cycle_de_vie et sync_commit).
+    """
+    for e in sessions.purger_abandonnees(config.INCOMING_DIR):
+        detail = f"session {e['session']} : {e['fichiers']} fichier(s), {e['octets']} octets"
+        # `e=e` : sans ce défaut, toutes les lambdas de la boucle partageraient
+        # la MÊME variable `e` et journaliseraient toutes la dernière session.
+        _journaliser(lambda j, e=e, detail=detail: j.evenement("purge", detail=detail))
+
+
+@asynccontextmanager
+async def _cycle_de_vie(_app):
+    """Au démarrage : trace + purge des sessions abandonnées (spec §5).
+
+    Pas de tâche planifiée à installer ni à surveiller : le service purge en
+    s'ouvrant et après chaque commit. Une purge qui échoue ne doit pas
+    empêcher le service de démarrer.
+    """
+    _journaliser(lambda j: j.evenement("demarrage"))
+    try:
+        _purger()
+    except OSError:
+        _log_journal.exception("purge au démarrage impossible")
+    yield
+
+
+# Affecté après la définition de `_cycle_de_vie` (qui dépend elle-même de
+# `_journaliser`, `_purger` et `_log_journal`, tous définis plus haut) : `app`
+# est créé en tête de module, avant que ces noms existent. Starlette lit cet
+# attribut à chaque démarrage/arrêt de l'application (y compris pour chaque
+# `with TestClient(app):`) — l'assigner après coup revient exactement à le
+# passer à `FastAPI(lifespan=...)`.
+app.router.lifespan_context = _cycle_de_vie
 
 
 def require_device(authorization: str = Header(default="")) -> str:
@@ -360,7 +404,38 @@ def sync_commit(req: CommitRequest, request: Request,
             if not math.isfinite(horizon):
                 continue
             devices().set_horizon(dev_id, dossier, horizon)
+    # APRÈS que les horizons ont été écrits, et dans son propre garde-fou :
+    # une purge qui casse ne doit ni changer la réponse du commit (l'app la
+    # lit comme un dictionnaire de nombres, voir plus haut) ni empêcher
+    # l'horizon d'avoir avancé.
+    try:
+        _purger()
+    except OSError:
+        _log_journal.exception("purge apres commit impossible")
     return bilan
+
+
+class AbandonRequest(BaseModel):
+    session: str
+
+
+@app.post("/sync/abandon")
+def sync_abandon(req: AbandonRequest, dev_id: str = Depends(require_device)) -> dict:
+    """Supprime la session en cours sur ordre du téléphone (bouton « Interrompre »).
+
+    Sans cette route, une synchro interrompue laissait son dossier de
+    réception sur le NUC jusqu'à la prochaine purge de 24 h — potentiellement
+    plusieurs gigaoctets d'une grosse vidéo à moitié envoyée. L'application
+    appelle déjà cette route depuis le lot 1 bis ; elle recevait jusqu'ici un
+    404 silencieux.
+    """
+    try:
+        resultat = sessions.abandonner(config.INCOMING_DIR, req.session)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="identifiant de session non autorisé")
+    detail = f"session {req.session} : {resultat['supprimes']} fichier(s), {resultat['octets']} octets"
+    _journaliser(lambda j: j.evenement("abandon", appareil=dev_id, detail=detail))
+    return resultat
 
 
 @app.get("/sync/horizon")

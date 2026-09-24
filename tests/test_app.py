@@ -1386,3 +1386,104 @@ def test_le_desappairage_exige_un_jeton_d_appareil(tmp_path, monkeypatch):
     """Sans jeton, personne ne fait déconnecter le téléphone de quelqu'un."""
     a, client = _client(tmp_path, monkeypatch)
     assert client.post("/sync/desappairer").status_code == 401
+
+
+# --- issue #30 : purge des sessions abandonnées et POST /sync/abandon -------
+
+
+def test_sync_abandon_exige_un_appareil(tmp_path, monkeypatch):
+    a, client = _client(tmp_path, monkeypatch)
+    assert client.post("/sync/abandon", json={"session": "a" * 32}).status_code == 401
+
+
+def test_sync_abandon_supprime_la_session_et_journalise(tmp_path, monkeypatch):
+    """Le bouton « Interrompre » : la session en cours disparaît, sans attendre
+    les 24 h de la purge automatique, et laisse une trace nominative."""
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = _session_ouverte(client, h)
+    dossier = a.config.INCOMING_DIR / session
+    dossier.mkdir(parents=True)
+    (dossier / "DCIM").mkdir()
+    (dossier / "DCIM" / "v.mp4.partiel").write_bytes(b"12345")
+
+    r = client.post("/sync/abandon", headers=h, json={"session": session})
+
+    assert r.status_code == 200
+    assert r.json() == {"supprimes": 1, "octets": 5}
+    assert not dossier.exists()
+    evenements = a.journal().evenements()
+    assert any(e["type"] == "abandon" and e["appareil"] == dev_id for e in evenements)
+
+
+def test_sync_abandon_refuse_un_identifiant_hors_norme(tmp_path, monkeypatch):
+    """Un identifiant fantaisiste ne doit ni supprimer, ni faire planter la route."""
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+
+    r = client.post("/sync/abandon", headers=h, json={"session": "../../etc"})
+
+    assert r.status_code == 400
+
+
+def test_le_demarrage_purge_et_se_journalise(tmp_path, monkeypatch):
+    """Au lancement du service : une trace de démarrage, et les sessions
+    abandonnées depuis plus de 24 h disparaissent sans attendre un commit."""
+    a, client = _client(tmp_path, monkeypatch)
+    vieille = a.config.INCOMING_DIR / ("e" * 32)
+    vieille.mkdir(parents=True)
+    (vieille / "x.jpg").write_bytes(b"1")
+    import os, time
+    t = time.time() - 25 * 3600
+    for p in [vieille, *vieille.rglob("*")]:
+        os.utime(p, (t, t))
+
+    with TestClient(a.app):            # le `with` déclenche le lifespan
+        pass
+
+    types = [e["type"] for e in a.journal().evenements()]
+    assert "demarrage" in types and "purge" in types
+    assert not vieille.exists()
+
+
+def test_le_commit_purge_aussi_les_sessions_abandonnees(tmp_path, monkeypatch):
+    """Pas seulement au démarrage : chaque commit purge aussi (spec §5), sans
+    attendre qu'on relance le service pour libérer l'espace."""
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    vieille = a.config.INCOMING_DIR / ("f" * 32)
+    vieille.mkdir(parents=True)
+    (vieille / "x.jpg").write_bytes(b"1")
+    import os, time
+    t = time.time() - 25 * 3600
+    for p in [vieille, *vieille.rglob("*")]:
+        os.utime(p, (t, t))
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    r = client.post("/sync/commit", headers=h, json={"session": session})
+
+    assert r.status_code == 200
+    assert not vieille.exists()
+
+
+def test_une_purge_en_panne_ne_fait_pas_echouer_le_commit(tmp_path, monkeypatch):
+    """Une purge qui casse (disque, permissions...) ne doit ni faire échouer le
+    commit, ni empêcher l'horizon d'avancer — la purge n'est qu'un ménage."""
+    a, client = _client(tmp_path, monkeypatch)
+
+    def _casse(*args, **kwargs):
+        raise OSError("panne simulee")
+    monkeypatch.setattr(a.sessions, "purger_abandonnees", _casse)
+
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    r = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": 1.0e9}})
+
+    assert r.status_code == 200
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1.0e9}

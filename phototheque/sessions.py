@@ -2,6 +2,7 @@
 
 import re
 import shutil
+import time
 import uuid
 from pathlib import Path
 
@@ -93,3 +94,60 @@ def cleanup(base: Path, session: str) -> None:
     """Supprime le dossier de session."""
     _verifier_session(session)
     shutil.rmtree(base / session, ignore_errors=True)
+
+
+def _inventaire(dossier: Path) -> tuple[int, int]:
+    """(nombre de fichiers, octets) sous `dossier`, lui compris s'il en contient."""
+    fichiers = [p for p in dossier.rglob("*") if p.is_file()]
+    return len(fichiers), sum(p.stat().st_size for p in fichiers)
+
+
+def purger_abandonnees(base: Path, age_max_s: float = 24 * 3600,
+                        maintenant: float | None = None) -> list[dict]:
+    """Supprime les dossiers de session abandonnés depuis plus de `age_max_s`.
+
+    Ne considère QUE les dossiers dont le nom passe `identifiant_valide` :
+    c'est ce qui écarte `_echecs` (quarantaine des médias non rangés, issue
+    #16) par construction, sans avoir à le nommer explicitement nulle part —
+    tout dossier qui n'a pas exactement la forme produite par `new_session()`
+    est ignoré, purge ou pas. Une base absente (service jamais utilisé) rend
+    simplement une liste vide.
+
+    L'âge retenu est celui du fichier LE PLUS RÉCENT de toute l'arborescence
+    (le dossier de session lui-même compris, `rglob("*")` pour le reste) : une
+    réception en cours écrit dans un sous-dossier
+    (`<session>/DCIM/Camera/...`) sans jamais rafraîchir la date du dossier de
+    session — s'appuyer sur cette seule date purgerait une session dont un
+    transfert est toujours en train d'arriver.
+    """
+    if maintenant is None:
+        maintenant = time.time()
+    if not base.is_dir():
+        return []
+    emportees = []
+    for dossier in sorted(base.iterdir()):
+        if not dossier.is_dir() or not identifiant_valide(dossier.name):
+            continue
+        plus_recent = max(p.stat().st_mtime for p in [dossier, *dossier.rglob("*")])
+        if maintenant - plus_recent <= age_max_s:
+            continue
+        fichiers, octets = _inventaire(dossier)
+        emportees.append({"session": dossier.name, "fichiers": fichiers, "octets": octets})
+        shutil.rmtree(dossier)
+    return emportees
+
+
+def abandonner(base: Path, session: str) -> dict:
+    """Supprime la session `session` sur demande explicite du téléphone
+    (bouton « Interrompre », `POST /sync/abandon`), et rend ce qui a été
+    supprimé.
+
+    Le contrôle de forme est fait EN PREMIER, avant même de regarder le
+    disque : un identifiant hors norme ne doit strictement rien supprimer, ni
+    même être parcouru.
+    """
+    _verifier_session(session)
+    dossier = base / session
+    fichiers, octets = _inventaire(dossier) if dossier.is_dir() else (0, 0)
+    cleanup(base, session)
+    return {"supprimes": fichiers, "octets": octets}
