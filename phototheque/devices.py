@@ -212,5 +212,18 @@ class DeviceStore:
             ).fetchall()
         return {dossier: ts for dossier, ts in lignes}
 
+    def label(self, device_id: str) -> str | None:
+        """Le nom affiché de cet appareil, ou None s'il est inconnu (issue #30).
+
+        Sert au journal, qui garde le label au moment du commit : un appareil
+        révoqué puis réappairé change d'identifiant, mais son nom reste lisible
+        dans l'historique des synchros passées.
+        """
+        with self._lock:
+            ligne = self._cx.execute(
+                "SELECT label FROM devices WHERE id=?", (device_id,)
+            ).fetchone()
+        return ligne[0] if ligne else None
+
     def close(self) -> None:
         self._cx.close()

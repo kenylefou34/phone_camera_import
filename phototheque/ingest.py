@@ -19,8 +19,14 @@ def bilan_vide() -> dict:
     return Report().to_dict()
 
 
-def sort_session(session_dir: Path, library: Path, catalog) -> dict:
-    """Range les fichiers de la session dans la bibliothèque. Renvoie le bilan détaillé."""
+def sort_session(session_dir: Path, library: Path, catalog, sur_mouvement=None) -> dict:
+    """Range les fichiers de la session dans la bibliothèque. Renvoie le bilan détaillé.
+
+    'sur_mouvement', si fourni, est transmis tel quel à sort_folder : il est
+    appelé pour chaque fichier rencontré, avec le détail de son sort (issue
+    #30, alimente le journal du serveur).
+    """
     with _verrou:  # un seul tri à la fois
-        report = sort_folder(session_dir, library, catalog, dry_run=False)
+        report = sort_folder(session_dir, library, catalog, dry_run=False,
+                             sur_mouvement=sur_mouvement)
     return report.to_dict()

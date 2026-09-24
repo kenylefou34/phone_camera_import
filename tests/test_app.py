@@ -81,6 +81,7 @@ def test_admin_html_marks_pending_pairings():
 
 
 def _client(tmp_path, monkeypatch):
+    import os
     monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
     monkeypatch.setenv("CATALOG_DB", str(tmp_path / "cat.db"))
     monkeypatch.setenv("INCOMING_DIR", str(tmp_path / "incoming"))
@@ -89,6 +90,12 @@ def _client(tmp_path, monkeypatch):
     # le résultat des tests dépendrait de ce qui traîne dans le dossier
     # personnel de celui qui les lance.
     monkeypatch.setenv("APK_FILE", str(tmp_path / "app.apk"))
+    # Sans cette ligne, config.JOURNAL_DB resterait ~/phototheque_journal.db :
+    # les tests écriraient dans le dossier personnel de qui les lance. On ne
+    # remplace PAS une valeur déjà posée par le test lui-même : le test du
+    # journal en panne pose exprès un chemin illisible AVANT d'appeler
+    # _client, et cette ligne ne doit pas l'écraser.
+    monkeypatch.setenv("JOURNAL_DB", os.environ.get("JOURNAL_DB", str(tmp_path / "journal.db")))
     import phototheque.config as c; importlib.reload(c)
     import phototheque.app as a; importlib.reload(a)
     return a, TestClient(a.app)
@@ -734,6 +741,108 @@ def test_une_session_vide_puis_une_synchro_normale(tmp_path, monkeypatch):
     assert a.devices().get_horizons(dev_id) == {"Movies": 1726574400.0}
 
 
+# --- le journal (issue #30, tâche 3) ----------------------------------------
+
+
+def test_un_commit_sans_identifiant_de_synchro_fait_une_ligne(tmp_path, monkeypatch):
+    """Spec §8.2 : un téléphone qui n'envoie pas `synchro` reste journalisé."""
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    r = client.post("/sync/commit", headers=h, json={"session": session})
+
+    assert r.status_code == 200
+    lignes = a.journal().synchros()
+    assert len(lignes) == 1 and lignes[0]["appareil"] == dev_id
+
+
+def test_deux_commits_de_la_meme_synchro_font_une_ligne(tmp_path, monkeypatch):
+    """Deux paquets (lot 1 bis) d'une même grosse sauvegarde ne comptent qu'une fois."""
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session1 = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+    session2 = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    r1 = client.post("/sync/commit", headers=h,
+                     json={"session": session1, "synchro": "abc123"})
+    r2 = client.post("/sync/commit", headers=h,
+                     json={"session": session2, "synchro": "abc123"})
+
+    assert r1.status_code == 200 and r2.status_code == 200
+    assert len(a.journal().synchros()) == 1
+    assert a.journal().synchros()[0]["paquets"] == 2
+
+
+def test_la_reponse_du_commit_ne_contient_pas_les_mouvements(tmp_path, monkeypatch):
+    """L'app lit la réponse comme un dictionnaire de nombres."""
+    import datetime, io
+    import mediasort.dates as d
+    monkeypatch.setattr(d, "date_from_metadata", lambda p: datetime.date(2023, 5, 26))
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = _session_ouverte(client, h)
+    contenu = b"une vraie photo"
+    client.post("/sync/upload", headers=h,
+               data={"session": session, "path": "DCIM/Camera/a.jpg"},
+               files={"file": ("a.jpg", io.BytesIO(contenu), "image/jpeg")})
+
+    r = client.post("/sync/commit", headers=h, json={"session": session})
+
+    assert r.status_code == 200
+    assert "mouvements" not in r.json()
+
+
+def test_un_journal_en_panne_ne_fait_pas_echouer_le_commit(tmp_path, monkeypatch):
+    """Point d'attention 3 : l'horizon doit avancer quand même."""
+    monkeypatch.setenv("JOURNAL_DB", str(tmp_path / "absent" / "sous" / "j.db"))
+    a, client = _client(tmp_path, monkeypatch)
+    dev_id, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    r = client.post("/sync/commit", headers=h, json={
+        "session": session, "horizons": {"DCIM/Camera": 1.0e9}})
+
+    assert r.status_code == 200
+    assert a.devices().get_horizons(dev_id) == {"DCIM/Camera": 1.0e9}
+
+
+def test_une_extension_refusee_a_l_envoi_est_journalisee(tmp_path, monkeypatch):
+    """Un refus à l'upload (avant même le trieur) laisse une trace nominative."""
+    import io
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = _session_ouverte(client, h)
+
+    refuse = client.post("/sync/upload", headers=h,
+                         data={"session": session, "path": "notes.txt"},
+                         files={"file": ("notes.txt", io.BytesIO(b"x"), "text/plain")})
+    assert refuse.status_code == 400
+
+    client.post("/sync/commit", headers=h, json={"session": session, "synchro": "s1"})
+
+    assert [m["issue"] for m in a.journal().mouvements("s1")] == ["refuse"]
+
+
+def test_un_identifiant_de_synchro_hors_norme_est_remplace(tmp_path, monkeypatch):
+    """Un identifiant fantaisiste ou trop long ne doit pas atteindre la base tel quel."""
+    a, client = _client(tmp_path, monkeypatch)
+    _, secret = a.devices().pair("Pixel")
+    h = {"Authorization": f"Bearer {secret}"}
+    session = client.post("/sync/plan", headers=h, json={"files": []}).json()["session"]
+
+    r = client.post("/sync/commit", headers=h,
+                    json={"session": session, "synchro": "x" * 500})
+
+    assert r.status_code == 200
+    assert len(a.journal().synchros()[0]["id"]) <= 64
+
+
 @pytest.mark.parametrize("contenu,description", [
     (b"-----BEGIN CERTIFICATE-----\nMIIDazCCAlOgAwIBAgIU\n", "PEM tronqué"),
     (b"", "fichier vide"),
@@ -994,10 +1103,13 @@ def test_l_identifiant_est_insensible_aux_espaces_autour(tmp_path, monkeypatch):
 
 def _client_depuis(tmp_path, monkeypatch, ip="192.168.1.50"):
     """Comme _client, mais en se faisant passer pour une machine donnée."""
+    import os
     monkeypatch.setenv("LIBRARY_DIR", str(tmp_path))
     monkeypatch.setenv("CATALOG_DB", str(tmp_path / "cat.db"))
     monkeypatch.setenv("INCOMING_DIR", str(tmp_path / "incoming"))
     monkeypatch.setenv("DEVICES_DB", str(tmp_path / "dev.db"))
+    # Voir le commentaire équivalent dans _client.
+    monkeypatch.setenv("JOURNAL_DB", os.environ.get("JOURNAL_DB", str(tmp_path / "journal.db")))
     import phototheque.config as c; importlib.reload(c)
     import phototheque.app as a; importlib.reload(a)
     return a, TestClient(a.app, client=(ip, 12345))

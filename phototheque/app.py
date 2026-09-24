@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import math
+import re
 import time
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from mediasort.hashing import file_hash
 from . import (adminauth, apk, config, essais, ingest, pairing, quarantaine,
                sessions, stats, tls, web)
 from .devices import DeviceStore
+from .journal import Journal
 
 # docs_url/redoc_url/openapi_url à None = les routes n'existent pas du tout,
 # et répondent donc 404. C'est voulu : un 401 annoncerait ce qu'il protège.
@@ -44,6 +46,33 @@ def devices() -> DeviceStore:
     if _devices is None:
         _devices = DeviceStore(config.DEVICES_DB)
     return _devices
+
+
+_journal_ouvert = None
+
+
+def journal() -> Journal:
+    """Ouvre le journal à la PREMIÈRE UTILISATION (voir devices())."""
+    global _journal_ouvert
+    if _journal_ouvert is None:
+        _journal_ouvert = Journal(config.JOURNAL_DB)
+    return _journal_ouvert
+
+
+_log_journal = logging.getLogger("phototheque.journal")
+
+
+def _journaliser(action) -> None:
+    """Écrit dans le journal sans JAMAIS faire échouer la route appelante.
+
+    Un journal en panne (base verrouillée, disque plein) qui ferait échouer
+    un commit empêcherait l'horizon d'avancer : le téléphone renverrait tout,
+    indéfiniment, pour une simple trace. La trace passe après le travail.
+    """
+    try:
+        action(journal())
+    except Exception:
+        _log_journal.exception("écriture du journal impossible")
 
 
 def require_device(authorization: str = Header(default="")) -> str:
@@ -155,11 +184,36 @@ class PlanRequest(BaseModel):
     files: list[FileSig]
 
 
+class BilanApp(BaseModel):
+    """Cumul (pas un delta) envoyé par le téléphone, vu de l'application elle-même.
+
+    Facultatif : le journal (issue #30) le garde à côté du bilan calculé côté
+    serveur, sans quoi une divergence entre ce que l'app croit avoir envoyé et
+    ce que le serveur a réellement rangé passerait inaperçue.
+    """
+    envoyes: int = 0
+    refuses: int = 0
+    echecs: int = 0
+
+
+# Identifiant de synchro accepté du téléphone (lot 1 bis, une grosse
+# sauvegarde en plusieurs paquets qui partagent le même identifiant) : forme
+# bornée avant d'atteindre la base, sinon une valeur fantaisiste ou trop
+# longue produirait une clé imprévisible dans `journal.synchros`.
+_MOTIF_SYNCHRO = re.compile(r"[A-Za-z0-9_-]{1,64}")
+
+
 class CommitRequest(BaseModel):
     session: str
+    # Identifiant de la synchro globale (voir _MOTIF_SYNCHRO). Facultatif :
+    # un téléphone qui ne l'envoie pas reste journalisé quand même, sous un
+    # identifiant fabriqué par le serveur (voir sync_commit, spec §8.2).
+    synchro: str | None = None
     # Jusqu'où chaque dossier a été parcouru par l'application. Facultatif :
     # un client qui ne l'envoie pas continue de fonctionner.
     horizons: dict[str, float] = {}
+    # Bilan côté application (lot 1 bis / lot 2), facultatif lui aussi.
+    bilan_app: BilanApp | None = None
 
 
 @app.post("/sync/plan")
@@ -198,11 +252,14 @@ def sync_upload(session: str = Form(...), path: str = Form(...),
     """
     extension = Path(path).suffix
     if classify.media_type(extension) is None:
-        raise HTTPException(
-            status_code=400,
-            detail=f"extension non prise en charge : « {extension or path} » —"
-                   " le serveur n'accepte que les photos et vidéos qu'il sait ranger",
-        )
+        detail = (f"extension non prise en charge : « {extension or path} » —"
+                  " le serveur n'accepte que les photos et vidéos qu'il sait ranger")
+        # Seulement si l'identifiant de session a la forme attendue : un
+        # identifiant fantaisiste (voir sessions.identifiant_valide) n'a rien
+        # à faire dans la colonne `session` du journal.
+        if sessions.identifiant_valide(session):
+            _journaliser(lambda j: j.noter_refus(session, path, detail))
+        raise HTTPException(status_code=400, detail=detail)
     try:
         dest = sessions.save_upload(config.INCOMING_DIR, session, path, file.file)
     except ValueError as e:
@@ -211,7 +268,8 @@ def sync_upload(session: str = Form(...), path: str = Form(...),
 
 
 @app.post("/sync/commit")
-def sync_commit(req: CommitRequest, dev_id: str = Depends(require_device)) -> dict:
+def sync_commit(req: CommitRequest, request: Request,
+                dev_id: str = Depends(require_device)) -> dict:
     """Range les fichiers reçus, puis fait avancer les horizons.
 
     Une session SANS DOSSIER n'est pas une session inconnue : c'est une
@@ -226,14 +284,27 @@ def sync_commit(req: CommitRequest, dev_id: str = Depends(require_device)) -> di
     forme produite par `new_session()` est acceptée (voir
     sessions.identifiant_valide), ce qui interdit aussi bien un nom
     fantaisiste qu'un identifiant remontant hors du dépôt des envois.
+
+    Chaque mouvement de fichier part au journal PENDANT le tri, et le commit
+    lui-même juste après (issue #30) : la réponse HTTP, elle, GARDE EXACTEMENT
+    sa forme actuelle (l'application la lit comme un dictionnaire de
+    nombres) — le bilan du journal n'y figure jamais.
     """
     if not sessions.identifiant_valide(req.session):
         raise HTTPException(status_code=404, detail="session inconnue")
+    # Un identifiant de synchro hors norme (absent, fantaisiste, trop long)
+    # est remplacé par un neuf : un téléphone qui n'envoie rien reste quand
+    # même journalisé, sous une seule ligne (spec §8.2).
+    synchro = (req.synchro if req.synchro and _MOTIF_SYNCHRO.fullmatch(req.synchro)
+              else sessions.new_session())
     session_dir = config.INCOMING_DIR / req.session
     if session_dir.exists():
         cat = Catalog(config.CATALOG_DB)
         try:
-            bilan = ingest.sort_session(session_dir, config.LIBRARY_DIR, cat)
+            bilan = ingest.sort_session(
+                session_dir, config.LIBRARY_DIR, cat,
+                sur_mouvement=lambda m: _journaliser(
+                    lambda j: j.ajouter_mouvement(req.session, m)))
         finally:
             cat.close()
     else:
@@ -249,6 +320,10 @@ def sync_commit(req: CommitRequest, dev_id: str = Depends(require_device)) -> di
             session_dir, bilan["echecs"],
             config.INCOMING_DIR / quarantaine.DOSSIER)
     sessions.cleanup(config.INCOMING_DIR, req.session)
+    adresse = request.client.host if request.client else None
+    _journaliser(lambda j: j.enregistrer_commit(
+        synchro, req.session, dev_id, devices().label(dev_id), adresse, bilan,
+        req.bilan_app.model_dump() if req.bilan_app else None))
     # L'horizon n'avance qu'après un tri INTÉGRALEMENT réussi. Avancer dirait
     # au téléphone « bien reçu » pour un média que la bibliothèque n'a pas ;
     # il ne le proposerait plus jamais. On préfère qu'il repropose tout le
