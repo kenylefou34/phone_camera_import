@@ -269,17 +269,21 @@ entre son horizon et la nouvelle date de début ne partent plus, et
 l'application **gèle l'horizon de ce dossier** tant que c'est le cas. Rien
 n'est perdu — la tranche redevient proposable dès que la date redescend — mais
 l'horizon de ce dossier n'avance plus, donc ses médias sont réanalysés à
-chaque sauvegarde. Si une sauvegarde vous paraît longue sans rien envoyer,
-c'est la première chose à regarder : effacer la date de début remet tout
-d'aplomb.
+chaque sauvegarde. **L'accueil le dit** après chaque sauvegarde (« Votre
+date de début retient N dossier(s)… », issue #36), et le journal aussi
+(`horizon gelé par la date de début`, voir §11) : baisser ou effacer la date
+de début remet tout d'aplomb. Un gel dû à un échec n'y figure pas — il se
+voit déjà dans les compteurs d'échec.
 
 ### Deux gestes qui décochent plus que la ligne touchée
 
-- **« Ne pas sauvegarder » sur un dossier à la case à moitié pleine** décoche
-  **toute sa descendance**, et la ligne dépliée nomme d'abord les
-  sous-dossiers concernés. Sans cela, ce choix n'aurait strictement aucun
-  effet : la case est à moitié pleine parce que ce sont des enfants, et non ce
-  dossier-là, qui sont cochés.
+- **« Ne pas sauvegarder » sur un dossier dont des sous-dossiers sont
+  cochés** décoche **toute sa descendance**, et la ligne dépliée nomme
+  d'abord les sous-dossiers concernés — quel que soit l'état du dossier
+  lui-même (issue #38 : le message ne s'affichait que sur une case à moitié
+  pleine). Sur une case à moitié pleine, c'est d'ailleurs la seule façon que
+  ce choix fasse quelque chose : ce sont des enfants, et non ce dossier-là,
+  qui sont cochés.
 - **Aucun dossier coché du tout** : l'accueil le dit en bandeau, et la
   sauvegarde n'est plus comptée comme une réussite — sans quoi le compteur
   resterait au vert pendant que plus rien ne part.

@@ -66,6 +66,21 @@ class LisibleTest {
         }
     }
 
+    @Test fun un_gel_par_la_date_de_debut_est_annonce_avec_son_remede() {
+        // Issue #36 : le coût du gel (tout est réexaminé à chaque passe)
+        // était muet ; seul l'allongement des sauvegardes le trahissait.
+        assertEquals(
+            "Votre date de début retient 2 dossier(s) : DCIM/Camera, Pictures/WhatsApp. " +
+            "Leurs médias plus anciens sont gardés pour plus tard, mais tout ce qu'ils " +
+            "contiennent dans la fenêtre est réexaminé à chaque sauvegarde. " +
+            "Baissez ou effacez la date de début pour lever cette attente.",
+            Lisible.gelParLaDate(setOf("Pictures/WhatsApp", "DCIM/Camera")))
+    }
+
+    @Test fun sans_dossier_gele_rien_n_est_annonce() {
+        assertNull(Lisible.gelParLaDate(emptySet()))
+    }
+
     @Test fun sans_sous_dossier_coche_rien_n_est_annonce() {
         assertNull(Lisible.avertissementDecoche(Coche.DOSSIER, emptyList()))
     }

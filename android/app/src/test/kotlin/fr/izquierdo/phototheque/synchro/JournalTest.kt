@@ -22,6 +22,14 @@ class JournalTest {
                 dossiersVus = mapOf("a" to 1, "b" to 2, "c" to 3, "d" to 4))))
     }
 
+    @Test fun un_gel_par_la_date_est_mentionne() {
+        assertEquals("terminée : 0 envoyés, 5 refusés, 0 en échec, 1 dossiers, " +
+                     "horizon gelé par la date de début : DCIM/Camera",
+            Journal.decrire(IssueSynchro(
+                bilan = bilan(refuses = 5).copy(gelesParLaDate = setOf("DCIM/Camera")),
+                dossiersVus = mapOf("DCIM/Camera" to 5))))
+    }
+
     @Test fun un_bilan_interrompu_le_dit() {
         assertEquals("interrompue : 1 envoyés, 0 refusés, 0 en échec, 1 dossiers",
             Journal.decrire(IssueSynchro(bilan = bilan(1, interrompu = true),

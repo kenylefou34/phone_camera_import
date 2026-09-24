@@ -42,6 +42,19 @@ data class Bilan(
      * avant de l'afficher : « Sauvegarde interrompue. » parle d'une décision.
      */
     val interrompu: Boolean = false,
+    /**
+     * Les dossiers dont l'horizon est gelé PAR LA DATE DE DÉBUT : sa borne
+     * basse leur a écarté au moins un média, donc leur horizon n'avance pas
+     * (voir `arretes` dans [Orchestrateur.synchroniser]).
+     *
+     * Issue #36 : ce gel protège la tranche écartée, mais il a un prix —
+     * tout ce que ces dossiers ont dans la fenêtre est réempreinté à chaque
+     * passe — et ce prix était muet. L'accueil l'annonce à partir d'ici.
+     * Les gels dus à un échec n'y figurent PAS : ils se voient déjà dans les
+     * compteurs d'échec, et les attribuer à la date ferait baisser une date
+     * qui n'y est pour rien.
+     */
+    val gelesParLaDate: Set<String> = emptySet(),
 )
 
 /**
@@ -121,9 +134,10 @@ class Orchestrateur(
         //
         // La borne HAUTE, elle, n'a besoin d'aucun filet : un horizon calculé
         // sur les seuls médias envoyés ne peut pas dépasser la date de fin.
-        var arretes: Set<String> = avantFenetre
+        val gelesParLaDate: Set<String> = avantFenetre
             .filter { Fenetre.avantLeDebut(it, reglages.debutJour) }
             .mapTo(mutableSetOf()) { it.dossier }
+        var arretes: Set<String> = gelesParLaDate
         var bilanServeur = emptyMap<String, Double>()
         var paquetsValides = 0
 
@@ -256,6 +270,6 @@ class Orchestrateur(
         }
 
         publier(Phase.RANGEMENT)
-        return Bilan(envoyes, refuses, echecs, revoque, bilanServeur, arrete)
+        return Bilan(envoyes, refuses, echecs, revoque, bilanServeur, arrete, gelesParLaDate)
     }
 }

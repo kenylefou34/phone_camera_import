@@ -416,6 +416,37 @@ class OrchestrateurTest {
                    serveur.commits.none { it.containsKey("DCIM/Camera") })
     }
 
+    @Test fun le_bilan_nomme_les_dossiers_geles_par_la_date_de_debut() {
+        // Issue #36 : le gel ci-dessus a un prix — tout ce que le dossier a
+        // dans la fenetre est reempreinte a chaque passe — et ce prix etait
+        // muet. Le bilan le porte pour que l'accueil puisse le dire.
+        val gap = Media(1, "DCIM/Camera", "decembre.jpg", 10, 1_608_500_000.0)
+        val dedans = Media(2, "DCIM/Camera", "mai.jpg", 10, 1_620_000_000.0)
+        val autre = Media(3, "Pictures/WhatsApp", "mai.jpg", 10, 1_620_000_000.0)
+        val serveur = FauxServeur(horizons = mapOf(
+            "DCIM/Camera" to 1_608_000_000.0, "Pictures/WhatsApp" to 1_608_000_000.0))
+
+        val bilan = Orchestrateur(FausseSource(listOf(gap, dedans, autre)), serveur)
+            .synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera", "Pictures/WhatsApp"),
+                                   debutJour = "2021-01-01", debutApplique = "2021-01-01"))
+
+        // Seul le dossier dont la borne basse a ecarte un media est gele.
+        assertEquals(setOf("DCIM/Camera"), bilan.gelesParLaDate)
+    }
+
+    @Test fun un_gel_du_a_un_echec_n_est_pas_attribue_a_la_date() {
+        // Le gel par echec se voit deja dans les compteurs d'echec ; le
+        // confondre avec celui de la date dirait a l'utilisateur de baisser
+        // une date qui n'y est pour rien.
+        val serveur = FauxServeur(echouerSur = setOf("DCIM/Camera/a.jpg"))
+        val bilan = Orchestrateur(
+            FausseSource(listOf(Media(1, "DCIM/Camera", "a.jpg", 10, 1_620_000_000.0))),
+            serveur).synchroniser(Reglages(dossiersSeuls = setOf("DCIM/Camera")))
+
+        assertEquals(1, bilan.echecs)     // l'echec a bien eu lieu, et gele
+        assertEquals(emptySet<String>(), bilan.gelesParLaDate)
+    }
+
     @Test fun la_borne_HAUTE_de_la_fenetre_ne_gele_rien() {
         // Le pendant du test precedent. Geler sur la borne haute serait tout
         // aussi faux : un horizon calcule sur les seuls medias envoyes ne peut

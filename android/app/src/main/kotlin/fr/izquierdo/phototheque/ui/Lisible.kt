@@ -64,6 +64,23 @@ object Lisible {
         else "Sauvegardé par ses sous-dossiers : " + enumerer(descendantsCoches) +
             ". « Ne pas sauvegarder » les décochera tous."
 
+    /**
+     * Ce qu'on dit sur l'accueil des dossiers dont la date de début gèle
+     * l'horizon (`Bilan.gelesParLaDate`) ; `null` s'il n'y en a aucun.
+     *
+     * Issue #36 : ce gel protège les médias que la date écarte, mais oblige à
+     * réexaminer (réempreinter) tout le reste du dossier à chaque passe. Sans
+     * cette phrase, rien ne le disait : seul l'allongement des sauvegardes le
+     * trahissait. On dit le fait, son coût, et le geste qui le lève.
+     */
+    fun gelParLaDate(dossiers: Set<String>): String? =
+        if (dossiers.isEmpty()) null
+        else "Votre date de début retient ${dossiers.size} dossier(s) : " +
+            enumerer(dossiers.sorted()) + ". Leurs médias plus anciens sont gardés " +
+            "pour plus tard, mais tout ce qu'ils contiennent dans la fenêtre est " +
+            "réexaminé à chaque sauvegarde. Baissez ou effacez la date de début " +
+            "pour lever cette attente."
+
     fun enumerer(noms: List<String>, maximum: Int = 3): String {
         val montres = noms.take(maximum)
         val reste = noms.size - montres.size

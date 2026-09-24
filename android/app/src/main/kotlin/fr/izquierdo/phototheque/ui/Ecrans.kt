@@ -67,6 +67,13 @@ fun EcranAccueil(etat: EtatSynchro, reglages: Reglages, maintenantMs: Long,
                 Text("Sauvegarde interrompue.")
             }
             Text("${it.envoyes} envoyés · ${it.refuses} refusés · ${it.echecs} en échec")
+            // Neutre, pas rouge : rien n'est perdu, c'est un coût et non une
+            // panne (issue #36). Mais sur l'accueil, pas derrière « Voir le
+            // détail » : sinon seul l'allongement des sauvegardes le dirait.
+            Lisible.gelParLaDate(it.gelesParLaDate)?.let { message ->
+                Spacer(Modifier.height(8.dp))
+                Text(message, style = MaterialTheme.typography.bodyMedium)
+            }
         }
         // Quatrième panne, la seule qui n'avait pas encore de message : le
         // serveur a bien reçu les médias mais n'a pas su les ranger. Le compteur

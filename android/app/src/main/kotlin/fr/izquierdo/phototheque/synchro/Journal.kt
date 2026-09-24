@@ -34,8 +34,13 @@ object Journal {
                 // IssueSynchro.dossiersVus) : on ne les confond pas ici non plus.
                 val dossiers = issue.dossiersVus?.let { "${it.size} dossiers" }
                     ?: "dossiers non lus"
+                // Issue #36 : le gel coûte une réempreinte à chaque passe ;
+                // le journal doit le dire aussi, pas seulement l'accueil.
+                val gel = if (bilan.gelesParLaDate.isEmpty()) ""
+                    else ", horizon gelé par la date de début : " +
+                        bilan.gelesParLaDate.sorted().joinToString(", ")
                 "$etat : ${bilan.envoyes} envoyés, ${bilan.refuses} refusés, " +
-                    "${bilan.echecs} en échec, $dossiers"
+                    "${bilan.echecs} en échec, $dossiers$gel"
             }
             else -> "sans issue publiée"
         }
