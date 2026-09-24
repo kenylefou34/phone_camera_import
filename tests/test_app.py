@@ -307,7 +307,9 @@ def test_pair_sans_certificat_ne_casse_pas(tmp_path, monkeypatch):
     assert client.get("/pair", headers=entetes).status_code == 200
 
 
-ADRESSES_ADMIN = ["/", "/pair", "/devices", "/apk"]
+ADRESSES_ADMIN = ["/", "/pair", "/devices", "/apk",
+                  "/historique", "/historique/recherche?q=a", "/historique/x",
+                  "/evenements"]
 
 
 def _avec_admin(tmp_path, monkeypatch, mot_de_passe="secret-admin"):
@@ -340,12 +342,17 @@ def test_revocation_exige_un_mot_de_passe(tmp_path, monkeypatch):
 @pytest.mark.parametrize("adresse", ADRESSES_ADMIN)
 def test_le_bon_mot_de_passe_ouvre_l_admin(adresse, tmp_path, monkeypatch):
     entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
     # /apk ne sert pas une page mais un fichier : sans dépôt il répond
     # légitimement 404. On en dépose donc un, pour que ce test mesure bien ce
     # qu'il prétend mesurer — l'authentification — et pas l'absence d'APK.
     if adresse == "/apk":
         (tmp_path / "app.apk").write_bytes(b"PK\x03\x04")
-    a, client = _client(tmp_path, monkeypatch)
+    # /historique/x cible une synchro précise : sans elle, la route répond
+    # légitimement 404 (identifiant inconnu). On la crée pour que ce test
+    # mesure l'authentification, pas l'existence de la synchro.
+    if adresse == "/historique/x":
+        a.journal().enregistrer_commit("x", "sess-x", "tel", "Pixel", None, {}, None)
     assert client.get(adresse, headers=entetes).status_code == 200, adresse
 
 
@@ -407,6 +414,99 @@ def test_poster_une_date_sur_pair_n_est_plus_possible(tmp_path, monkeypatch):
 
     assert r.status_code == 405
     assert a.devices().get_horizon_initial(dev_id) == datetime.date.today().isoformat()
+
+
+# --- pages d'historique et d'événements (tâche 6, issue #30) ----------------
+
+
+def test_un_nom_de_fichier_hostile_est_echappe(tmp_path, monkeypatch):
+    """Point d'attention 4 : le nom vient du téléphone, jamais fait confiance."""
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    a.journal().ajouter_mouvement("sess0", {
+        "origine": "DCIM/<script>alert(1)</script>.jpg", "taille": 1,
+        "empreinte": "e", "issue": "range", "destination": "/b/x.jpg", "detail": None})
+    a.journal().enregistrer_commit("s1", "sess0", "tel", "Pixel", None, {}, None)
+    for adresse in ["/historique/s1", "/historique/recherche?q=script"]:
+        texte = client.get(adresse, headers=entetes).text
+        assert "<script>alert" not in texte and "&lt;script&gt;" in texte
+
+
+def test_l_historique_montre_les_synchros_et_l_admin_y_mene(tmp_path, monkeypatch):
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    a.journal().enregistrer_commit("s1", "sess0", "tel", "Pixel", "192.168.1.18",
+                                   {"sorted": 4}, None)
+    assert "Pixel" in client.get("/historique", headers=entetes).text
+    assert 'href="/historique"' in client.get("/", headers=entetes).text
+    assert client.get("/historique/inconnue", headers=entetes).status_code == 404
+
+
+def test_l_historique_signale_les_synchros_en_echec_par_un_mot(tmp_path, monkeypatch):
+    """Règle d'accessibilité : la couleur d'état ne suffit jamais seule.
+
+    « erreur » seul ne suffit pas à distinguer les deux mots (« sans erreur »
+    le contient aussi) : on vérifie le mot exact de chaque état, et que la
+    classe CSS qui porte la couleur diffère bien entre les deux lignes.
+    """
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    a.journal().enregistrer_commit("ok", "sess-ok", "tel", "Pixel", None,
+                                   {"sorted": 1}, None)
+    a.journal().enregistrer_commit("ko", "sess-ko", "tel", "Pixel", None,
+                                   {"errors": 1}, None)
+    texte = client.get("/historique", headers=entetes).text
+    assert "en erreur" in texte
+    assert "sans erreur" in texte
+    assert 'etiquette critical' in texte
+    assert 'etiquette ok' in texte
+
+
+def test_la_page_d_une_synchro_montre_ses_mouvements(tmp_path, monkeypatch):
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    a.journal().ajouter_mouvement("sess0", {
+        "origine": "DCIM/Camera/a.jpg", "taille": 10, "empreinte": "e",
+        "issue": "range", "destination": "Photos/2026/09 SEPT/a.jpg", "detail": None})
+    a.journal().enregistrer_commit("s1", "sess0", "tel", "Pixel", None, {"sorted": 1}, None)
+    texte = client.get("/historique/s1", headers=entetes).text
+    assert "DCIM/Camera/a.jpg" in texte
+    assert "Photos/2026/09 SEPT/a.jpg" in texte
+
+
+def test_la_recherche_vide_n_interroge_pas_le_journal(tmp_path, monkeypatch):
+    """`Journal.rechercher("")` ramènerait toute la table : à éviter."""
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    a.journal().ajouter_mouvement("sess0", {
+        "origine": "DCIM/Camera/a.jpg", "taille": 10, "empreinte": "e",
+        "issue": "range", "destination": "Photos/2026/09 SEPT/a.jpg", "detail": None})
+    a.journal().enregistrer_commit("s1", "sess0", "tel", "Pixel", None, {"sorted": 1}, None)
+
+    for adresse in ["/historique/recherche", "/historique/recherche?q=", "/historique/recherche?q=  "]:
+        texte = client.get(adresse, headers=entetes).text
+        assert "DCIM/Camera/a.jpg" not in texte
+
+
+def test_la_recherche_trouve_un_mouvement(tmp_path, monkeypatch):
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    a.journal().ajouter_mouvement("sess0", {
+        "origine": "DCIM/Camera/a.jpg", "taille": 10, "empreinte": "e",
+        "issue": "range", "destination": "Photos/2026/09 SEPT/a.jpg", "detail": None})
+    a.journal().enregistrer_commit("s1", "sess0", "tel", "Pixel", None, {"sorted": 1}, None)
+    texte = client.get("/historique/recherche?q=Camera", headers=entetes).text
+    assert "DCIM/Camera/a.jpg" in texte
+
+
+def test_les_evenements_s_affichent(tmp_path, monkeypatch):
+    entetes = _avec_admin(tmp_path, monkeypatch)
+    a, client = _client(tmp_path, monkeypatch)
+    a.journal().evenement("appairage", appareil="abc123", adresse="192.168.1.18")
+    texte = client.get("/evenements", headers=entetes).text
+    assert "appairage" in texte.lower()
+    assert "abc123" in texte
+    assert "192.168.1.18" in texte
 
 
 def test_horizon_exige_un_jeton_d_appareil(tmp_path, monkeypatch):

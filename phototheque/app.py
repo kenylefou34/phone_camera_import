@@ -650,3 +650,46 @@ def apk_telecharger(_: None = Depends(require_admin)) -> FileResponse:
                    "./deploy/envoyer-apk.sh depuis la machine de compilation.")
     return FileResponse(config.APK_FILE, media_type=apk.TYPE_MIME,
                         filename=apk.nom_de_telechargement(vu))
+
+
+# --- pages d'historique (issue #30) -----------------------------------------
+#
+# Quatre pages, toutes derrière `require_admin` comme le reste de
+# l'administration. `/historique/recherche` DOIT être déclarée avant
+# `/historique/{identifiant}` : sinon FastAPI fait correspondre "recherche" à
+# `identifiant` (un chemin paramétré capture tout ce qui suit, y compris un
+# autre chemin fixe déclaré après lui).
+
+
+@app.get("/historique", response_class=HTMLResponse)
+def historique(_: None = Depends(require_admin)) -> str:
+    """Liste des synchronisations, la plus récente d'abord."""
+    return web.historique_html(journal().synchros())
+
+
+@app.get("/historique/recherche", response_class=HTMLResponse)
+def historique_recherche(q: str = "", _: None = Depends(require_admin)) -> str:
+    """Recherche un fichier par nom (partiel) ou par empreinte exacte.
+
+    Un `q` vide ou ne contenant que des espaces n'interroge PAS le journal :
+    `Journal.rechercher("")` ramènerait la table entière (le motif LIKE
+    devient "%%", qui correspond à tout). Seul le formulaire s'affiche alors.
+    """
+    q_utile = q.strip()
+    resultats = journal().rechercher(q_utile) if q_utile else None
+    return web.recherche_html(q, resultats)
+
+
+@app.get("/historique/{identifiant}", response_class=HTMLResponse)
+def historique_synchro(identifiant: str, _: None = Depends(require_admin)) -> str:
+    """Détail d'une synchronisation : ses mouvements, origine vers destination."""
+    s = journal().synchro(identifiant)
+    if s is None:
+        raise HTTPException(status_code=404, detail="synchronisation inconnue")
+    return web.synchro_html(s, journal().mouvements(identifiant))
+
+
+@app.get("/evenements", response_class=HTMLResponse)
+def evenements(_: None = Depends(require_admin)) -> str:
+    """Journal des faits ponctuels : démarrages, appairages, authentifications."""
+    return web.evenements_html(journal().evenements())

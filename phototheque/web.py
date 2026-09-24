@@ -96,6 +96,20 @@ ul.appareils li:last-child { border-bottom: 0; }
 }
 .pousse { margin-left: auto; }
 .vide { color: var(--muted); padding: 13px 0; }
+.etiquette.ok       { color: var(--accent); border-color: var(--accent); }
+.etiquette.critical { color: var(--critical); border-color: var(--critical); }
+a.lien-ligne {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  color: inherit; text-decoration: none;
+}
+/* Listes de mouvements et d'événements : une ligne d'en-tête (souple, elle
+   passe à la ligne) et un détail facultatif en dessous — les chemins et les
+   messages libres (issus du téléphone) peuvent être longs. */
+ul.lignes { list-style: none; margin: 0; padding: 0; }
+ul.lignes li { padding: 13px 0; border-bottom: 1px solid var(--line); }
+ul.lignes li:last-child { border-bottom: 0; }
+ul.lignes .entete { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sous-detail { margin-top: 6px; }
 button, .bouton {
   font: inherit; font-size: 13.5px; cursor: pointer;
   border-radius: 9px; padding: 7px 13px;
@@ -125,10 +139,11 @@ STYLE_QR = """
 .centre { text-align: center; }
 .centre .carte { display: inline-block; text-align: left; }
 form { margin: 0 0 14px; display: flex; gap: 8px; align-items: center; }
-input[type=date] {
+input[type=date], input[type=text] {
   font: inherit; padding: 6px 10px; border-radius: 9px;
   border: 1px solid var(--border); background: var(--plane); color: var(--ink);
 }
+input[type=text] { flex: 1; }
 """
 
 
@@ -313,6 +328,9 @@ def admin_html(devices: list, disk: dict, media: dict,
         f'<div class="carte"><ul class="appareils">{lignes}</ul></div>'
         '<h2>Ajouter un téléphone</h2>'
         '<a class="bouton principal" href="/pair">Afficher le QR d\'appairage</a>'
+        "<h2>Historique</h2>"
+        '<p><a class="bouton" href="/historique">Voir les synchronisations</a> '
+        '<a class="bouton" href="/evenements">Voir les événements</a></p>'
         f"{_bloc_apk(apk)}"
         f"{_bloc_echecs(echecs)}"
         "<script>"
@@ -348,3 +366,227 @@ def pair_html(qr_svg: str, url: str) -> str:
         "</div>"
     )
     return _document("phototheque — appairage", corps, STYLE_QR)
+
+
+# --- historique (issue #30) ------------------------------------------------
+#
+# Quatre pages, toutes derrière `require_admin` : le journal du serveur
+# répond à la demande du mainteneur — « voir un historique de tout ce qui
+# s'est passé : connexion / id téléphone / date / fichiers envoyés / échecs /
+# fichiers triés / emplacements ». Chaque valeur affichée ici vient de la
+# base ou de la requête (nom de fichier envoyé par le téléphone, terme de
+# recherche tapé par le mainteneur...) : jamais de confiance, toujours
+# `html.escape`.
+
+_MOTS_ISSUE = {
+    "range": "rangé", "a_trier": "à trier", "doublon": "doublon",
+    "refuse": "refusé", "exclu": "exclu", "erreur": "erreur",
+}
+
+_MOTS_EVENEMENT = {
+    "demarrage": "démarrage du service", "purge": "purge de la quarantaine",
+    "abandon": "session abandonnée", "appairage": "appairage proposé",
+    "confirmation": "appairage confirmé", "revocation": "appareil révoqué",
+    "auth_echec": "authentification refusée",
+}
+
+
+def _etat_synchro(s: dict) -> tuple[str, str]:
+    """(niveau, mot) d'une synchro — jamais la couleur seule (accessibilité).
+
+    « app_echecs » est un cumul envoyé par le téléphone lui-même (issue #29) ;
+    il peut être NULL pour une synchro antérieure à ce champ, d'où le
+    `or 0` qui traite l'absence comme « aucun échec connu ».
+    """
+    if (s.get("erreurs") or 0) == 0 and not (s.get("app_echecs") or 0):
+        return "ok", "sans erreur"
+    return "critical", "en erreur"
+
+
+def _ligne_synchro(s: dict) -> str:
+    """Une ligne de `/historique` : toute la ligne mène au détail."""
+    niveau, mot = _etat_synchro(s)
+    return (
+        '<li><a class="lien-ligne" href="/historique/{id}">'
+        '<span class="nom">{label}</span>'
+        '<span class="quand">{debut}</span>'
+        '<span class="etiquette {niveau}">{mot}</span>'
+        '<span class="pousse">{envoyes} fichier(s)</span>'
+        "</a></li>"
+    ).format(
+        id=html.escape(str(s["id"])),
+        label=html.escape(str(s.get("label") or s["appareil"])),
+        debut=_date(str(s["debut"])),
+        niveau=niveau, mot=mot,
+        envoyes=_nombre(s.get("envoyes") or 0),
+    )
+
+
+def _ligne_mouvement(m: dict, avec_date: bool = False) -> str:
+    """Une ligne « origine → destination » (page d'une synchro, ou recherche).
+
+    `avec_date` ajoute la date de la synchro d'origine : utile en recherche,
+    où les résultats mélangent plusieurs synchros — inutile sur la page d'une
+    synchro unique, qui l'affiche déjà dans son en-tête.
+    """
+    origine = html.escape(str(m["origine"]))
+    destination = (f' → <code>{html.escape(str(m["destination"]))}</code>'
+                   if m.get("destination") else "")
+    taille = (f'<span class="pousse">{_go(m["taille"])}</span>'
+              if m.get("taille") is not None else "")
+    date = (f'<span class="quand">{_date(str(m["date_synchro"]))}</span>'
+            if avec_date and m.get("date_synchro") else "")
+    # Le détail peut porter un message construit à partir de ce qu'a envoyé
+    # le téléphone (ex. une extension refusée) : échappé comme le reste, et
+    # dans un <code> pour profiter de son retour à la ligne sur les mots
+    # longs (word-break: break-all) sans jamais tronquer le message.
+    sous_detail = (
+        f'<div class="sous-detail"><code>{html.escape(str(m["detail"]))}</code></div>'
+        if m.get("detail") else ""
+    )
+    mot = html.escape(_MOTS_ISSUE.get(m["issue"], m["issue"]))
+    return (
+        '<li><div class="entete">'
+        f'<code>{origine}</code>{destination}'
+        f'<span class="etiquette">{mot}</span>'
+        f"{date}{taille}"
+        "</div>"
+        f"{sous_detail}"
+        "</li>"
+    )
+
+
+def historique_html(synchros: list[dict]) -> str:
+    """Page `/historique` : une ligne par synchronisation, la plus récente en
+    tête. Chaque ligne mène au détail (`/historique/{id}`, ses mouvements).
+    """
+    if synchros:
+        lignes = "".join(_ligne_synchro(s) for s in synchros)
+    else:
+        lignes = '<li class="vide">Aucune synchronisation pour le moment.</li>'
+
+    corps = (
+        "<header><h1>Historique</h1>"
+        '<p class="hote">Synchronisations reçues, la plus récente d\'abord</p></header>'
+        f'<div class="carte"><ul class="appareils">{lignes}</ul></div>'
+        '<p style="margin-top:24px">'
+        '<a class="bouton" href="/historique/recherche">Rechercher un fichier</a> '
+        '<a class="bouton" href="/evenements">Évènements</a> '
+        '<a class="bouton" href="/">Retour</a></p>'
+    )
+    return _document("phototheque — historique", corps)
+
+
+def synchro_html(s: dict, mouvements: list[dict]) -> str:
+    """Page `/historique/{id}` : le détail d'une synchronisation.
+
+    `s` vient de `Journal.synchro`, `mouvements` de `Journal.mouvements` —
+    déjà filtrés sur cette synchro, dans l'ordre où ils ont été écrits.
+    """
+    niveau, mot = _etat_synchro(s)
+    fin = f" → {_date(str(s['fin']))}" if s.get("fin") else " (en cours)"
+    adresse = html.escape(str(s["adresse"])) if s.get("adresse") else "adresse inconnue"
+    app_echecs = s.get("app_echecs") or 0
+    bloc_app_echecs = (
+        f'<p class="detail">{_nombre(app_echecs)} échec(s) signalé(s) par '
+        "l'application elle-même (fichiers jamais même tentés).</p>"
+        if app_echecs else ""
+    )
+
+    if mouvements:
+        lignes = "".join(_ligne_mouvement(m) for m in mouvements)
+    else:
+        lignes = '<li class="vide">Aucun mouvement enregistré pour cette synchronisation.</li>'
+
+    corps = (
+        f'<header><h1>{html.escape(str(s.get("label") or s["appareil"]))}</h1>'
+        f'<p class="hote">{_date(str(s["debut"]))}{fin} · {adresse} · '
+        f'{_nombre(s.get("paquets") or 0)} paquet(s) '
+        f'<span class="etiquette {niveau}">{mot}</span></p></header>'
+        '<div class="tuiles">'
+        f'<div class="carte tuile"><div class="valeur">{_nombre(s.get("ranges") or 0)}</div>'
+        '<div class="libelle">rangés</div></div>'
+        f'<div class="carte tuile"><div class="valeur">{_nombre(s.get("doublons") or 0)}</div>'
+        '<div class="libelle">doublons</div></div>'
+        f'<div class="carte tuile"><div class="valeur">{_nombre(s.get("a_trier") or 0)}</div>'
+        '<div class="libelle">à trier</div></div>'
+        f'<div class="carte tuile"><div class="valeur">{_nombre(s.get("refuses") or 0)}</div>'
+        '<div class="libelle">refusés</div></div>'
+        f'<div class="carte tuile"><div class="valeur">{_nombre(s.get("erreurs") or 0)}</div>'
+        '<div class="libelle">erreurs</div></div>'
+        f'<div class="carte tuile"><div class="valeur">{_go(s.get("octets") or 0)}</div>'
+        '<div class="libelle">reçus</div></div>'
+        "</div>"
+        f"{bloc_app_echecs}"
+        "<h2>Fichiers</h2>"
+        f'<div class="carte"><ul class="lignes">{lignes}</ul></div>'
+        '<p style="margin-top:24px"><a class="bouton" href="/historique">Retour</a></p>'
+    )
+    return _document("phototheque — synchronisation", corps)
+
+
+def recherche_html(q: str, resultats: list[dict] | None) -> str:
+    """Page `/historique/recherche` : formulaire, et résultats si cherché.
+
+    `resultats` vaut `None` quand la recherche n'a pas eu lieu — `q` vide ou
+    ne contenant que des espaces (voir app.py : interroger le journal avec un
+    motif vide en ramènerait toute la table). Seul le formulaire s'affiche
+    alors, sans message « aucun résultat » qui mentirait sur ce qui a été
+    cherché.
+    """
+    q_affiche = html.escape(q)
+    if resultats is None:
+        bloc = ""
+    elif resultats:
+        lignes = "".join(_ligne_mouvement(m, avec_date=True) for m in resultats)
+        bloc = (f"<h2>{len(resultats)} résultat(s)</h2>"
+                f'<div class="carte"><ul class="lignes">{lignes}</ul></div>')
+    else:
+        bloc = (f'<div class="carte"><p class="vide">Aucun fichier ne correspond à '
+                f"« {q_affiche} ».</p></div>")
+
+    corps = (
+        "<header><h1>Rechercher un fichier</h1>"
+        '<p class="hote">Par nom (ou partie du nom), ou par empreinte exacte</p></header>'
+        '<form method="get" action="/historique/recherche">'
+        f'<input type="text" name="q" value="{q_affiche}" placeholder="a.jpg">'
+        "<button type=\"submit\">Chercher</button>"
+        "</form>"
+        f"{bloc}"
+        '<p style="margin-top:24px"><a class="bouton" href="/historique">Retour</a></p>'
+    )
+    return _document("phototheque — recherche", corps, STYLE_QR)
+
+
+def evenements_html(evenements: list[dict]) -> str:
+    """Page `/evenements` : les faits ponctuels du serveur, plus récent d'abord.
+
+    Démarrages, propositions et confirmations d'appairage, révocations,
+    échecs d'authentification — tout ce qui n'est pas une synchronisation.
+    """
+    if evenements:
+        lignes = "".join(
+            '<li><div class="entete">'
+            f'<span class="quand">{_date(str(e["horodatage"]))}</span>'
+            f'<span class="nom">{html.escape(_MOTS_EVENEMENT.get(e["type"], e["type"]))}</span>'
+            + (f'<span class="etiquette">{html.escape(str(e["appareil"]))}</span>'
+               if e.get("appareil") else "")
+            + (f'<span class="etiquette">{html.escape(str(e["adresse"]))}</span>'
+               if e.get("adresse") else "")
+            + "</div>"
+            + (f'<div class="sous-detail"><code>{html.escape(str(e["detail"]))}</code></div>'
+               if e.get("detail") else "")
+            + "</li>"
+            for e in evenements
+        )
+    else:
+        lignes = '<li class="vide">Aucun événement enregistré.</li>'
+
+    corps = (
+        "<header><h1>Évènements</h1>"
+        '<p class="hote">Démarrages, appairages, révocations, authentifications</p></header>'
+        f'<div class="carte"><ul class="lignes">{lignes}</ul></div>'
+        '<p style="margin-top:24px"><a class="bouton" href="/historique">Historique</a> '
+        '<a class="bouton" href="/">Retour</a></p>'
+    )
+    return _document("phototheque — évènements", corps)
