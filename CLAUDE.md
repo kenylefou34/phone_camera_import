@@ -185,8 +185,8 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   réelles.** Reste l'**étape 11** (nuit), ratée le 24/09 — voir REPRISE.
   Trouvé en route : le gestionnaire d'énergie HONOR, le filtre de journaux
   HONOR, le piège « `/pair` réaffiche le même QR », et **#42**.
-- ✅ **Galerie de consultation, partie serveur, ÉCRITE — PAS ENCORE
-  DÉPLOYÉE** (issue #31, phase 2, branche `galerie-serveur`, plan
+- ✅ **Galerie de consultation, partie serveur, ÉCRITE ET DÉPLOYÉE le 25/09**
+  (issue #31, phase 2, branche `galerie-serveur` fusionnée dans `dev`, plan
   `docs/superpowers/plans/2026-09-25-galerie-consultation-serveur.md`, neuf
   tâches) : classement d'un chemin en type/origine/date, index en mémoire
   avec filtres et compteurs année/mois/jour, vues paginées, vignettes WebP
@@ -198,12 +198,19 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   passe admin OU au jeton d'un appareil (`require_lecteur`, prépare l'onglet
   `WebView` de l'app). **`/` est devenue la galerie, l'administration est
   passée à `/admin`.** Vérifications admin réussies retenues 5 min (une
-  grille = jusqu'à 120 vignettes, un PBKDF2 chacune sinon). 536 tests dans
-  la suite pytest (383 avant ce lot).
-  **Jamais installée sur le NUC** : reste l'étape 7 de la tâche 9
-  (`./deploy/install.sh`, avec le mainteneur, sudo — sauvegarder
-  `~/mediasort_catalog.db` avant) — voir `docs/DEPLOIEMENT.md`, « La galerie
-  et son recensement ».
+  grille = jusqu'à 120 vignettes, un PBKDF2 chacune sinon). Lecteur vidéo en
+  pleine page, lecture automatique (repli en muet si le son est refusé).
+  538 tests dans la suite pytest (383 avant ce lot). Constats mineurs
+  différés : **#44**.
+  **Installée sur le NUC le 25/09 à 12:58** (`install.sh` par le mainteneur,
+  catalogue sauvegardé avant dans `~/mediasort_catalog.db.avant-recensement`
+  — à supprimer seulement avec son accord). Constaté : les deux services
+  actifs, toutes les pages en `401` sans identifiants, `/docs` en `404`,
+  Starlette 1.6.0, vidéo servie en `206`, galerie et lecteur validés à l'œil
+  par le mainteneur. Famille est en `fuseblk` (ntfs-3g) avec l'ordonnanceur
+  `mq-deadline` : la priorité disque « au repos » n'y a réellement aucun
+  effet. Recensement : ~50 médias toutes les 45-50 s, 0 échec, arriéré de
+  ~45 000 médias estimé à 12-13 h.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
@@ -237,14 +244,20 @@ réinstallé et validé le 25/09 (voir l'État actuel).
      (`persist.log.tag=S`), réglage perdu à chaque redémarrage.
 3. **Si l'étape 11 passe** : fermer à la main **#12** et **#29**, puis ouvrir
    la PR `dev` → `main` (elle fermera #36 et #38).
-4. Puis **#31** (galerie de consultation, phase 2). **Neuf tâches ÉCRITES le
-   25/09** sur la branche `galerie-serveur` (plan
-   `docs/superpowers/plans/2026-09-25-galerie-consultation-serveur.md` ;
-   l'onglet `WebView` de l'app fera un plan à part). Reste seulement l'étape
-   7 de la tâche 9 : **installer et valider sur le NUC, avec le mainteneur**
-   (sudo, sauvegarder `~/mediasort_catalog.db` avant tout) — voir
-   `docs/DEPLOIEMENT.md`, « La galerie et son recensement ». **#43** (ouverte
-   le 25/09) : l'app doit reprendre le thème de l'admin, la galerie aussi.
+4. **Relever le recensement de la galerie (#31)**, lancé le 25/09 à 12:58 :
+   `journalctl -u phototheque-recensement --since "yesterday 12:00" | grep "lot :" | tail`
+   (débit réel sur les vieilles photos et les vidéos, « restants » proche de
+   0), le bloc « Galerie » de `/admin` (échecs et leurs raisons ;
+   `--reessayer-erreurs` seulement si la cause a disparu), et les dates
+   comblées :
+   `python3 -c "import sqlite3;c=sqlite3.connect('file:$HOME/mediasort_catalog.db?mode=ro',uri=True);print(c.execute('select source_date,count(*) from medias group by 1').fetchall())"`.
+   Restent de la validation (tâche 9 étape 7 du plan) : une photo en
+   **portrait** debout dans la grille (aucune trouvée dans 09/2026 : le
+   téléphone redresse ses pixels), une vidéo de **moins d'une seconde**, et le
+   débit d'une synchro recensement allumé puis arrêté. La sauvegarde
+   `~/mediasort_catalog.db.avant-recensement` ne se supprime qu'avec l'accord
+   du mainteneur. Puis l'**onglet `WebView`** de l'application (plan à
+   écrire, spec §8) et **#43** (le thème de l'admin dans l'app).
 
 **Pourquoi l'étape 11 a échoué le 24/09 — deux causes, chacune suffisante :**
 l'appareil avait été révoqué depuis l'admin à 13:38 (le téléphone portait un
@@ -272,8 +285,10 @@ d'une grosse vidéo n'arrête pas le téléversement en cours, et l'écran reste
 figé pendant ce temps.
 
 ## Feuille de route (issues GitHub)
-Prochaine étape : **relever l'étape 11** (voir REPRISE), puis **#31** galerie
-de consultation (phase 2). **#29** (lot 1 bis) et **#12** (l'application
+Prochaine étape : **relever l'étape 11 et le recensement de la galerie** (voir
+REPRISE), puis l'onglet `WebView` de la galerie dans l'app. **#31** (galerie,
+partie serveur) est **déployée depuis le 25/09** ; à fermer à la main une fois
+le recensement relevé. **#44** : ses constats mineurs différés. **#29** (lot 1 bis) et **#12** (l'application
 elle-même) restent ouvertes jusqu'à ce que l'étape 11 passe. **#30** (journal
 serveur + purge des sessions abandonnées) et **#27** (compteur d'ignorés du
 trieur en ligne de commande) ont été **validées sur le NUC et fermées à la
