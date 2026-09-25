@@ -76,6 +76,67 @@ def test_video_ne_lit_que_le_debut(tmp_path):
     assert ffmpeg.index("-ss") < ffmpeg.index("-i"), "-ss AVANT -i : saut sans décoder"
 
 
+class ExecuteurSs1Invalide:
+    """Simule un ffmpeg qui « réussit » (code 0, fichier non vide) sur
+    `-ss 1` sans rien produire d'exploitable, puis rend un vrai WebP sur
+    `-ss 0` — le cas rencontré sur une vidéo de moins d'une seconde avec
+    ffmpeg 4.4.2 (voir la docstring de `_en_tete_webp_valide`)."""
+    def __init__(self):
+        self.commandes = []
+
+    def __call__(self, cmd, **kw):
+        self.commandes.append(cmd)
+        outil = Path(cmd[0]).name
+        if outil == "ffmpeg":
+            if cmd[cmd.index("-ss") + 1] == "1":
+                Path(cmd[-1]).write_bytes(b"deuxoct.")     # 8 octets, pas un WebP
+            else:
+                Path(cmd[-1]).write_bytes(b"RIFF....WEBP")
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        if outil == "ffprobe":
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"400,225\n", stderr=b"")
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+
+
+def test_video_ss1_invalide_bascule_sur_ss0(tmp_path):
+    ex = ExecuteurSs1Invalide()
+    cible = tmp_path / "v.webp"
+    l, h, methode = f.fabriquer_vignette("/b/v.mp4", "video", {}, cible, executer=ex)
+    assert (l, h, methode) == (400, 225, "video")
+    appels_ffmpeg = [c for c in ex.commandes if Path(c[0]).name == "ffmpeg"]
+    assert len(appels_ffmpeg) == 2, "deux essais : -ss 1 puis -ss 0"
+    assert appels_ffmpeg[0][appels_ffmpeg[0].index("-ss") + 1] == "1"
+    assert appels_ffmpeg[1][appels_ffmpeg[1].index("-ss") + 1] == "0"
+    assert cible.exists()
+    assert not cible.with_name(cible.name + ".partiel").exists(), \
+        "aucun fichier partiel laissé derrière l'essai raté"
+
+
+def test_video_deux_essais_invalides_leve_erreur(tmp_path):
+    def ex(cmd, **kw):
+        if Path(cmd[0]).name == "ffmpeg":
+            Path(cmd[-1]).write_bytes(b"deuxoct.")         # invalide aux deux essais
+            return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"", stderr=b"")
+    cible = tmp_path / "v.webp"
+    with pytest.raises(f.ErreurVignette):
+        f.fabriquer_vignette("/b/v.mp4", "video", {}, cible, executer=ex)
+    assert not cible.exists()
+    assert not cible.with_name(cible.name + ".partiel").exists()
+
+
+def test_fabriquer_moyenne_applique_orientation_et_borne_a_1280(tmp_path):
+    ex = Enregistreur()
+    cible = tmp_path / "m.webp"
+    f.fabriquer_moyenne("/b/a.jpg", 6, cible, executer=ex)
+    ffmpeg = next(c for c in ex.commandes if c[0] == "ffmpeg")
+    assert "-noautorotate" in ffmpeg
+    vf = ffmpeg[ffmpeg.index("-vf") + 1]
+    assert vf.startswith("transpose=1")
+    assert "min(1280,iw)" in vf
+    assert cible.exists()
+
+
 def test_une_sortie_ffmpeg_vide_est_une_erreur(tmp_path):
     def ex(cmd, **kw):
         return subprocess.CompletedProcess(cmd, 1, stdout=b"", stderr=b"Invalid data found")
@@ -103,11 +164,14 @@ def test_vraie_petite_photo_jamais_agrandie(tmp_path):
 @AVEC_FFMPEG
 def test_vraie_video_courte(tmp_path):
     # Moins d'une seconde : le saut à 1 s ne donne rien, on retente à 0.
+    # Assertion sur les dimensions réelles (pas seulement la méthode) : sur
+    # le code d'avant le correctif de l'en-tête WebP, ce test passait quand
+    # même avec un résultat bidon (0, 0) — voir task-5-report.md.
     src = tmp_path / "courte.mp4"
     subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i",
                     "testsrc=size=640x360:duration=0.5", "-pix_fmt", "yuv420p", str(src)],
                    check=True)
-    assert f.fabriquer_vignette(str(src), "video", {}, tmp_path / "v.webp")[2] == "video"
+    assert f.fabriquer_vignette(str(src), "video", {}, tmp_path / "v.webp") == (400, 225, "video")
 
 
 @AVEC_FFMPEG
@@ -116,3 +180,14 @@ def test_vrai_fichier_corrompu(tmp_path):
     src.write_bytes(b"pas une image")
     with pytest.raises(f.ErreurVignette):
         f.fabriquer_vignette(str(src), "photo", {}, tmp_path / "v.webp")
+
+
+@AVEC_FFMPEG
+def test_vraie_moyenne_reduite_a_1280(tmp_path):
+    src = tmp_path / "grande.jpg"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-f", "lavfi", "-i",
+                    "testsrc=size=3000x2000", "-frames:v", "1", str(src)], check=True)
+    cible = tmp_path / "m.webp"
+    f.fabriquer_moyenne(str(src), None, cible)
+    largeur, _ = f._dimensions(cible, subprocess.run)
+    assert largeur == 1280
