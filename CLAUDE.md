@@ -121,9 +121,10 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   Plus : zéro dossier coché ne compte plus comme une réussite (et se voit sur
   l'accueil), « Ne pas sauvegarder » sur un dossier à moitié coché décoche
   enfin sa descendance, **remonter** la date de début ne déclenche plus de
-  reprise complète, et trois commentaires faux corrigés. Rapport détaillé
-  (non versionné, local à cette machine) :
-  `.superpowers/sdd/2026-09-23-app-android-lot2/correction-finale-report.md`.
+  reprise complète, et trois commentaires faux corrigés. Le rapport détaillé
+  (non versionné, sous `.superpowers/`) a été supprimé le 25/09 à la demande du
+  mainteneur, une fois la recette rejouée ; les constats différés vivent dans
+  #41, l'historique des correctifs dans les messages de commit.
 - ✅ **Recette du lot 2 commencée sur un vrai téléphone (24/09)** : HONOR 90
   Lite (Android 15), NUC alors en `192.168.1.31`. Le téléphone ne portait
   encore que l'APK du lot 1 bis (23/09) : premier APK du lot 2 installé par
