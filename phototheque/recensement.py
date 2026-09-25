@@ -130,8 +130,16 @@ class Passe:
                 _log.exception("métadonnées illisibles pour un lot")
                 metas = {}
             dates = []
+            # Empreintes dont la VIGNETTE a réussi (donc déjà enregistrées
+            # 'faite') et dont la date est en attente d'écriture : si
+            # l'écriture de leur date échoue définitivement plus bas, ce sont
+            # elles qu'il faut repasser en erreur (voir _ecrire_dates_avec_reprises) —
+            # un média déjà en erreur pour sa vignette sera de toute façon repris
+            # par --reessayer-erreurs, inutile de l'y remettre une seconde fois.
+            faites_en_attente = set()
             for m in lot:
                 meta = metas.get(m.chemin, {})
+                fabrication_reussie = False
                 try:
                     if m not in presents:
                         raise fabrique.ErreurVignette("fichier absent de la bibliothèque")
@@ -139,6 +147,7 @@ class Passe:
                         m.chemin, m.c.type, meta, chemin_vignette(self.dossier, m.empreinte))
                     self.vignettes.enregistrer_faite(m.empreinte, largeur, hauteur, methode)
                     bilan["faites"] += 1
+                    fabrication_reussie = True
                 except Exception as e:             # une erreur n'arrête jamais la passe
                     self.vignettes.enregistrer_erreur(m.empreinte, str(e))
                     bilan["erreurs"] += 1
@@ -146,8 +155,48 @@ class Passe:
                     recolte = recolter_date(meta, m.nom)
                     if recolte:
                         dates.append((m.empreinte, *recolte))
-            bilan["dates"] += ecrire_dates(self.catalog_db, dates)
+                        if fabrication_reussie:
+                            faites_en_attente.add(m.empreinte)
+            bilan["dates"] += self._ecrire_dates_avec_reprises(dates, faites_en_attente, bilan)
         return bilan
+
+    def _ecrire_dates_avec_reprises(self, dates: list[tuple[str, str, str]],
+                                    faites_en_attente: set[str], bilan: dict) -> int:
+        """Écrit les dates du lot, avec reprises devant un verrou transitoire.
+
+        Le catalogue (`~/mediasort_catalog.db`) est une base SQLite à journal
+        de retour arrière (pas WAL) : elle est PARTAGÉE avec le trieur en
+        ligne de commande et celui du service d'upload, qui peuvent la tenir
+        verrouillée plus longtemps que les 30 s de `ecrire_dates`. Sans
+        reprise, un simple `database is locked` ferait remonter jusqu'à
+        `main()` et planter le processus du recensement.
+
+        Pire : les vignettes de ce lot ont déjà été enregistrées 'faite' AVANT
+        cet appel (une écriture par média, déjà committée). Si on laissait
+        l'exception se propager sans rien faire d'autre, ces médias
+        resteraient marqués 'faite' pour toujours — `a_traiter` ne les
+        reproposera plus jamais — alors que leur date, elle, ne serait jamais
+        écrite : une perte silencieuse. D'où : après 3 tentatives infructueuses,
+        on repasse ces médias-là (et EUX SEULS, pas ceux déjà en erreur pour
+        leur vignette) en erreur, pour que `--reessayer-erreurs` les reprenne
+        entièrement (vignette + date) à la prochaine passe.
+        """
+        derniere_erreur = None
+        for tentative in range(3):
+            try:
+                return ecrire_dates(self.catalog_db, dates)
+            except sqlite3.Error as e:
+                derniere_erreur = e
+                if tentative < 2:
+                    self.dormir(PAUSE_SYNCHRO_S)
+                else:
+                    _log.exception("écriture des dates impossible pour un lot, après 3 tentatives")
+        for empreinte, _, _ in dates:
+            if empreinte in faites_en_attente:
+                self.vignettes.enregistrer_erreur(empreinte, f"date non écrite : {derniere_erreur}")
+                bilan["faites"] -= 1
+                bilan["erreurs"] += 1
+        return 0
 
 
 def _prendre_verrou(chemin: Path):

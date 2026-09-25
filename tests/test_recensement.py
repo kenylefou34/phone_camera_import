@@ -164,6 +164,62 @@ def test_un_arret_demande_sort_proprement(tmp_path):
     assert p.executer()["faites"] == 0
 
 
+def test_ecrire_dates_reprend_apres_un_verrou_transitoire(tmp_path, monkeypatch):
+    # Le catalogue est partage avec le trieur (base a journal de retour
+    # arriere, pas WAL) : un verrou concurrent peut depasser le delai de
+    # connexion. Deux echecs transitoires ne doivent pas faire perdre la date.
+    bib, db, (e,) = _bib(tmp_path, [("Photos/2019/05 MAI/IMG_1.jpg", None)])
+    chemin = str(bib / "Photos/2019/05 MAI/IMG_1.jpg")
+    lire = lambda chemins: {chemin: {"DateTimeOriginal": "2019:05:04 10:00:00"}}
+    vrai_ecrire_dates = r.ecrire_dates
+    effets = iter([sqlite3.OperationalError("database is locked"),
+                   sqlite3.OperationalError("database is locked"),
+                   None])
+    def faux(catalog_db, dates):
+        effet = next(effets)
+        if effet is not None:
+            raise effet
+        return vrai_ecrire_dates(catalog_db, dates)
+    monkeypatch.setattr(r, "ecrire_dates", faux)
+    siestes = []
+    p = r.Passe(db, Vignettes(tmp_path / "g.db"), tmp_path / "vign", bib, tmp_path / "incoming",
+                lire=lire, fabriquer=_faux_fabriquer(), dormir=siestes.append)
+    bilan = p.executer()
+    assert bilan == {"faites": 1, "erreurs": 0, "dates": 1}
+    assert len(siestes) == 2
+    assert Vignettes(tmp_path / "g.db").dernieres_erreurs() == []
+    assert _date_prise(db, e) == ("2019-05-04", "metadata")
+
+
+def test_ecrire_dates_qui_echoue_toujours_bascule_en_erreur_et_continue(tmp_path, monkeypatch):
+    # Trois echecs d'affilee : la date de ce lot est perdue pour cette passe,
+    # mais le media (deja enregistre 'faite') ne doit pas rester silencieusement
+    # ainsi pour toujours — il repasse en erreur pour etre repris par
+    # --reessayer-erreurs — et le lot SUIVANT doit quand meme etre traite.
+    monkeypatch.setattr(r, "LOT", 1)
+    bib, db, (e1, e2) = _bib(tmp_path, [("Photos/2023/06 JUIN/a.jpg", None),
+                                        ("Photos/2023/06 JUIN/b.jpg", None)])
+    chemin1 = str(bib / "Photos/2023/06 JUIN/a.jpg")
+    chemin2 = str(bib / "Photos/2023/06 JUIN/b.jpg")
+    lire = lambda chemins: {
+        chemin1: {"DateTimeOriginal": "2023:06:01 10:00:00"},
+        chemin2: {"DateTimeOriginal": "2023:06:02 10:00:00"},
+    }
+    def faux(catalog_db, dates):
+        raise sqlite3.OperationalError("database is locked")
+    monkeypatch.setattr(r, "ecrire_dates", faux)
+    siestes = []
+    p = r.Passe(db, Vignettes(tmp_path / "g.db"), tmp_path / "vign", bib, tmp_path / "incoming",
+                lire=lire, fabriquer=_faux_fabriquer(), dormir=siestes.append)
+    bilan = p.executer()
+    assert bilan == {"faites": 0, "erreurs": 2, "dates": 0}
+    erreurs = {t["empreinte"]: t["erreur"] for t in Vignettes(tmp_path / "g.db").dernieres_erreurs()}
+    assert set(erreurs) == {e1, e2}
+    assert all("date non écrite" in msg for msg in erreurs.values())
+    assert _date_prise(db, e1) == (None, "seed")
+    assert _date_prise(db, e2) == (None, "seed")
+
+
 def test_un_seul_recensement_a_la_fois(tmp_path, monkeypatch):
     monkeypatch.setenv("DATA_DIR", str(tmp_path))
     import importlib
