@@ -166,6 +166,12 @@ def test_une_page_non_numerique_est_ignoree_jamais_une_erreur(tmp_path, monkeypa
     assert r.status_code == 200
 
 
+def test_un_jour_demesure_dans_l_url_n_est_jamais_une_erreur(tmp_path, monkeypatch):
+    a, client, adm = _client(tmp_path, monkeypatch)
+    r = client.get("/?annee=1&mois=1&jour=99999999999999999999", headers=adm)
+    assert r.status_code == 200
+
+
 def test_un_mois_affiche_sa_grille_de_vignettes(tmp_path, monkeypatch):
     a, client, adm = _client(tmp_path, monkeypatch)
     from phototheque import galerie_index

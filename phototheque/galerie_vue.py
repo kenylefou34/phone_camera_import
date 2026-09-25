@@ -113,8 +113,11 @@ def libelle_jour(annee, mois, jour) -> str:
         return "Jour inconnu"
     try:
         return f"{JOURS[date(annee, mois, jour).weekday()]} {jour}"
-    except ValueError:
-        return str(jour)       # « 30 février » : on garde le numéro
+    except (ValueError, OverflowError):
+        # ValueError : « 30 février ». OverflowError : un jour démesuré venu
+        # de l'URL (jour=99999999999999999999), que date() ne sait même pas
+        # convertir. Dans les deux cas on garde le numéro, jamais d'erreur 500.
+        return str(jour)
 
 
 def construire_vue(index: Index, filtres: Filtres, annee=None, mois=None,

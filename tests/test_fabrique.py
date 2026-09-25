@@ -48,6 +48,23 @@ def test_lire_metadonnees_par_lot_et_indexe_par_chemin():
     assert cmd[0] == "exiftool" and "-json" in cmd and "-n" in cmd
 
 
+def test_lire_metadonnees_ecarte_un_chemin_a_saut_de_ligne():
+    # « exiftool -@ - » lit UN argument par ligne : un nom de fichier portant
+    # un saut de ligne y glisserait une option exiftool de son choix.
+    entrees = []
+    def ex(cmd, input=None, **kw):
+        entrees.append(input)
+        return subprocess.CompletedProcess(cmd, 0, stdout=b"[]", stderr=b"")
+    f.lire_metadonnees(["/b/ok.jpg", "/b/x.jpg\n-o\n/tmp/y", "/b/z\r.jpg"], executer=ex)
+    assert entrees[0].decode().split("\n") == ["/b/ok.jpg"]
+
+
+def test_lire_metadonnees_sans_chemin_valide_n_appelle_pas_exiftool():
+    ex = Enregistreur({"exiftool": b"[]"})
+    assert f.lire_metadonnees(["/b/x.jpg\n-o"], executer=ex) == {}
+    assert ex.commandes == []
+
+
 def test_photo_avec_vignette_exif_ne_lit_que_l_en_tete(tmp_path):
     ex = Enregistreur({"exiftool": b"\xff\xd8jpeg", "ffprobe": b"160,120\n"})
     l, h, methode = f.fabriquer_vignette("/b/a.jpg", "photo",

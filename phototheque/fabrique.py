@@ -50,6 +50,11 @@ def filtre(orientation: int | None, taille: int) -> str:
 def lire_metadonnees(chemins: list[str], executer=subprocess.run) -> dict[str, dict]:
     """Balises utiles de tout un lot, en UN appel exiftool (liste sur l'entrée
     standard : pas de limite de longueur de ligne de commande)."""
+    # « -@ - » lit UN argument par ligne : un chemin contenant un saut de
+    # ligne (\n ou \r) y glisserait des lignes supplémentaires, donc des
+    # OPTIONS exiftool au choix de qui a nommé le fichier. On l'écarte : il
+    # n'aura pas de métadonnées, sa vignette se fera quand même.
+    chemins = [c for c in chemins if "\n" not in c and "\r" not in c]
     if not chemins:
         return {}
     cmd = ["exiftool", "-json", "-n", "-api", "QuickTimeUTC=1",

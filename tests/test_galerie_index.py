@@ -96,6 +96,17 @@ def test_depuis_catalogue_ignore_ce_qui_n_est_pas_un_media(tmp_path):
     assert ix.trouver("a" * 64).c.annee == 2023
 
 
+def test_depuis_catalogue_ignore_une_empreinte_mal_formee(tmp_path):
+    # Défense en profondeur : l'empreinte finit dans des href et des src.
+    db = _catalogue(tmp_path, [
+        ("a" * 64, f"{BIB}/Photos/2023/06 JUIN/IMG_1.jpg", None),
+        ('"><script>x</script>', f"{BIB}/Photos/2023/06 JUIN/IMG_2.jpg", None),
+        ("A" * 64, f"{BIB}/Photos/2023/06 JUIN/IMG_3.jpg", None),
+    ])
+    ix = gi.Index.depuis_catalogue(db, BIB)
+    assert [m.empreinte for m in ix.tous()] == ["a" * 64]
+
+
 def test_le_cache_se_reconstruit_quand_le_catalogue_change(tmp_path):
     gi.vider_cache()
     db = _catalogue(tmp_path, [("a" * 64, f"{BIB}/Photos/2023/06 JUIN/1.jpg", None)])

@@ -21,6 +21,7 @@ from datetime import date, timedelta
 from pathlib import Path, PurePosixPath
 
 from .classement import Classement, classer
+from .vignettes import EMPREINTE
 
 # Valeur « inconnu » dans une sélection : le rayon « Sans date », le « Mois
 # inconnu » d'une année, le « Jour inconnu » d'un mois.
@@ -112,6 +113,11 @@ class Index:
             cx.close()
         medias = []
         for empreinte, chemin, taille, date_prise in lignes:
+            # Défense en profondeur : l'empreinte finit dans des href et des
+            # src (spec §7). Le trieur n'écrit que des SHA-256 hexadécimaux,
+            # mais une ligne abîmée ou forgée n'a rien à faire dans une page.
+            if not isinstance(empreinte, str) or not EMPREINTE.fullmatch(empreinte):
+                continue
             c = classer(chemin, date_prise, str(bibliotheque))
             if c is not None:
                 medias.append(Media(empreinte, chemin, taille or 0, c))

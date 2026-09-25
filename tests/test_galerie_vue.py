@@ -102,6 +102,12 @@ def test_un_jour_impossible_garde_son_numero():
     assert gv.libelle_jour(2023, 2, 30) == "30"
 
 
+def test_un_jour_demesure_garde_son_numero_sans_planter():
+    # « /?annee=1&mois=1&jour=99999999999999999999 » : date() lève
+    # OverflowError (pas ValueError) — c'était une erreur 500.
+    assert gv.libelle_jour(1, 1, 10 ** 20) == str(10 ** 20)
+
+
 def test_la_position_est_gardee_pour_le_formulaire():
     v = gv.construire_vue(_index(), gi.Filtres(), annee=2023, mois=6)
     assert v.position == {"annee": "2023", "mois": "6"}
