@@ -1046,6 +1046,13 @@ def test_l_unite_du_recensement_est_discrete():
     assert "RequiresMountsFor=/media/izquierdo/Famille" in unite
 
 
+def test_l_unite_du_recensement_laisse_le_temps_de_finir_un_lot():
+    """Par défaut systemd tue au bout de 90 s après SIGTERM ; un lot peut
+    durer plus (relecture finale #31, I2)."""
+    unite = (LIB.parent / "phototheque-recensement.service").read_text()
+    assert "\nTimeoutStopSec=300\n" in unite
+
+
 def test_install_installe_et_demarre_le_recensement():
     script = (LIB.parent / "install.sh").read_text()
     assert "phototheque-recensement.service" in script

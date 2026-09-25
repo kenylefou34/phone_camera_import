@@ -8,13 +8,22 @@ RequiresMountsFor=/media/izquierdo/Famille
 User=izquierdo
 WorkingDirectory=/home/izquierdo/phone_camera_import
 ExecStart=/home/izquierdo/.venv-server/bin/python -m phototheque.recensement
-# Priorité la plus basse, processeur ET disque : la réception des photos du
-# téléphone passe toujours avant (spec §4). Le recensement s'interrompt en
-# plus de lui-même pendant une synchronisation.
+# Priorité la plus basse pour CE processus, processeur et disque (spec §4).
+# Attention : les lectures sur Famille (NTFS, donc ntfs-3g, un système de
+# fichiers FUSE) passent par le démon `mount.ntfs-3g`, qui n'hérite ni du
+# nice ni de la classe d'E/S « idle » : sur ce disque-là, ces réglages ne
+# protègent probablement pas la synchro. La vraie protection est la pause
+# automatique : le recensement s'efface de lui-même pendant une
+# synchronisation du téléphone, vérifiée entre deux médias.
 Nice=19
 IOSchedulingClass=idle
 CPUQuota=50%
 MemoryMax=400M
+# Après un `systemctl stop` (ou le redémarrage que fait install.sh), le
+# recensement finit le média en cours et enregistre ce qui est fait avant de
+# sortir. Les 90 s par défaut peuvent ne pas suffire (une vidéo lue à ~7 Mo/s,
+# un catalogue verrouillé par le trieur) : au-delà, systemd le tuerait net.
+TimeoutStopSec=300
 Restart=on-failure
 RestartSec=60
 
