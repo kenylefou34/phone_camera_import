@@ -13,6 +13,7 @@ la galerie : ce qui n'a pas de date va dans le rayon « Sans date ».
 
 import re
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import PurePosixPath
 
 from mediasort.classify import media_type
@@ -79,6 +80,39 @@ def _date_du_chemin(dossiers: tuple[str, ...]) -> tuple[int | None, int | None]:
     return None, None
 
 
+# Règle du mainteneur (25/09) : la date de prise de vue (EXIF) prime sur celle
+# du dossier, SAUF si elle s'en écarte d'un an ou plus. Un tel écart ne vient
+# pas d'une photo mal rangée mais d'un appareil déréglé (horloge remise à zéro
+# après un changement de pile, jamais réglée…) : le dossier, classé à la main
+# à l'époque, dit alors mieux la vérité. L'écart se mesure entre la date EXIF
+# et la PÉRIODE du dossier — son mois (« 2014-10 - Mariage », « 2017/06 JUIN »)
+# ou son année entière (« 2003 - Photos Michèle ») —, zéro si elle tombe
+# dedans. Rien n'est modifié sur le disque ni dans le catalogue : c'est une
+# règle d'affichage de la galerie.
+ECART_MAX_JOURS = 365
+
+
+def _ecart_jours(annee: int, mois: int, jour: int,
+                 annee_dossier: int, mois_dossier: int | None) -> int:
+    """Nombre de jours entre la date de prise et la période du dossier."""
+    try:
+        prise = date(annee, mois, jour)
+    except ValueError:
+        # « 30 février » d'un appareil déréglé : on garde son mois.
+        prise = date(annee, mois, 1)
+    if mois_dossier is None:
+        debut, fin = date(annee_dossier, 1, 1), date(annee_dossier, 12, 31)
+    else:
+        debut = date(annee_dossier, mois_dossier, 1)
+        fin = date(annee_dossier + (mois_dossier == 12), mois_dossier % 12 + 1, 1) \
+            - timedelta(days=1)
+    if prise < debut:
+        return (debut - prise).days
+    if prise > fin:
+        return (prise - fin).days
+    return 0
+
+
 def classer(chemin: str, date_prise: str | None, bibliotheque: str) -> Classement | None:
     """Classe un média ; `None` si ce n'est pas un média affichable."""
     nom = PurePosixPath(chemin).name
@@ -90,11 +124,14 @@ def classer(chemin: str, date_prise: str | None, bibliotheque: str) -> Classemen
         return None
     dossiers = _dossiers(chemin, bibliotheque)
     origine = _origine(dossiers)
+    annee_dossier, mois_dossier = _date_du_chemin(dossiers)
     m = _DATE_PRISE.match(date_prise or "")
     if m:
         annee, mois, jour = (int(g) for g in m.groups())
-        return Classement(type_, origine, annee, mois, jour, "date_prise")
-    annee, mois = _date_du_chemin(dossiers)
-    if annee is not None:
-        return Classement(type_, origine, annee, mois, None, "chemin")
+        if annee_dossier is None or _ecart_jours(
+                annee, mois, jour, annee_dossier, mois_dossier) < ECART_MAX_JOURS:
+            return Classement(type_, origine, annee, mois, jour, "date_prise")
+        # Sinon, le dossier classé à la main l'emporte : voir ECART_MAX_JOURS.
+    if annee_dossier is not None:
+        return Classement(type_, origine, annee_dossier, mois_dossier, None, "chemin")
     return Classement(type_, origine, None, None, None, "aucune")

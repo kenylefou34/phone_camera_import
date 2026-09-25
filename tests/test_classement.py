@@ -85,3 +85,50 @@ def test_extension_en_majuscules():
 def test_chemin_hors_bibliotheque_reste_classable():
     c = classer("/ailleurs/Photos/2019/01 JANVIER/a.jpg", None, BIB)
     assert (c.annee, c.mois) == (2019, 1)
+
+
+# --- règle du mainteneur (25/09) : l'EXIF prime, sauf écart d'un an ou plus ---
+
+def test_exif_proche_du_dossier_prime():
+    # Appareil un peu en avance ou en retard : la vraie date l'emporte.
+    c = _c("Photos/2014-10 - A&K - Mariage/AK-1.jpg", date_prise="2014-09-12")
+    assert (c.annee, c.mois, c.jour, c.source) == (2014, 9, 12, "date_prise")
+
+
+def test_exif_a_plus_d_un_an_du_dossier_cede_au_dossier():
+    # Appareil remis à zéro après un changement de pile : le dossier classé à
+    # la main dit mieux la vérité.
+    c = _c("Photos/2014-10 - A&K - Mariage/AK-1.jpg", date_prise="2009-01-01")
+    assert (c.annee, c.mois, c.jour, c.source) == (2014, 10, None, "chemin")
+
+
+def test_ecart_mesure_depuis_la_fin_du_mois_du_dossier():
+    # Dossier = octobre 2014 (1er au 31). 30/10/2015 : 364 jours après le
+    # 31/10/2014, l'EXIF prime ; 31/10/2015 : 365 jours, le dossier prime.
+    dossier = "Photos/2014/10 OCTOBRE/IMG.jpg"
+    assert _c(dossier, date_prise="2015-10-30").source == "date_prise"
+    assert _c(dossier, date_prise="2015-10-31").source == "chemin"
+
+
+def test_ecart_mesure_depuis_le_debut_du_mois_du_dossier():
+    dossier = "Photos/2014/10 OCTOBRE/IMG.jpg"
+    assert _c(dossier, date_prise="2013-10-02").source == "date_prise"   # 364 j
+    assert _c(dossier, date_prise="2013-10-01").source == "chemin"       # 365 j
+
+
+def test_dossier_date_a_l_annee_se_mesure_sur_toute_l_annee():
+    dossier = "Photos/2003 - Photos Michèle/mon album 142.jpg"
+    assert _c(dossier, date_prise="2003-06-01").source == "date_prise"
+    c = _c(dossier, date_prise="2010-06-01")
+    assert (c.annee, c.mois, c.source) == (2003, None, "chemin")
+
+
+def test_sans_date_de_dossier_l_exif_prime_toujours():
+    c = _c("Photos/Divers/AK 2.jpg", date_prise="1999-05-04")
+    assert (c.annee, c.mois, c.jour, c.source) == (1999, 5, 4, "date_prise")
+
+
+def test_une_date_de_prise_impossible_se_compare_a_son_mois():
+    # « 30 février » d'un appareil déréglé : ni plantage ni rejet sans raison.
+    c = _c("Photos/2023/02 FEVRIER/a.jpg", date_prise="2023-02-30")
+    assert (c.annee, c.mois, c.source) == (2023, 2, "date_prise")
