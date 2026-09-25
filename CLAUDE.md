@@ -218,9 +218,13 @@ réinstallé et validé le 25/09 (voir l'État actuel).
      (`persist.log.tag=S`), réglage perdu à chaque redémarrage.
 3. **Si l'étape 11 passe** : fermer à la main **#12** et **#29**, puis ouvrir
    la PR `dev` → `main` (elle fermera #36 et #38).
-4. Puis **#31** (galerie de consultation, phase 2) — spec
-   `docs/superpowers/specs/2026-09-21-galerie-consultation-design.md`. Le
-   plan est à écrire d'abord, le mainteneur choisira le mode d'exécution.
+4. Puis **#31** (galerie de consultation, phase 2). **Plan écrit le 25/09** :
+   `docs/superpowers/plans/2026-09-25-galerie-consultation-serveur.md` (neuf
+   tâches, partie serveur ; l'onglet `WebView` de l'app fera un plan à part).
+   Il corrige la spec sur mesures (17 % des chemins hors format canonique,
+   vignettes EXIF de ~160 px, admin déplacée à `/admin`) : à faire relire au
+   mainteneur, qui choisira le mode d'exécution. **#43** (ouverte le 25/09) :
+   l'app doit reprendre le thème de l'admin, la galerie aussi.
 
 **Pourquoi l'étape 11 a échoué le 24/09 — deux causes, chacune suffisante :**
 l'appareil avait été révoqué depuis l'admin à 13:38 (le téléphone portait un
