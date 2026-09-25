@@ -5,6 +5,7 @@ import json
 import logging
 import math
 import re
+import threading
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -13,12 +14,14 @@ from fastapi import (Depends, FastAPI, File, Form, Header, HTTPException,
                      Request, UploadFile)
 from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel, Field
+from starlette.responses import RedirectResponse, Response
 
 from mediasort import classify
 from mediasort.catalog import Catalog
+from mediasort.classify import media_type
 from mediasort.hashing import file_hash
-from . import (adminauth, apk, config, essais, ingest, pairing, quarantaine,
-               sessions, stats, tls, web)
+from . import (adminauth, apk, config, essais, fabrique, ingest, pairing,
+               quarantaine, sessions, stats, tls, vignettes, web)
 from .devices import DeviceStore
 from .journal import Journal
 
@@ -305,6 +308,17 @@ def require_admin(request: Request, authorization: str = Header(default="")) -> 
     # Réussite : on efface l'ardoise, le mainteneur ne traîne pas ses fautes
     # de frappe de la veille.
     _limiteur.succes(source)
+
+
+def require_lecteur(request: Request, authorization: str = Header(default="")) -> None:
+    """Lecture de la galerie : l'administrateur (mot de passe) OU un
+    téléphone appairé (jeton d'appareil). Spec §8 : l'application n'a pas le
+    mot de passe d'administration, elle a un jeton — elle doit pouvoir lire
+    la galerie, jamais l'administrer."""
+    if authorization.startswith("Bearer "):
+        require_device(request, authorization)
+        return
+    require_admin(request, authorization)
 
 
 def _media_counts() -> dict:
@@ -802,6 +816,84 @@ def apk_telecharger(_: None = Depends(require_admin)) -> FileResponse:
                    "./deploy/envoyer-apk.sh depuis la machine de compilation.")
     return FileResponse(config.APK_FILE, media_type=apk.TYPE_MIME,
                         filename=apk.nom_de_telechargement(vu))
+
+
+# --- galerie (issue #31) : servir, en lecture seule ---------------------
+#
+# Règle de sûreté (spec §7) : une requête porte une EMPREINTE, jamais un
+# chemin. On la résout par le catalogue, puis on vérifie que le chemin obtenu
+# est bien sous la bibliothèque avant d'ouvrir quoi que ce soit — un catalogue
+# abîmé ou trafiqué ne doit pas suffire à faire sortir /etc/passwd.
+
+_IMAGE_REMPLACEMENT = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">'
+    '<rect width="160" height="160" fill="#8a8f98" fill-opacity="0.25"/>'
+    '<text x="80" y="86" font-family="sans-serif" font-size="13" text-anchor="middle"'
+    ' fill="#5b606a">vignette à venir</text></svg>')
+
+# Une seule taille intermédiaire fabriquée à la fois : le NUC a 2 cœurs, et
+# la synchronisation du téléphone reste prioritaire.
+_verrou_moyenne = threading.Lock()
+
+
+def _media_sur(empreinte: str) -> Path:
+    """Chemin du média désigné par `empreinte`, ou 404. Jamais d'autre fichier."""
+    if not vignettes.EMPREINTE.fullmatch(empreinte):
+        raise HTTPException(status_code=404, detail="média inconnu")
+    cat = Catalog(config.CATALOG_DB)
+    try:
+        chemin = cat.chemin_de(empreinte)
+    finally:
+        cat.close()
+    if not chemin:
+        raise HTTPException(status_code=404, detail="média inconnu")
+    racine = config.LIBRARY_DIR.resolve()
+    p = Path(chemin).resolve()
+    if not p.is_relative_to(racine) or not p.is_file():
+        raise HTTPException(status_code=404, detail="média introuvable")
+    return p
+
+
+@app.get("/galerie/vignette/{empreinte}")
+def galerie_vignette(empreinte: str, _: None = Depends(require_lecteur)):
+    if not vignettes.EMPREINTE.fullmatch(empreinte):
+        raise HTTPException(status_code=404, detail="média inconnu")
+    p = vignettes.chemin_vignette(config.VIGNETTES_DIR, empreinte)
+    if p.is_file():
+        return FileResponse(p, media_type="image/webp",
+                            headers={"Cache-Control": "private, max-age=86400"})
+    # Pas encore recensé : la galerie fonctionne quand même (spec §4).
+    return Response(_IMAGE_REMPLACEMENT, media_type="image/svg+xml",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.get("/galerie/original/{empreinte}")
+def galerie_original(empreinte: str, _: None = Depends(require_lecteur)):
+    # FileResponse lit par blocs et honore l'en-tête Range (Starlette ≥ 0.39) :
+    # une vidéo de 900 Mo n'est jamais chargée en mémoire (leçon de #21).
+    p = _media_sur(empreinte)
+    return FileResponse(p, content_disposition_type="inline", filename=p.name)
+
+
+@app.get("/galerie/moyenne/{empreinte}")
+def galerie_moyenne(empreinte: str, _: None = Depends(require_lecteur)):
+    p = _media_sur(empreinte)
+    original = RedirectResponse(f"/galerie/original/{empreinte}", status_code=307)
+    if media_type(p.suffix) != "photo":
+        return original
+    cible = vignettes.chemin_moyenne(config.VIGNETTES_DIR, empreinte)
+    if not cible.is_file():
+        with _verrou_moyenne:
+            if not cible.is_file():
+                try:
+                    meta = fabrique.lire_metadonnees([str(p)]).get(str(p), {})
+                    fabrique.fabriquer_moyenne(str(p), meta.get("Orientation"), cible)
+                except Exception:
+                    # Format que ffmpeg ne sait pas lire (HEIC…) : le navigateur
+                    # tentera l'original, c'est mieux qu'une page d'erreur.
+                    return original
+    return FileResponse(cible, media_type="image/webp",
+                        headers={"Cache-Control": "private, max-age=86400"})
 
 
 # --- pages d'historique (issue #30) -----------------------------------------
