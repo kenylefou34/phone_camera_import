@@ -161,10 +161,10 @@ servent au développement.
 
 ### 6a. Depuis la page d'administration — aucun câble
 
-1. Sur le téléphone, ouvrir **`https://<IP-DU-NUC>:8787/`** — par exemple
-   `https://192.168.1.31:8787/`.
+1. Sur le téléphone, ouvrir **`https://<IP-DU-NUC>:8787/admin`** — par exemple
+   `https://192.168.1.31:8787/admin`.
 
-   > **⚠️ NE PAS utiliser `https://IZQUIERDO-NUC.local:8787/` depuis le
+   > **⚠️ NE PAS utiliser `https://IZQUIERDO-NUC.local:8787/admin` depuis le
    > téléphone.** Les navigateurs Android **ne résolvent pas le mDNS** : Chrome
    > n'a pas de résolveur `.local` pour sa barre d'adresse, et l'URL échoue
    > même quand le serveur répond parfaitement. Constaté le 23/09.

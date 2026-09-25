@@ -1,0 +1,22 @@
+[Unit]
+Description=phototheque (recensement de la galerie : vignettes et dates)
+After=network-online.target phototheque.service
+# Lit les médias : n'a rien à faire tant que Famille n'est pas monté.
+RequiresMountsFor=/media/izquierdo/Famille
+
+[Service]
+User=izquierdo
+WorkingDirectory=/home/izquierdo/phone_camera_import
+ExecStart=/home/izquierdo/.venv-server/bin/python -m phototheque.recensement
+# Priorité la plus basse, processeur ET disque : la réception des photos du
+# téléphone passe toujours avant (spec §4). Le recensement s'interrompt en
+# plus de lui-même pendant une synchronisation.
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=50%
+MemoryMax=400M
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

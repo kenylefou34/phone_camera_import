@@ -265,6 +265,15 @@ sudo systemctl enable ${SERVICE}.service
 sudo systemctl restart ${SERVICE}.service      # relit le code après un git pull
 info "service activé (démarrage au boot) et démarré"
 
+# Le recensement de la galerie (issue #31) : son propre service, discret
+# (nice 19, E/S au repos), reprenable. Le redémarrer après un git pull lui
+# fait relire son code ; il reprend là où il en était.
+sudo cp deploy/phototheque-recensement.service /etc/systemd/system/phototheque-recensement.service
+sudo systemctl daemon-reload
+sudo systemctl enable phototheque-recensement.service
+sudo systemctl restart phototheque-recensement.service
+info "recensement de la galerie activé et démarré"
+
 # Avahi ne relit ses fichiers de service qu'au redémarrage du démon.
 if systemctl is-active --quiet avahi-daemon; then
     sudo systemctl restart avahi-daemon
@@ -339,7 +348,8 @@ PY
 printf '\n'
 info "état      : $(systemctl is-active ${SERVICE}) / $(systemctl is-enabled ${SERVICE})"
 info "version   : $(git log --oneline -1)"
-info "admin     : https://$(hostname).local:${PORT}/"
+info "galerie   : https://$(hostname).local:${PORT}/"
+info "admin     : https://$(hostname).local:${PORT}/admin"
 info "appairage : https://$(hostname).local:${PORT}/pair"
 info "identifiant : admin (mot de passe affiché à sa création, étape 4/9)"
 info "ATTENTION : le navigateur avertira au premier accès (certificat"

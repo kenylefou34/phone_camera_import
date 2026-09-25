@@ -1019,3 +1019,21 @@ def test_resoudre_mdns_retombe_sur_getent_quand_avahi_ne_sait_pas():
 def test_resoudre_mdns_rend_1_quand_personne_ne_sait():
     code, _ = appeler("resoudre_mdns", "nom-qui-nexiste-pas.invalid")
     assert code == 1
+
+
+# ------------------------------------ service du recensement (issue #31) ---
+
+def test_l_unite_du_recensement_est_discrete():
+    """Le NUC a 2 cœurs : le recensement passe après tout le reste."""
+    unite = (LIB.parent / "phototheque-recensement.service").read_text()
+    assert "-m phototheque.recensement" in unite
+    assert "Nice=19" in unite
+    assert "IOSchedulingClass=idle" in unite
+    assert "RequiresMountsFor=/media/izquierdo/Famille" in unite
+
+
+def test_install_installe_et_demarre_le_recensement():
+    script = (LIB.parent / "install.sh").read_text()
+    assert "phototheque-recensement.service" in script
+    assert "systemctl enable phototheque-recensement.service" in script
+    assert "systemctl restart phototheque-recensement.service" in script

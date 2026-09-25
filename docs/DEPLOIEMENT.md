@@ -41,7 +41,8 @@ Neuf étapes numérotées, puis :
     /pair    401  ok
     /status  401  ok
     état      : active / enabled
-    admin     : https://IZQUIERDO-NUC.local:8787/
+    galerie   : https://IZQUIERDO-NUC.local:8787/
+    admin     : https://IZQUIERDO-NUC.local:8787/admin
 ```
 
 `401` **partout** est le résultat correct et attendu, pas une panne : `/` et
@@ -236,9 +237,11 @@ plutôt que de laisser systemd boucler.
 
 ```bash
 sudo cp deploy/phototheque.service /etc/systemd/system/
+sudo cp deploy/phototheque-recensement.service /etc/systemd/system/
 sudo cp deploy/avahi-phototheque.service /etc/avahi/services/
 sudo systemctl daemon-reload
 sudo systemctl enable --now phototheque.service
+sudo systemctl enable --now phototheque-recensement.service
 sudo systemctl restart avahi-daemon
 ```
 
@@ -246,6 +249,9 @@ sudo systemctl restart avahi-daemon
   continue d'utiliser l'ancienne version en mémoire.
 - **`enable`** : le service démarrera automatiquement à chaque boot du NUC.
 - **`--now`** : et démarre aussi tout de suite.
+- **`phototheque-recensement`** : le second service, celui qui fabrique les
+  vignettes et comble les dates de la galerie — voir « La galerie et son
+  recensement » plus bas.
 - **`restart avahi-daemon`** : Avahi ne relit ses fichiers de service qu'au
   redémarrage. C'est lui qui permet d'écrire `https://IZQUIERDO-NUC.local:8787`
   au lieu de retenir l'adresse IP, et qui permettra à l'app Android de trouver
@@ -488,7 +494,9 @@ Les unités systemd sont de simples fichiers texte, la marche arrière est direc
 
 ```bash
 sudo systemctl disable --now phototheque
+sudo systemctl disable --now phototheque-recensement
 sudo rm /etc/systemd/system/phototheque.service
+sudo rm /etc/systemd/system/phototheque-recensement.service
 sudo rm /etc/avahi/services/avahi-phototheque.service
 sudo systemctl daemon-reload
 ```
@@ -676,6 +684,92 @@ cours (bouton « Interrompre ») par `POST /sync/abandon` — voir
 `docs/CONTRAT-APP.md` §4.6. Sans surprise si cet appel échoue : la purge de
 24 h sert de filet.
 
+### La galerie et son recensement (issue #31)
+
+Le service sert désormais une **galerie de consultation en lecture seule**
+sur `/` — photos et vidéos de la bibliothèque, groupées par année → mois →
+jour, avec filtres. **L'administration est passée à `/admin`** : un signet ou
+un raccourci vers l'ancienne adresse (`/`) ouvre maintenant la galerie, pas
+l'administration.
+
+La galerie a besoin de deux choses que le catalogue anti-doublon du trieur ne
+tient pas forcément à jour : une **vignette** par média, et sa **date de
+prise de vue**. Les fabriquer coûte cher (ouvrir chaque fichier, parfois le
+décoder entièrement) : c'est le rôle d'un second service, séparé du premier
+et **reprenable**, qui tourne en tâche de fond.
+
+**`phototheque-recensement.service`** (`python3 -m phototheque.recensement`)
+parcourt tout le catalogue et, pour chaque média sans vignette :
+- fabrique sa vignette (400 px de côté au plus, WebP) sous
+  `~/.local/share/phototheque/vignettes/` — **environ 1,1 Go attendus** pour
+  la bibliothèque actuelle (~45 000 médias) ;
+- si `date_prise` est vide dans le catalogue, la récolte dans les métadonnées
+  (`exiftool`) ou, à défaut, dans le nom du fichier, et l'écrit dans
+  `~/mediasort_catalog.db`.
+
+Il tient à jour sa propre base, `~/phototheque_galerie.db` — l'index de la
+galerie, distinct du catalogue et de la base des appareils.
+
+**Il est délibérément discret.** Le NUC n'a que 2 cœurs et 3 Go, et la
+réception des photos du téléphone doit toujours passer avant : l'unité tourne
+en `nice` 19, E/S au repos (`IOSchedulingClass=idle`), plafonnée à 50 % d'un
+cœur et 400 Mio. Il **s'interrompt en plus de lui-même** dès qu'une
+synchronisation est détectée sur le disque, et **reprend là où il en
+était** : la table `vignettes` de `phototheque_galerie.db` dit ce qui est
+déjà fait, rien n'est refait au redémarrage du service.
+
+**Suivre l'avancement :**
+
+```bash
+journalctl -u phototheque-recensement -f
+```
+
+ou le bloc « Galerie » de la page d'administration (`/admin`), qui affiche le
+nombre de médias traités sur le total et les erreurs en cours.
+
+**Durée attendue :** environ **une nuit** pour l'arriéré (mesure du 25/09 sur
+le catalogue actuel), puis quelques secondes par nouvel import une fois
+l'arriéré résorbé — le service repasse toutes les dix minutes pour les
+médias nouvellement rangés.
+
+**Relancer les échecs**, une fois leur cause corrigée (le bloc « Galerie » de
+`/admin` et le journal du service disent laquelle) :
+
+```bash
+sudo systemctl stop phototheque-recensement
+~/.venv-server/bin/python -m phototheque.recensement --reessayer-erreurs --une-passe
+sudo systemctl start phototheque-recensement
+```
+
+**Retour arrière :**
+
+```bash
+sudo systemctl disable --now phototheque-recensement
+```
+
+La galerie reste utilisable : un média sans vignette y affiche une image de
+remplacement, ça ne bloque rien.
+
+**Ce qu'il écrit dans le catalogue.** Le recensement écrit `date_prise` et
+`source_date` (`metadata` ou `filename`) — et **seulement** sur les lignes où
+`date_prise` était vide ; jamais `filesystem`, jamais une ligne déjà datée.
+**Sauvegarder `~/mediasort_catalog.db` avant le premier démarrage** :
+
+```bash
+cp ~/mediasort_catalog.db ~/mediasort_catalog.db.avant-recensement
+```
+
+**Deux points à vérifier sur le NUC**, pas seulement sur un poste de
+développement (les versions des bibliothèques y diffèrent) :
+- **`Range` sur les vidéos** (avancer dans la lecture sans tout retélécharger)
+  exige **Starlette ≥ 0.39** — c'est cette version qui fait gérer l'en-tête
+  par `FileResponse`. Vérifier celle du venv du service :
+  `~/.venv-server/bin/python -c "import starlette; print(starlette.__version__)"`.
+- **La vignette d'une vidéo de moins d'une seconde** dépend du comportement
+  de `ffmpeg` : à recontrôler sur le ffmpeg 8 du NUC (le poste de
+  développement tournait en 4.4.2 au moment d'écrire ce module — un
+  comportement différent n'y aurait pas été vu).
+
 ---
 
 ## Paramétrage
@@ -691,6 +785,9 @@ Tout est surchargeable par variables d'environnement (voir
 | `INCOMING_DIR` | `<LIBRARY_DIR>/incoming` | Dépôt temporaire des envois |
 | `DEVICES_DB` | `~/phototheque_devices.db` | Appareils appairés |
 | `JOURNAL_DB` | `~/phototheque_journal.db` | Journal des synchronisations, mouvements et événements (issue #30) |
+| `GALERIE_DB` | `~/phototheque_galerie.db` | Index de la galerie : vignettes faites ou en échec (issue #31) |
+| `VIGNETTES_DIR` | `<DATA_DIR>/vignettes` | Vignettes WebP fabriquées par le recensement (issue #31) |
+| `DATA_DIR` | `~/.local/share/phototheque` | Données servies (APK, vignettes) — pas des secrets, droits normaux |
 | `CONFIG_DIR` | `~/.config/phototheque` | Dossier du certificat, du mot de passe et du nom convivial |
 | `ADMIN_FILE` | `<CONFIG_DIR>/admin` | Empreinte du mot de passe d'administration |
 | `ADMIN_USER_FILE` | `<CONFIG_DIR>/utilisateur` | Identifiant d'administration. **Absent = `admin`.** |

@@ -185,6 +185,21 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   réelles.** Reste l'**étape 11** (nuit), ratée le 24/09 — voir REPRISE.
   Trouvé en route : le gestionnaire d'énergie HONOR, le filtre de journaux
   HONOR, le piège « `/pair` réaffiche le même QR », et **#42**.
+- ✅ **Galerie de consultation, partie serveur, ÉCRITE — PAS ENCORE
+  DÉPLOYÉE** (issue #31, phase 2, branche `galerie-serveur`, plan
+  `docs/superpowers/plans/2026-09-25-galerie-consultation-serveur.md`, neuf
+  tâches) : classement d'un chemin en type/origine/date, index en mémoire
+  avec filtres et compteurs année/mois/jour, vues paginées, vignettes WebP
+  (400 px, EXIF ou `ffmpeg`) fabriquées par un service de fond **séparé**
+  (`phototheque-recensement`, `nice` 19, E/S au repos, reprenable, se tait
+  pendant une synchro téléphone), routes de lecture seule ouvertes au mot de
+  passe admin OU au jeton d'un appareil (`require_lecteur`, prépare l'onglet
+  `WebView` de l'app). **`/` est devenue la galerie, l'administration est
+  passée à `/admin`.** 508 tests dans la suite pytest (383 avant ce lot).
+  **Jamais installée sur le NUC** : reste l'étape 7 de la tâche 9
+  (`./deploy/install.sh`, avec le mainteneur, sudo — sauvegarder
+  `~/mediasort_catalog.db` avant) — voir `docs/DEPLOIEMENT.md`, « La galerie
+  et son recensement ».
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
@@ -218,13 +233,14 @@ réinstallé et validé le 25/09 (voir l'État actuel).
      (`persist.log.tag=S`), réglage perdu à chaque redémarrage.
 3. **Si l'étape 11 passe** : fermer à la main **#12** et **#29**, puis ouvrir
    la PR `dev` → `main` (elle fermera #36 et #38).
-4. Puis **#31** (galerie de consultation, phase 2). **Plan écrit le 25/09** :
-   `docs/superpowers/plans/2026-09-25-galerie-consultation-serveur.md` (neuf
-   tâches, partie serveur ; l'onglet `WebView` de l'app fera un plan à part).
-   Il corrige la spec sur mesures (17 % des chemins hors format canonique,
-   vignettes EXIF de ~160 px, admin déplacée à `/admin`) : à faire relire au
-   mainteneur, qui choisira le mode d'exécution. **#43** (ouverte le 25/09) :
-   l'app doit reprendre le thème de l'admin, la galerie aussi.
+4. Puis **#31** (galerie de consultation, phase 2). **Neuf tâches ÉCRITES le
+   25/09** sur la branche `galerie-serveur` (plan
+   `docs/superpowers/plans/2026-09-25-galerie-consultation-serveur.md` ;
+   l'onglet `WebView` de l'app fera un plan à part). Reste seulement l'étape
+   7 de la tâche 9 : **installer et valider sur le NUC, avec le mainteneur**
+   (sudo, sauvegarder `~/mediasort_catalog.db` avant tout) — voir
+   `docs/DEPLOIEMENT.md`, « La galerie et son recensement ». **#43** (ouverte
+   le 25/09) : l'app doit reprendre le thème de l'admin, la galerie aussi.
 
 **Pourquoi l'étape 11 a échoué le 24/09 — deux causes, chacune suffisante :**
 l'appareil avait été révoqué depuis l'admin à 13:38 (le téléphone portait un
@@ -490,6 +506,12 @@ les constats différés de sa relecture finale sont dans **#41**.
   ses contraintes sont réunies).
 
 **Pièges du serveur**
+- **L'adresse `/` du NUC n'est plus l'administration** (issue #31, galerie de
+  consultation) : `/` sert désormais la galerie de photos en lecture seule
+  (mot de passe admin OU jeton d'un appareil appairé, `require_lecteur`),
+  l'administration (appareils, camembert disque, APK, historique, bloc
+  « Galerie ») est passée à `/admin`. Un signet ou un raccourci gardé sur
+  l'ancienne adresse ouvre la galerie, pas l'admin.
 - **FastAPI publie `/docs`, `/redoc` et `/openapi.json` sans authentification.**
   Ils étaient ouverts sur le NUC jusqu'au 18/09. Fermés (404) ;
   `DOCS_PUBLIQUES=1` les rouvre en développement. **Y repenser à chaque ajout de
@@ -619,7 +641,8 @@ python3 -m mediasort --catalog ~/mediasort_catalog.db --backfill-signatures
 
 # Serveur (sur le NUC) — installation ET mise à jour, idempotent :
 cd ~/phone_camera_import && git pull && ./deploy/install.sh
-# puis https://IZQUIERDO-NUC.local:8787/ (admin, identifiant "admin") et /pair (QR)
+# puis https://IZQUIERDO-NUC.local:8787/ (galerie, lecture seule) et
+#   /admin (administration, identifiant "admin") et /pair (QR)
 #   (nuc.local ne résout PAS : la machine s'annonce en <hostname>.local)
 #   (DEPUIS UN TELEPHONE : utiliser l'IP, pas le nom .local — les navigateurs
 #    Android ne resolvent pas le mDNS. `avahi-resolve -4 -n IZQUIERDO-NUC.local`

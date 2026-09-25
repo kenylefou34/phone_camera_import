@@ -177,4 +177,4 @@ echo "  Le service n'a pas besoin d'être redémarré."
 echo
 echo "  Depuis le téléphone, ouvrez cette page et appuyez sur"
 echo "  « Télécharger l'application » :"
-echo "      https://IZQUIERDO-NUC.local:8787/"
+echo "      https://IZQUIERDO-NUC.local:8787/admin"
