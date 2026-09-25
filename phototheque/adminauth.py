@@ -82,3 +82,71 @@ def utilisateur(fichier) -> str:
     except (OSError, ValueError):
         return UTILISATEUR_PAR_DEFAUT
     return nom or UTILISATEUR_PAR_DEFAUT
+
+
+class CacheVerifications:
+    """Mémoire courte des vérifications RÉUSSIES (relecture finale #31, I1).
+
+    Pourquoi : `verifier` coûte un PBKDF2 de 240 000 itérations (~100 ms sur
+    le NUC). Le navigateur renvoie l'en-tête Basic à CHAQUE requête, et une
+    grille de la galerie, c'est 1 page + jusqu'à 120 vignettes : plusieurs
+    secondes de calcul des deux cœurs, dans le processus même qui reçoit les
+    photos du téléphone.
+
+    Pourquoi c'est sûr :
+    - seules les RÉUSSITES sont retenues ; un échec repasse toujours par la
+      vérification complète ET par le limiteur d'essais (essais.py), qui ne
+      change pas ;
+    - on ne garde jamais l'en-tête lui-même, seulement son empreinte SHA-256
+      (le mot de passe n'est donc pas en clair dans la mémoire du cache) ;
+    - la clé inclut la date de modification des fichiers de mot de passe et
+      d'identifiant : `identifiants.sh` réécrit ces fichiers, et l'ancien mot
+      de passe cesse d'être accepté dès la requête suivante ;
+    - durée de vie courte (DUREE_S) et taille bornée (TAILLE) : une entrée
+      ne survit ni longtemps, ni en nombre ;
+    - comparaison en temps constant (`hmac.compare_digest`).
+
+    Accès sous verrou : FastAPI exécute les routes synchrones dans plusieurs
+    fils d'exécution à la fois.
+    """
+
+    DUREE_S = 300
+    TAILLE = 16
+
+    def __init__(self, taille: int = TAILLE, duree_s: float = DUREE_S,
+                 maintenant=None) -> None:
+        import threading
+        import time
+        self._taille, self._duree = taille, duree_s
+        self._maintenant = maintenant or time.monotonic
+        self._verrou = threading.Lock()
+        # Liste de (empreinte de l'en-tête, signature des fichiers, expiration),
+        # la plus ancienne en tête.
+        self._entrees: list[tuple[bytes, tuple, float]] = []
+
+    @staticmethod
+    def _empreinte(entete: str) -> bytes:
+        return hashlib.sha256(entete.encode()).digest()
+
+    def connu(self, entete: str, signature: tuple) -> bool:
+        """Vrai si cet en-tête exact a réussi récemment, avec ces mêmes fichiers."""
+        cle = self._empreinte(entete)
+        with self._verrou:
+            t = self._maintenant()
+            self._entrees = [e for e in self._entrees if e[2] > t]
+            trouve = False
+            for empreinte_e, signature_e, _ in self._entrees:
+                # Pas de sortie anticipée : toutes les entrées sont comparées.
+                if hmac.compare_digest(empreinte_e, cle) and signature_e == signature:
+                    trouve = True
+            return trouve
+
+    def retenir(self, entete: str, signature: tuple) -> None:
+        """Retient une vérification RÉUSSIE (n'appeler que dans ce cas)."""
+        cle = self._empreinte(entete)
+        with self._verrou:
+            t = self._maintenant()
+            self._entrees = [e for e in self._entrees
+                             if e[2] > t and not hmac.compare_digest(e[0], cle)]
+            self._entrees.append((cle, signature, t + self._duree))
+            del self._entrees[:-self._taille]      # les plus vieilles sortent

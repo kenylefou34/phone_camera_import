@@ -1459,6 +1459,92 @@ def test_naviguer_sans_identifiants_ne_declenche_jamais_la_limitation(tmp_path, 
     assert client.get("/", headers=_entetes("admin", "le-bon-mot-de-passe")).status_code == 200
 
 
+# --- cache des vérifications réussies (relecture finale #31, I1) ----------
+#
+# Une grille de la galerie = 1 page + jusqu'à 120 vignettes, chacune avec son
+# en-tête Basic. Sans cache, chacune repayait un PBKDF2 de ~100 ms sur le NUC.
+
+
+def _compter_verifications(a, monkeypatch):
+    appels = []
+    vrai_verifier = a.adminauth.verifier
+    monkeypatch.setattr(a.adminauth, "verifier",
+                        lambda *args, **kw: appels.append(1) or vrai_verifier(*args, **kw))
+    return appels
+
+
+def test_deux_requetes_avec_le_bon_mot_de_passe_ne_verifient_qu_une_fois(tmp_path, monkeypatch):
+    _pose_mot_de_passe(tmp_path, monkeypatch)
+    a, client = _client_depuis(tmp_path, monkeypatch)
+    appels = _compter_verifications(a, monkeypatch)
+    bon = _entetes("admin", "le-bon-mot-de-passe")
+    assert client.get("/admin", headers=bon).status_code == 200
+    assert client.get("/admin", headers=bon).status_code == 200
+    assert appels == [1]
+
+
+def test_changer_le_fichier_de_mot_de_passe_force_une_nouvelle_verification(tmp_path, monkeypatch):
+    """identifiants.sh réécrit le fichier : l'ancien mot de passe doit
+    tomber AUSSITÔT, pas au bout de la durée de vie du cache."""
+    import os
+    from phototheque import adminauth
+    _pose_mot_de_passe(tmp_path, monkeypatch)
+    a, client = _client_depuis(tmp_path, monkeypatch)
+    bon = _entetes("admin", "le-bon-mot-de-passe")
+    assert client.get("/admin", headers=bon).status_code == 200
+    fichier = tmp_path / "admin"
+    fichier.write_text(adminauth.empreinte("un-autre", iterations=1000))
+    st = fichier.stat()
+    os.utime(fichier, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+    assert client.get("/admin", headers=bon).status_code == 401
+
+
+def test_changer_le_fichier_d_identifiant_force_une_nouvelle_verification(tmp_path, monkeypatch):
+    _pose_mot_de_passe(tmp_path, monkeypatch)
+    a, client = _client_depuis(tmp_path, monkeypatch)
+    bon = _entetes("admin", "le-bon-mot-de-passe")
+    assert client.get("/admin", headers=bon).status_code == 200
+    (tmp_path / "jamais-cree").write_text("ken")   # le fichier d'identifiant apparaît
+    assert client.get("/admin", headers=bon).status_code == 401
+
+
+def test_un_echec_n_est_jamais_mis_en_cache_et_reste_compte(tmp_path, monkeypatch):
+    _pose_mot_de_passe(tmp_path, monkeypatch)
+    a, client = _client_depuis(tmp_path, monkeypatch)
+    appels = _compter_verifications(a, monkeypatch)
+    mauvais = _entetes("admin", "mauvais")
+    for _ in range(a.essais.SEUIL):
+        assert client.get("/admin", headers=mauvais).status_code == 401
+    assert len(appels) == a.essais.SEUIL, "un échec a été servi depuis un cache"
+    assert client.get("/admin", headers=mauvais).status_code == 429
+
+
+def test_une_verification_expire_apres_sa_duree_de_vie(tmp_path, monkeypatch):
+    _pose_mot_de_passe(tmp_path, monkeypatch)
+    a, client = _client_depuis(tmp_path, monkeypatch)
+    horloge = {"t": 1000.0}
+    a._cache_auth = a.adminauth.CacheVerifications(maintenant=lambda: horloge["t"])
+    appels = _compter_verifications(a, monkeypatch)
+    bon = _entetes("admin", "le-bon-mot-de-passe")
+    assert client.get("/admin", headers=bon).status_code == 200
+    horloge["t"] += a.adminauth.CacheVerifications.DUREE_S - 1
+    assert client.get("/admin", headers=bon).status_code == 200
+    assert appels == [1]
+    horloge["t"] += 2
+    assert client.get("/admin", headers=bon).status_code == 200
+    assert appels == [1, 1]
+
+
+def test_le_cache_est_borne_les_plus_vieilles_entrees_sont_ejectees():
+    from phototheque import adminauth
+    cache = adminauth.CacheVerifications(taille=2, maintenant=lambda: 0.0)
+    for entete in ("a", "b", "c"):
+        cache.retenir(entete, (1, 2))
+    assert not cache.connu("a", (1, 2))
+    assert cache.connu("b", (1, 2)) and cache.connu("c", (1, 2))
+    assert not cache.connu("b", (1, 3)), "une autre signature des fichiers doit manquer"
+
+
 def _envoyer(client, entetes, session, chemin, contenu):
     """Téléverse un fichier dans une session déjà ouverte."""
     return client.post("/sync/upload", headers=entetes,

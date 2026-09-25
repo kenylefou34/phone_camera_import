@@ -235,6 +235,24 @@ _journal = logging.getLogger("phototheque.admin")
 # tout le processus : c'est l'état partagé qui permet de refuser sans calculer.
 _limiteur = essais.Limiteur()
 
+# Vérifications d'administration RÉUSSIES retenues quelques minutes : sans
+# elles, chaque vignette d'une grille repayait un PBKDF2 (~100 ms). Le détail
+# et la raison pour laquelle c'est sûr : adminauth.CacheVerifications.
+_cache_auth = adminauth.CacheVerifications()
+
+
+def _signature_identifiants() -> tuple[int, int]:
+    """Dates de modification (ns) des fichiers de mot de passe et
+    d'identifiant, 0 pour un fichier absent. Elles entrent dans la clé du
+    cache : `identifiants.sh` réécrit ces fichiers, ce qui invalide aussitôt
+    toute vérification retenue avec l'ancien mot de passe."""
+    def mtime(chemin) -> int:
+        try:
+            return chemin.stat().st_mtime_ns
+        except OSError:
+            return 0
+    return mtime(config.ADMIN_FILE), mtime(config.ADMIN_USER_FILE)
+
 
 def require_admin(request: Request, authorization: str = Header(default="")) -> None:
     """Dépendance d'auth admin : « Authorization: Basic <utilisateur:secret> ».
@@ -269,6 +287,11 @@ def require_admin(request: Request, authorization: str = Header(default="")) -> 
             headers={"Retry-After": str(math.ceil(attente))},
         )
 
+    # Relevée AVANT de lire les fichiers : si identifiants.sh les réécrit
+    # entre les deux, une réussite obtenue avec l'ANCIEN contenu est retenue
+    # sous l'ancienne signature, qui ne correspondra plus jamais — l'ancien
+    # mot de passe ne peut donc pas survivre dans le cache.
+    signature = _signature_identifiants()
     try:
         enregistre = config.ADMIN_FILE.read_text().strip()
     except (OSError, ValueError):
@@ -284,6 +307,11 @@ def require_admin(request: Request, authorization: str = Header(default="")) -> 
         # mainteneur en navigation parfaitement normale — quelques pages
         # ouvertes suffiraient à le bloquer.
         raise refus
+    # Déjà vérifié avec succès il y a peu, avec les mêmes fichiers : on ne
+    # repaie pas le PBKDF2. Un échec n'est jamais retenu (voir plus bas).
+    if _cache_auth.connu(authorization, signature):
+        _limiteur.succes(source)
+        return
     try:
         identifiants = base64.b64decode(authorization[len(prefixe):]).decode()
         utilisateur, _, secret = identifiants.partition(":")
@@ -309,6 +337,7 @@ def require_admin(request: Request, authorization: str = Header(default="")) -> 
     # Réussite : on efface l'ardoise, le mainteneur ne traîne pas ses fautes
     # de frappe de la veille.
     _limiteur.succes(source)
+    _cache_auth.retenir(authorization, signature)
 
 
 def require_lecteur(request: Request, authorization: str = Header(default="")) -> None:
