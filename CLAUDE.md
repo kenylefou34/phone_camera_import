@@ -191,11 +191,15 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   tâches) : classement d'un chemin en type/origine/date, index en mémoire
   avec filtres et compteurs année/mois/jour, vues paginées, vignettes WebP
   (400 px, EXIF ou `ffmpeg`) fabriquées par un service de fond **séparé**
-  (`phototheque-recensement`, `nice` 19, E/S au repos, reprenable, se tait
-  pendant une synchro téléphone), routes de lecture seule ouvertes au mot de
+  (`phototheque-recensement`, `nice` 19, E/S au repos — sans prise sur les
+  lectures de Famille via ntfs-3g, c'est la pause automatique qui protège —,
+  reprenable, se tait pendant une synchro téléphone, vérifié entre deux
+  médias ; un média n'est « fait » qu'après l'écriture de sa date), routes de lecture seule ouvertes au mot de
   passe admin OU au jeton d'un appareil (`require_lecteur`, prépare l'onglet
   `WebView` de l'app). **`/` est devenue la galerie, l'administration est
-  passée à `/admin`.** 508 tests dans la suite pytest (383 avant ce lot).
+  passée à `/admin`.** Vérifications admin réussies retenues 5 min (une
+  grille = jusqu'à 120 vignettes, un PBKDF2 chacune sinon). 536 tests dans
+  la suite pytest (383 avant ce lot).
   **Jamais installée sur le NUC** : reste l'étape 7 de la tâche 9
   (`./deploy/install.sh`, avec le mainteneur, sudo — sauvegarder
   `~/mediasort_catalog.db` avant) — voir `docs/DEPLOIEMENT.md`, « La galerie

@@ -708,16 +708,37 @@ parcourt tout le catalogue et, pour chaque média sans vignette :
   (`exiftool`) ou, à défaut, dans le nom du fichier, et l'écrit dans
   `~/mediasort_catalog.db`.
 
-Il tient à jour sa propre base, `~/phototheque_galerie.db` — l'index de la
-galerie, distinct du catalogue et de la base des appareils.
+Il tient à jour sa propre base, `~/phototheque_galerie.db` — la table des
+vignettes (faites ou en échec), distincte du catalogue et de la base des
+appareils. L'index que parcourt la galerie, lui, est reconstruit en mémoire
+par le serveur à partir du catalogue.
 
 **Il est délibérément discret.** Le NUC n'a que 2 cœurs et 3 Go, et la
-réception des photos du téléphone doit toujours passer avant : l'unité tourne
+réception des photos du téléphone doit toujours passer avant. L'unité tourne
 en `nice` 19, E/S au repos (`IOSchedulingClass=idle`), plafonnée à 50 % d'un
-cœur et 400 Mio. Il **s'interrompt en plus de lui-même** dès qu'une
-synchronisation est détectée sur le disque, et **reprend là où il en
-était** : la table `vignettes` de `phototheque_galerie.db` dit ce qui est
-déjà fait, rien n'est refait au redémarrage du service.
+cœur et 400 Mio — **mais ces réglages ne valent que pour le processus du
+recensement lui-même.** Famille est un disque NTFS, monté par `ntfs-3g`, un
+système de fichiers FUSE : les lectures y sont faites par le démon
+`mount.ntfs-3g`, qui n'hérite ni du `nice` ni de la classe d'E/S « idle ».
+Sur ce disque, ces réglages ne protègent donc probablement pas la synchro
+(à vérifier, voir plus bas).
+
+**La vraie protection de la synchro est la pause automatique** : le
+recensement **s'interrompt de lui-même** dès qu'une synchronisation est
+détectée sur le disque (une session écrite depuis moins de 5 minutes dans
+`incoming/`), et il le vérifie **entre deux médias** — au pire, il finit la
+vignette en cours. Il se met aussi en pause si la bibliothèque a disparu
+(disque Famille démonté ou débranché) plutôt que de marquer chaque média
+« fichier absent ».
+
+Il **reprend là où il en était** : la table `vignettes` de
+`phototheque_galerie.db` dit ce qui est déjà fait, rien n'est refait au
+redémarrage du service. Un média n'y est marqué « fait » qu'**après**
+l'écriture de sa date dans le catalogue : même tué net (coupure de courant,
+manque de mémoire, `install.sh` qui redémarre le service), il ne perd aucune
+date — au pire quelques vignettes sont refaites. Sur un arrêt normal
+(`systemctl stop`), il enregistre ce qui est fait avant de sortir ; l'unité
+lui en laisse 300 s (`TimeoutStopSec`) au lieu des 90 s par défaut.
 
 **Suivre l'avancement :**
 
@@ -725,20 +746,49 @@ déjà fait, rien n'est refait au redémarrage du service.
 journalctl -u phototheque-recensement -f
 ```
 
-ou le bloc « Galerie » de la page d'administration (`/admin`), qui affiche le
-nombre de médias traités sur le total et les erreurs en cours.
+Ce que le journal contient, exactement :
+- une ligne **par lot** de 50 médias :
+  `INFO lot : 50 médias, 48 vignettes, 2 échecs, 31 dates, 44 120 restants`
+  (vignettes faites, échecs, dates écrites dans le catalogue, médias qui
+  restent à traiter dans cette passe) ;
+- un **avertissement par média en échec**, avec le nom du fichier et la
+  raison : `WARNING vignette impossible pour IMG_1234.jpg : ffmpeg (photo) : …`,
+  ou `WARNING IMG_1234.jpg : date non écrite : database is locked` quand le
+  catalogue est resté verrouillé (par le trieur) malgré trois essais ;
+- pour une erreur **inattendue** (un bogue, pas un fichier illisible) :
+  `ERROR erreur inattendue pour IMG_1234.jpg`, suivie de la trace Python
+  complète — à signaler ;
+- `INFO recensement en pause : synchronisation du téléphone en cours` (ou
+  `: bibliothèque introuvable (…) : disque démonté ?`), puis
+  `INFO reprise du recensement` ;
+- en fin de passe : `INFO passe terminée en 1234 s : 48 vignette(s), 2 échec(s), 31 date(s)` ;
+- `ERROR métadonnées illisibles pour un lot` (exiftool en panne : les
+  vignettes se font quand même, sans les dates de ce lot) et
+  `ERROR écriture des dates impossible pour un lot, après 3 tentatives` ;
+- au démarrage, selon le cas : `INFO un autre recensement tourne déjà : rien
+  à faire`, ou (avec `--reessayer-erreurs`) `INFO 12 média(s) en échec remis
+  en file`.
 
-**Durée attendue :** environ **une nuit** pour l'arriéré (mesure du 25/09 sur
-le catalogue actuel), puis quelques secondes par nouvel import une fois
-l'arriéré résorbé — le service repasse toutes les dix minutes pour les
-médias nouvellement rangés.
+Le bloc « Galerie » de la page d'administration (`/admin`) affiche le nombre
+de vignettes faites sur le total, le nombre d'échecs, et **les huit derniers
+échecs** (nom du fichier, date, raison).
+
+**Durée attendue :** **au moins une nuit** pour l'arriéré, peut-être
+plusieurs : chaque photo dont l'EXIF contient une vignette coûte un appel
+`exiftool -b` en plus, sur un disque lu à ~7 Mo/s, et une vidéo est décodée
+par `ffmpeg`. Le chiffre réel est **à mesurer à la validation** par la ligne
+de lot du journal (compter les lignes par heure × 50 médias). Une fois
+l'arriéré résorbé, quelques secondes par nouvel import — le service repasse
+toutes les dix minutes pour les médias nouvellement rangés.
 
 **Relancer les échecs**, une fois leur cause corrigée (le bloc « Galerie » de
-`/admin` et le journal du service disent laquelle) :
+`/admin` et le journal du service disent laquelle). Le `cd` n'est pas
+facultatif : le projet n'est pas installé dans le venv, Python ne trouve
+`phototheque` que depuis le dossier du dépôt.
 
 ```bash
 sudo systemctl stop phototheque-recensement
-~/.venv-server/bin/python -m phototheque.recensement --reessayer-erreurs --une-passe
+cd ~/phone_camera_import && ~/.venv-server/bin/python -m phototheque.recensement --reessayer-erreurs --une-passe
 sudo systemctl start phototheque-recensement
 ```
 
@@ -760,8 +810,8 @@ remplacement, ça ne bloque rien.
 cp ~/mediasort_catalog.db ~/mediasort_catalog.db.avant-recensement
 ```
 
-**Deux points à vérifier sur le NUC**, pas seulement sur un poste de
-développement (les versions des bibliothèques y diffèrent) :
+**Points à vérifier sur le NUC**, pas seulement sur un poste de
+développement (les versions des bibliothèques et le disque y diffèrent) :
 - **`Range` sur les vidéos** (avancer dans la lecture sans tout retélécharger)
   exige **Starlette ≥ 0.39** — c'est cette version qui fait gérer l'en-tête
   par `FileResponse`. Vérifier celle du venv du service :
@@ -770,6 +820,22 @@ développement (les versions des bibliothèques y diffèrent) :
   de `ffmpeg` : à recontrôler sur le ffmpeg 8 du NUC (le poste de
   développement tournait en 4.4.2 au moment d'écrire ce module — un
   comportement différent n'y aurait pas été vu).
+- **Le type de montage de Famille**, qui décide si `nice`/`ionice` ont une
+  prise sur les lectures (voir plus haut) :
+  `findmnt -no FSTYPE,OPTIONS /media/izquierdo/Famille` — `fuseblk` (ou
+  `ntfs-3g`) = FUSE, les réglages de l'unité ne s'appliquent pas aux
+  lectures ; `ntfs3` (pilote du noyau) = ils peuvent s'appliquer.
+- **L'ordonnanceur d'E/S du disque** : la classe « idle » n'a d'effet
+  qu'avec `bfq` (et, dans une moindre mesure, `cfq`) ; avec `mq-deadline`
+  ou `none`, elle est ignorée.
+  `cat /sys/block/$(lsblk -no PKNAME "$(findmnt -no SOURCE /media/izquierdo/Famille)")/queue/scheduler`
+  (l'ordonnanceur actif est entre crochets).
+- **Le débit d'une synchronisation** avec le recensement en marche, puis
+  arrêté (`sudo systemctl stop phototheque-recensement`) : même vidéo de
+  plusieurs centaines de Mo, Mo/s relevés sur l'écran d'avancement de
+  l'application. Un écart net veut dire que la pause automatique arrive
+  trop tard (elle attend la fin de la vignette en cours) ; ne pas oublier
+  de relancer le service ensuite (`sudo systemctl start phototheque-recensement`).
 
 ---
 
@@ -786,7 +852,7 @@ Tout est surchargeable par variables d'environnement (voir
 | `INCOMING_DIR` | `<LIBRARY_DIR>/incoming` | Dépôt temporaire des envois |
 | `DEVICES_DB` | `~/phototheque_devices.db` | Appareils appairés |
 | `JOURNAL_DB` | `~/phototheque_journal.db` | Journal des synchronisations, mouvements et événements (issue #30) |
-| `GALERIE_DB` | `~/phototheque_galerie.db` | Index de la galerie : vignettes faites ou en échec (issue #31) |
+| `GALERIE_DB` | `~/phototheque_galerie.db` | Table des vignettes de la galerie : faites ou en échec (issue #31) |
 | `VIGNETTES_DIR` | `<DATA_DIR>/vignettes` | Vignettes WebP fabriquées par le recensement (issue #31) |
 | `DATA_DIR` | `~/.local/share/phototheque` | Données servies (APK, vignettes) — pas des secrets, droits normaux |
 | `CONFIG_DIR` | `~/.config/phototheque` | Dossier du certificat, du mot de passe et du nom convivial |
