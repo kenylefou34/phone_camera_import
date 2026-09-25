@@ -213,6 +213,25 @@ def test_page_media_video_propose_le_telechargement_et_le_dit(tmp_path, monkeypa
     assert "download" in r.text and "télécharger" in r.text.lower()
 
 
+def test_page_media_video_en_pleine_page_et_lecture_automatique(tmp_path, monkeypatch):
+    # Demande du mainteneur (25/09) : la vidéo démarre seule et occupe toute la
+    # page ; si le navigateur refuse le son, repli en muet plutôt que rien.
+    a, client, adm = _client(tmp_path, monkeypatch)
+    texte = client.get(f"/galerie/media/{E_VIDEO}", headers=adm).text
+    balise = texte[texte.index("<video"):texte.index(">", texte.index("<video"))]
+    for attribut in ("autoplay", "playsinline", "controls"):
+        assert attribut in balise, attribut
+    assert 'class="lecteur"' in texte
+    assert "muted = true" in texte, "repli en muet si la lecture avec le son est refusée"
+    assert 'href="/"' in texte or "Retour" in texte
+
+
+def test_page_media_photo_reste_sans_lecteur(tmp_path, monkeypatch):
+    a, client, adm = _client(tmp_path, monkeypatch)
+    texte = client.get(f"/galerie/media/{E_PHOTO}", headers=adm).text
+    assert 'class="lecteur"' not in texte and "<video" not in texte
+
+
 def test_page_media_inconnue_repond_404(tmp_path, monkeypatch):
     a, client, adm = _client(tmp_path, monkeypatch)
     assert client.get(f"/galerie/media/{'9' * 64}", headers=adm).status_code == 404

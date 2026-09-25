@@ -731,10 +731,7 @@ def media_html(empreinte: str, nom: str, type_: str, taille: int, retour: str) -
     lecture partielle, et le téléchargement proposé — le NUC ne transcode pas."""
     nom_sur = html.escape(nom)
     if type_ == "video":
-        contenu = (
-            f'<video controls preload="metadata" src="/galerie/original/{empreinte}"></video>'
-            '<p class="indice">Si la vidéo ne se lance pas, ce navigateur ne sait pas lire '
-            f'son format : <a download href="/galerie/original/{empreinte}">la télécharger</a>.</p>')
+        return _lecteur_video(empreinte, nom_sur, taille, retour)
     else:
         contenu = (
             f'<img src="/galerie/moyenne/{empreinte}" alt="{nom_sur}">'
@@ -745,3 +742,53 @@ def media_html(empreinte: str, nom: str, type_: str, taille: int, retour: str) -
         f'<p class="hote">{_go(taille)} · <a href="{html.escape(retour)}">Retour</a></p></header>'
         f'<div class="grand">{contenu}</div>')
     return _document(f"phototheque — {nom_sur}", corps, STYLE_GALERIE)
+
+
+# Lecteur vidéo en pleine page (demande du mainteneur, 25/09). Le noir et le
+# blanc sont les seules couleurs posées ici hors de la palette : un lecteur
+# vidéo se regarde sur fond noir, en clair comme en sombre, pour que l'image
+# ne soit pas écrasée par un fond lumineux.
+STYLE_LECTEUR = """
+.lecteur { position:fixed; inset:0; z-index:1; background:#000; color:#fff;
+           display:flex; flex-direction:column; }
+.lecteur .barre { display:flex; gap:16px; align-items:baseline; padding:10px 16px;
+                  font-size:14px; }
+.lecteur .barre .nom { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.lecteur .barre a { color:var(--accent); }
+.lecteur video { flex:1; min-height:0; width:100%; object-fit:contain; background:#000; }
+"""
+
+# La lecture automatique AVEC le son est refusée par certains navigateurs
+# (surtout sur téléphone) tant que la page elle-même n'a pas reçu de geste.
+# Plutôt qu'un lecteur immobile, on retente alors en muet : l'image part, et
+# un appui sur le haut-parleur du lecteur remet le son.
+_SCRIPT_LECTURE = """
+<script>
+(function () {
+  var v = document.querySelector(".lecteur video");
+  var p = v.play();
+  if (p && p.catch) {
+    p.catch(function () { v.muted = true; v.play(); });
+  }
+})();
+</script>
+"""
+
+
+def _lecteur_video(empreinte: str, nom_sur: str, taille: int, retour: str) -> str:
+    """Une vidéo en pleine page, lancée d'elle-même. Le vrai plein écran (sans
+    la barre du navigateur) exige un geste : c'est le bouton du lecteur. Le
+    fichier est l'original, servi en lecture partielle — le NUC ne transcode
+    pas, d'où le lien de téléchargement si ce navigateur ne sait pas le lire."""
+    corps = (
+        '<div class="lecteur">'
+        '<div class="barre">'
+        f'<a href="{html.escape(retour)}">‹ Retour</a>'
+        f'<span class="nom">{nom_sur} · {_go(taille)}</span>'
+        f'<a download href="/galerie/original/{empreinte}" '
+        'title="Si la vidéo ne se lance pas, ce navigateur ne sait pas lire son format">'
+        "Télécharger</a></div>"
+        f'<video controls autoplay playsinline preload="auto" '
+        f'src="/galerie/original/{empreinte}"></video>'
+        "</div>" + _SCRIPT_LECTURE)
+    return _document(f"phototheque — {nom_sur}", corps, STYLE_GALERIE + STYLE_LECTEUR)
