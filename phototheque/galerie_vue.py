@@ -86,7 +86,13 @@ def libelle_annee(annee) -> str:
 
 
 def libelle_mois(mois) -> str:
-    return "Mois inconnu" if mois == SANS else MOIS[mois - 1].capitalize()
+    if mois == SANS:
+        return "Mois inconnu"
+    # Degradation gracieuse pour les valeurs hors limites (URL manipulee) :
+    # mois doit etre un entier entre 1 et 12. Sinon, on retourne le numero.
+    if isinstance(mois, int) and 1 <= mois <= 12:
+        return MOIS[mois - 1].capitalize()
+    return str(mois)
 
 
 def libelle_jour(annee, mois, jour) -> str:

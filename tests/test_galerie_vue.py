@@ -96,3 +96,17 @@ def test_un_jour_impossible_garde_son_numero():
 def test_la_position_est_gardee_pour_le_formulaire():
     v = gv.construire_vue(_index(), gi.Filtres(), annee=2023, mois=6)
     assert v.position == {"annee": "2023", "mois": "6"}
+
+
+def test_libelle_mois_hors_limites():
+    # Degradation gracieuse pour les mois invalides (URL manipulee).
+    assert gv.libelle_mois(13) == "13"
+    assert gv.libelle_mois(0) == "0"
+
+
+def test_construire_vue_avec_mois_invalide_ne_leve_pas():
+    # Une URL manipulee ?annee=2023&mois=13 ne doit pas lever 500,
+    # juste afficher une grille vide (pas de medias pour ce mois inexistant).
+    v = gv.construire_vue(_index(), gi.Filtres(), annee=2023, mois=13)
+    assert v.groupes == []
+    assert v.total == 0
