@@ -15,6 +15,12 @@ DEVICES_DB: Path = Path(os.environ.get("DEVICES_DB", str(Path.home() / "photothe
 # l'autre.
 JOURNAL_DB: Path = Path(os.environ.get("JOURNAL_DB", str(Path.home() / "phototheque_journal.db")))
 
+# Galerie (issue #31) : base à part, pour la même raison que le journal — le
+# catalogue appartient au trieur. Elle ne dit que quelles vignettes sont
+# faites ou en échec ; les vignettes elles-mêmes sont des fichiers WebP sur le
+# disque système (jamais sur Famille : c'est le disque lent des médias).
+GALERIE_DB: Path = Path(os.environ.get("GALERIE_DB", str(Path.home() / "phototheque_galerie.db")))
+
 # Secrets et certificat du service. Dossier créé par deploy/install.sh en 0700 ;
 # la clé privée et le fichier de mot de passe y sont mis en 0600. Le certificat,
 # lui, est public par nature : il n'a pas besoin d'être protégé.
@@ -38,6 +44,7 @@ ADMIN_USER_FILE: Path = Path(os.environ.get(
 DATA_DIR: Path = Path(os.environ.get(
     "DATA_DIR", str(Path.home() / ".local" / "share" / "phototheque")))
 APK_FILE: Path = Path(os.environ.get("APK_FILE", str(DATA_DIR / "app.apk")))
+VIGNETTES_DIR: Path = Path(os.environ.get("VIGNETTES_DIR", str(DATA_DIR / "vignettes")))
 
 SERVICE_TYPE: str = "_phototheque._tcp"
 
