@@ -137,3 +137,96 @@ def test_la_documentation_reste_fermee(tmp_path, monkeypatch):
     a, client, adm = _client(tmp_path, monkeypatch)
     for chemin in ("/docs", "/redoc", "/openapi.json"):
         assert client.get(chemin, headers=adm).status_code == 404
+
+
+# --- pages -----------------------------------------------------------------
+
+def test_l_accueil_est_la_galerie_et_liste_les_annees(tmp_path, monkeypatch):
+    a, client, adm = _client(tmp_path, monkeypatch)
+    from phototheque import galerie_index
+    galerie_index.vider_cache()
+    r = client.get("/", headers=adm)
+    assert r.status_code == 200
+    assert "2023" in r.text and 'href="/?annee=2023"' in r.text
+    assert 'href="/admin"' in r.text
+
+
+def test_l_accueil_exige_une_authentification(tmp_path, monkeypatch):
+    a, client, _ = _client(tmp_path, monkeypatch)
+    assert client.get("/").status_code == 401
+
+
+def test_un_mois_affiche_sa_grille_de_vignettes(tmp_path, monkeypatch):
+    a, client, adm = _client(tmp_path, monkeypatch)
+    from phototheque import galerie_index
+    galerie_index.vider_cache()
+    r = client.get("/?annee=2023&mois=6", headers=adm)
+    assert f'src="/galerie/vignette/{E_PHOTO}"' in r.text
+    assert f'href="/galerie/media/{E_PHOTO}"' in r.text
+
+
+def test_les_filtres_se_retrouvent_dans_le_formulaire(tmp_path, monkeypatch):
+    a, client, adm = _client(tmp_path, monkeypatch)
+    r = client.get("/?type=video&du=2023-01-01", headers=adm)
+    assert 'value="2023-01-01"' in r.text
+    assert '<option value="video" selected>' in r.text
+
+
+def test_un_mois_garde_la_position_dans_le_formulaire(tmp_path, monkeypatch):
+    # Etape 5 de la tache 8 : le formulaire doit recoller la position
+    # courante (annee/mois/jour) en champs caches, sinon changer un filtre
+    # ramenerait a l'accueil (issue #31).
+    a, client, adm = _client(tmp_path, monkeypatch)
+    from phototheque import galerie_index
+    galerie_index.vider_cache()
+    r = client.get("/?annee=2023&mois=6", headers=adm)
+    assert 'name="annee" value="2023"' in r.text
+
+
+def test_page_media_photo(tmp_path, monkeypatch):
+    a, client, adm = _client(tmp_path, monkeypatch)
+    r = client.get(f"/galerie/media/{E_PHOTO}", headers=adm)
+    assert f'src="/galerie/moyenne/{E_PHOTO}"' in r.text
+
+
+def test_page_media_video_propose_le_telechargement_et_le_dit(tmp_path, monkeypatch):
+    # Spec §6 : pas de transcodage ; on propose le téléchargement, et on le dit.
+    a, client, adm = _client(tmp_path, monkeypatch)
+    r = client.get(f"/galerie/media/{E_VIDEO}", headers=adm)
+    assert "<video" in r.text and f'src="/galerie/original/{E_VIDEO}"' in r.text
+    assert "download" in r.text and "télécharger" in r.text.lower()
+
+
+def test_page_media_inconnue_repond_404(tmp_path, monkeypatch):
+    a, client, adm = _client(tmp_path, monkeypatch)
+    assert client.get(f"/galerie/media/{'9' * 64}", headers=adm).status_code == 404
+
+
+def test_un_nom_piege_est_echappe_partout(tmp_path, monkeypatch):
+    # Point de vigilance n° 1 : « A&K », « Les Bouchons d'Aur » existent sur le NUC.
+    a, client, adm = _client(tmp_path, monkeypatch)
+    nom = "L'été & <moi>.jpg"
+    p = tmp_path / "Famille/Photos/2023/06 JUIN" / nom
+    p.write_bytes(b"\xff\xd8")
+    e = "6" * 64
+    cat = Catalog(tmp_path / "cat.db")
+    cat.add_media(e, 2, str(p), None, "seed")
+    cat.close()
+    from phototheque import galerie_index
+    galerie_index.vider_cache()
+    for adresse in ("/?annee=2023&mois=6", f"/galerie/media/{e}"):
+        texte = client.get(adresse, headers=adm).text
+        assert "<moi>" not in texte, adresse
+        assert "&lt;moi&gt;" in texte, adresse
+
+
+def test_l_admin_est_a_son_adresse_et_montre_le_recensement(tmp_path, monkeypatch):
+    a, client, adm = _client(tmp_path, monkeypatch)
+    from phototheque.vignettes import Vignettes
+    base = Vignettes(tmp_path / "g.db")
+    base.enregistrer_faite(E_PHOTO, 400, 300, "photo")
+    base.enregistrer_erreur(E_VIDEO, "x")
+    base.close()
+    r = client.get("/admin", headers=adm)
+    assert r.status_code == 200
+    assert "Galerie" in r.text and "1 vignette" in r.text and "1 en échec" in r.text

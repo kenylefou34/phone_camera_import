@@ -290,13 +290,30 @@ def _bloc_echecs(echecs: list | None) -> str:
 
 
 def admin_html(devices: list, disk: dict, media: dict,
-               apk: dict | None = None, echecs: list | None = None) -> str:
+               apk: dict | None = None, echecs: list | None = None,
+               recensement: dict | None = None) -> str:
     """Page d'administration : chiffres clés, occupation disque, appareils.
 
     `apk` est facultatif : les appels historiques à trois arguments — et les
     tests qui les utilisent — continuent de fonctionner, la section
     « Application Android » affichant alors qu'aucun dépôt n'a eu lieu.
+
+    `recensement` (issue #31) est facultatif lui aussi : `None` masque la
+    section « Galerie » (base des vignettes illisible — voir
+    `app._etat_recensement`), plutôt que d'afficher des chiffres inventés.
     """
+    galerie = ""
+    if recensement is not None:
+        faites, erreurs = recensement["faites"], recensement["erreurs"]
+        total = recensement.get("total", 0)
+        derniere = recensement.get("derniere")
+        galerie = (
+            '<section class="carte"><h2>Galerie</h2>'
+            f"<p>{_nombre(faites)} vignette(s) sur {_nombre(total)} médias · "
+            f"{_nombre(erreurs)} en échec"
+            + (f" · dernière le {html.escape(str(derniere))}" if derniere else "")
+            + '</p><p><a class="bouton" href="/">Ouvrir la galerie</a></p></section>')
+
     if devices:
         lignes = "".join(
             '<li><span class="nom">{label}</span>'
@@ -324,6 +341,7 @@ def admin_html(devices: list, disk: dict, media: dict,
         '<div class="libelle">vidéos</div></div>'
         f"{_jauge_disque(disk)}"
         "</div>"
+        f"{galerie}"
         "<h2>Appareils appairés</h2>"
         f'<div class="carte"><ul class="appareils">{lignes}</ul></div>'
         '<h2>Ajouter un téléphone</h2>'
@@ -362,7 +380,7 @@ def pair_html(qr_svg: str, url: str) -> str:
         "Ce code reste valable 10 minutes. Il devient définitif dès que le "
         "téléphone s'en sert, et se renouvelle sinon.</div>"
         "</div>"
-        '<p style="margin-top:24px"><a class="bouton" href="/">Retour</a></p>'
+        '<p style="margin-top:24px"><a class="bouton" href="/admin">Retour</a></p>'
         "</div>"
     )
     return _document("phototheque — appairage", corps, STYLE_QR)
@@ -490,7 +508,7 @@ def historique_html(synchros: list[dict]) -> str:
         '<p style="margin-top:24px">'
         '<a class="bouton" href="/historique/recherche">Rechercher un fichier</a> '
         '<a class="bouton" href="/evenements">Évènements</a> '
-        '<a class="bouton" href="/">Retour</a></p>'
+        '<a class="bouton" href="/admin">Retour</a></p>'
     )
     return _document("phototheque — historique", corps)
 
@@ -606,6 +624,102 @@ def evenements_html(evenements: list[dict]) -> str:
         '<p class="hote">Démarrages, appairages, révocations, authentifications</p></header>'
         f'<div class="carte"><ul class="lignes">{lignes}</ul></div>'
         '<p style="margin-top:24px"><a class="bouton" href="/historique">Historique</a> '
-        '<a class="bouton" href="/">Retour</a></p>'
+        '<a class="bouton" href="/admin">Retour</a></p>'
     )
     return _document("phototheque — évènements", corps)
+
+
+# --- galerie (issue #31) --------------------------------------------------
+
+STYLE_GALERIE = """
+.filtres { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin:12px 0; }
+.filtres label { display:flex; flex-direction:column; font-size:.85em; }
+.blocs { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; padding:0; list-style:none; }
+.blocs a { display:block; padding:8px 12px; border-radius:8px;
+           background:var(--surface); text-decoration:none; }
+.blocs .n { opacity:.7; font-size:.85em; margin-left:6px; }
+.grille { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr));
+          gap:4px; margin:8px 0 16px; }
+.grille img { width:100%; aspect-ratio:1; object-fit:cover; display:block;
+              border-radius:4px; background:var(--surface); }
+.fil a { margin-right:6px; }
+.pages { display:flex; gap:12px; margin:16px 0; }
+.grand img, .grand video { max-width:100%; max-height:80vh; display:block; margin:0 auto; }
+"""
+
+
+def _selecteur(nom: str, valeur: str | None, options: list[tuple[str, str]]) -> str:
+    lignes = "".join(
+        f'<option value="{v}"{" selected" if v == (valeur or "") else ""}>{html.escape(t)}</option>'
+        for v, t in options)
+    return f'<select name="{nom}">{lignes}</select>'
+
+
+def galerie_html(vue) -> str:
+    """Page de la galerie : fil d'Ariane, filtres, blocs (années, mois ou
+    jours) et grille de vignettes. `vue` est un `galerie_vue.VueGalerie`."""
+    f = vue.filtres
+    fil = " › ".join(f'<a href="{html.escape(u)}">{html.escape(t)}</a>' for t, u in vue.fil)
+    # Le formulaire recolle la position courante (année/mois/jour) en champs
+    # cachés : changer un filtre ne doit pas ramener à l'accueil.
+    caches = "".join(
+        f'<input type="hidden" name="{k}" value="{html.escape(v)}">'
+        for k, v in (vue.position or {}).items())
+    formulaire = (
+        f'<form class="filtres" method="get" action="/">{caches}'
+        f'<label>Du <input type="date" name="du" value="{f.du.isoformat() if f.du else ""}"></label>'
+        f'<label>Au <input type="date" name="au" value="{f.au.isoformat() if f.au else ""}"></label>'
+        "<label>Type " + _selecteur("type", f.type, [("", "Tout"), ("photo", "Photos"),
+                                                       ("video", "Vidéos")]) + "</label>"
+        "<label>Origine " + _selecteur("origine", f.origine, [
+            ("", "Toutes"), ("appareil", "Appareil photo"), ("whatsapp", "WhatsApp"),
+            ("autre", "Autres dossiers")]) + "</label>"
+        '<button class="bouton" type="submit">Filtrer</button></form>')
+    message = f'<p class="alerte">{html.escape(vue.message)}</p>' if vue.message else ""
+    blocs = ""
+    if vue.blocs:
+        blocs = '<ul class="blocs">' + "".join(
+            f'<li><a href="{html.escape(u)}">{html.escape(t)}<span class="n">{_nombre(n)}</span></a></li>'
+            for t, u, n in vue.blocs) + "</ul>"
+    grille = ""
+    for titre, medias in vue.groupes:
+        cases = "".join(
+            f'<a href="/galerie/media/{m.empreinte}" title="{html.escape(m.nom)}">'
+            f'<img loading="lazy" src="/galerie/vignette/{m.empreinte}" alt="{html.escape(m.nom)}"></a>'
+            for m in medias)
+        entete = f"<h2>{html.escape(titre)}</h2>" if titre else ""
+        grille += f'{entete}<div class="grille">{cases}</div>'
+    if not vue.blocs and not vue.groupes:
+        grille = '<p class="vide">Aucun média ne correspond à ces filtres.</p>'
+    pages = ""
+    if vue.pages > 1:
+        prec = f'<a href="{html.escape(vue.precedente)}">‹ Précédente</a>' if vue.precedente else ""
+        suiv = f'<a href="{html.escape(vue.suivante)}">Suivante ›</a>' if vue.suivante else ""
+        pages = f'<div class="pages">{prec}<span>page {vue.page} / {vue.pages}</span>{suiv}</div>'
+    corps = (
+        f'<header><h1>{html.escape(vue.titre)}</h1>'
+        f'<p class="hote">{_nombre(vue.total)} média(s) · '
+        '<a href="/admin">Administration</a></p></header>'
+        f'<nav class="fil">{fil}</nav>{formulaire}{message}{blocs}{grille}{pages}')
+    return _document("phototheque — galerie", corps, STYLE_GALERIE)
+
+
+def media_html(empreinte: str, nom: str, type_: str, taille: int, retour: str) -> str:
+    """Un média en grand. Photo : taille intermédiaire. Vidéo : l'original en
+    lecture partielle, et le téléchargement proposé — le NUC ne transcode pas."""
+    nom_sur = html.escape(nom)
+    if type_ == "video":
+        contenu = (
+            f'<video controls preload="metadata" src="/galerie/original/{empreinte}"></video>'
+            '<p class="indice">Si la vidéo ne se lance pas, ce navigateur ne sait pas lire '
+            f'son format : <a download href="/galerie/original/{empreinte}">la télécharger</a>.</p>')
+    else:
+        contenu = (
+            f'<img src="/galerie/moyenne/{empreinte}" alt="{nom_sur}">'
+            f'<p class="indice"><a download href="/galerie/original/{empreinte}">'
+            "Télécharger l'original</a></p>")
+    corps = (
+        f"<header><h1>{nom_sur}</h1>"
+        f'<p class="hote">{_go(taille)} · <a href="{html.escape(retour)}">Retour</a></p></header>'
+        f'<div class="grand">{contenu}</div>')
+    return _document(f"phototheque — {nom_sur}", corps, STYLE_GALERIE)

@@ -20,8 +20,9 @@ from mediasort import classify
 from mediasort.catalog import Catalog
 from mediasort.classify import media_type
 from mediasort.hashing import file_hash
-from . import (adminauth, apk, config, essais, fabrique, ingest, pairing,
-               quarantaine, sessions, stats, tls, vignettes, web)
+from . import (adminauth, apk, config, essais, fabrique, galerie_index,
+               galerie_vue, ingest, pairing, quarantaine, sessions, stats,
+               tls, vignettes, web)
 from .devices import DeviceStore
 from .journal import Journal
 
@@ -786,13 +787,54 @@ def pair(_: None = Depends(require_admin)) -> str:
     return _page_appairage()
 
 
-@app.get("/", response_class=HTMLResponse)
+def _etat_recensement() -> dict | None:
+    """Bilan du recensement pour l'admin ; None si la base est illisible —
+    la page d'administration ne doit jamais tomber pour ça."""
+    try:
+        base = vignettes.Vignettes(config.GALERIE_DB)
+        try:
+            bilan = base.bilan()
+        finally:
+            base.close()
+        bilan["total"] = len(galerie_index.index_courant(config.CATALOG_DB, config.LIBRARY_DIR))
+        return bilan
+    except Exception:
+        _log_journal.exception("bilan du recensement illisible")
+        return None
+
+
+@app.get("/admin", response_class=HTMLResponse)
 def admin(_: None = Depends(require_admin)) -> str:
     d = stats.disk_stats(config.LIBRARY_DIR)
     return web.admin_html(devices().list(), d, _media_counts(),
                           apk.infos(config.APK_FILE),
                           quarantaine.lister(
-                              config.INCOMING_DIR / quarantaine.DOSSIER))
+                              config.INCOMING_DIR / quarantaine.DOSSIER),
+                          _etat_recensement())
+
+
+@app.get("/", response_class=HTMLResponse)
+def galerie(annee: str = "", mois: str = "", jour: str = "", du: str = "", au: str = "",
+           type: str = "", origine: str = "", page: int = 1,
+           _: None = Depends(require_lecteur)) -> str:
+    """Page d'accueil : la galerie (spec §3). Lecture seule."""
+    filtres, message = galerie_vue.lire_filtres(du, au, type, origine)
+    index = galerie_index.index_courant(config.CATALOG_DB, config.LIBRARY_DIR)
+    vue = galerie_vue.construire_vue(
+        index, filtres, galerie_vue.lire_niveau(annee), galerie_vue.lire_niveau(mois),
+        galerie_vue.lire_niveau(jour), page, message)
+    return web.galerie_html(vue)
+
+
+@app.get("/galerie/media/{empreinte}", response_class=HTMLResponse)
+def galerie_media(empreinte: str, _: None = Depends(require_lecteur)) -> str:
+    p = _media_sur(empreinte)
+    m = galerie_index.index_courant(config.CATALOG_DB, config.LIBRARY_DIR).trouver(empreinte)
+    type_ = media_type(p.suffix) or "photo"
+    retour = "/"
+    if m is not None and m.c.annee is not None:
+        retour = galerie_vue.url(galerie_index.Filtres(), annee=m.c.annee, mois=m.c.mois)
+    return web.media_html(empreinte, p.name, type_, p.stat().st_size, retour)
 
 
 @app.get("/apk")

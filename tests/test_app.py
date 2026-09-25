@@ -158,7 +158,7 @@ def test_pair_page_creates_device_and_qr(tmp_path, monkeypatch):
 def test_admin_page_renders(tmp_path, monkeypatch):
     entetes = _avec_admin(tmp_path, monkeypatch)
     a, client = _client(tmp_path, monkeypatch)
-    r = client.get("/", headers=entetes)
+    r = client.get("/admin", headers=entetes)
     assert r.status_code == 200 and "phototheque" in r.text
 
 
@@ -307,7 +307,7 @@ def test_pair_sans_certificat_ne_casse_pas(tmp_path, monkeypatch):
     assert client.get("/pair", headers=entetes).status_code == 200
 
 
-ADRESSES_ADMIN = ["/", "/pair", "/devices", "/apk",
+ADRESSES_ADMIN = ["/", "/admin", "/pair", "/devices", "/apk",
                   "/historique", "/historique/recherche?q=a", "/historique/x",
                   "/evenements"]
 
@@ -438,7 +438,7 @@ def test_l_historique_montre_les_synchros_et_l_admin_y_mene(tmp_path, monkeypatc
     a.journal().enregistrer_commit("s1", "sess0", "tel", "Pixel", "192.168.1.18",
                                    {"sorted": 4}, None)
     assert "Pixel" in client.get("/historique", headers=entetes).text
-    assert 'href="/historique"' in client.get("/", headers=entetes).text
+    assert 'href="/historique"' in client.get("/admin", headers=entetes).text
     assert client.get("/historique/inconnue", headers=entetes).status_code == 404
 
 
@@ -1576,7 +1576,7 @@ def test_la_page_d_admin_montre_les_medias_non_ranges(tmp_path, monkeypatch):
         session, [{"fichier": "Pictures/casse.jpg", "raison": "disque plein"}],
         a.config.INCOMING_DIR / a.quarantaine.DOSSIER)
 
-    html = client.get("/", headers=entetes).text
+    html = client.get("/admin", headers=entetes).text
 
     assert "Pictures/casse.jpg" in html
     assert "disque plein" in html
