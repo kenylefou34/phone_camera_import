@@ -62,6 +62,19 @@ def lire_niveau(valeur: str) -> int | str | None:
         return None
 
 
+def lire_page(valeur: str) -> int:
+    """Numéro de page depuis l'URL : une valeur absente, non entière ou
+    inférieure à 1 vaut 1 — jamais une erreur (même principe que
+    `lire_filtres` : c'est une page qu'on feuillette, pas un formulaire à
+    corriger). `construire_vue` ramène de toute façon une page trop grande
+    dans les bornes ; ici on ne fait que refuser une valeur absurde."""
+    try:
+        n = int(valeur)
+    except (TypeError, ValueError):
+        return 1
+    return n if n >= 1 else 1
+
+
 def url(filtres: Filtres, annee=None, mois=None, jour=None, page=None) -> str:
     """Adresse d'une page de la galerie, filtres compris."""
     params: dict = {}

@@ -815,14 +815,21 @@ def admin(_: None = Depends(require_admin)) -> str:
 
 @app.get("/", response_class=HTMLResponse)
 def galerie(annee: str = "", mois: str = "", jour: str = "", du: str = "", au: str = "",
-           type: str = "", origine: str = "", page: int = 1,
+           type: str = "", origine: str = "", page: str = "1",
            _: None = Depends(require_lecteur)) -> str:
-    """Page d'accueil : la galerie (spec §3). Lecture seule."""
+    """Page d'accueil : la galerie (spec §3). Lecture seule.
+
+    `page` est une chaîne, pas un `int` : une valeur non numérique (« abc »)
+    lue par FastAPI/pydantic comme un `int` répondrait 422 brut, contredisant
+    la règle du module (`lire_filtres` : « une valeur inconnue est ignorée,
+    jamais une erreur »). `lire_page` fait la conversion défensive (fix
+    round 1, #1).
+    """
     filtres, message = galerie_vue.lire_filtres(du, au, type, origine)
     index = galerie_index.index_courant(config.CATALOG_DB, config.LIBRARY_DIR)
     vue = galerie_vue.construire_vue(
         index, filtres, galerie_vue.lire_niveau(annee), galerie_vue.lire_niveau(mois),
-        galerie_vue.lire_niveau(jour), page, message)
+        galerie_vue.lire_niveau(jour), galerie_vue.lire_page(page), message)
     return web.galerie_html(vue)
 
 

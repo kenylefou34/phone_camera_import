@@ -89,6 +89,15 @@ def test_lire_niveau():
             gv.lire_niveau("x")) == (None, gi.SANS, 2023, None)
 
 
+def test_lire_page():
+    # Fix round 1, #1 : jamais une erreur — une valeur absente, non entière
+    # ou inférieure à 1 retombe sur la page 1, comme lire_filtres le fait
+    # déjà pour les dates et les filtres inconnus.
+    assert (gv.lire_page("1"), gv.lire_page("3"), gv.lire_page(""),
+            gv.lire_page("abc"), gv.lire_page("0"), gv.lire_page("-5")) == \
+        (1, 3, 1, 1, 1, 1)
+
+
 def test_un_jour_impossible_garde_son_numero():
     assert gv.libelle_jour(2023, 2, 30) == "30"
 

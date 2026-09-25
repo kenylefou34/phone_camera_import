@@ -307,12 +307,16 @@ def admin_html(devices: list, disk: dict, media: dict,
         faites, erreurs = recensement["faites"], recensement["erreurs"]
         total = recensement.get("total", 0)
         derniere = recensement.get("derniere")
+        # Titre au-dessus de la carte, comme « Appareils appairés » ou
+        # « Application Android » (fix round 1, #3) — et date mise en forme
+        # par `_date`, jamais l'ISO brut de la base (fix round 1, #4).
         galerie = (
-            '<section class="carte"><h2>Galerie</h2>'
+            "<h2>Galerie</h2>"
+            '<div class="carte">'
             f"<p>{_nombre(faites)} vignette(s) sur {_nombre(total)} médias · "
             f"{_nombre(erreurs)} en échec"
-            + (f" · dernière le {html.escape(str(derniere))}" if derniere else "")
-            + '</p><p><a class="bouton" href="/">Ouvrir la galerie</a></p></section>')
+            + (f" · dernière le {_date(str(derniere))}" if derniere else "")
+            + '</p><p><a class="bouton" href="/">Ouvrir la galerie</a></p></div>')
 
     if devices:
         lignes = "".join(
@@ -632,12 +636,13 @@ def evenements_html(evenements: list[dict]) -> str:
 # --- galerie (issue #31) --------------------------------------------------
 
 STYLE_GALERIE = """
+a { color:var(--accent); }
 .filtres { display:flex; flex-wrap:wrap; gap:8px; align-items:end; margin:12px 0; }
 .filtres label { display:flex; flex-direction:column; font-size:.85em; }
 .blocs { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; padding:0; list-style:none; }
 .blocs a { display:block; padding:8px 12px; border-radius:8px;
-           background:var(--surface); text-decoration:none; }
-.blocs .n { opacity:.7; font-size:.85em; margin-left:6px; }
+           background:var(--surface); color:var(--ink); text-decoration:none; }
+.blocs .n { color:var(--muted); font-size:.85em; margin-left:6px; }
 .grille { display:grid; grid-template-columns:repeat(auto-fill, minmax(160px, 1fr));
           gap:4px; margin:8px 0 16px; }
 .grille img { width:100%; aspect-ratio:1; object-fit:cover; display:block;

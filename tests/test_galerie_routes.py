@@ -1,6 +1,7 @@
 """Routes de service de la galerie : authentification, sûreté, Range."""
 import base64
 import importlib
+import re
 import time
 
 import pytest
@@ -156,6 +157,15 @@ def test_l_accueil_exige_une_authentification(tmp_path, monkeypatch):
     assert client.get("/").status_code == 401
 
 
+def test_une_page_non_numerique_est_ignoree_jamais_une_erreur(tmp_path, monkeypatch):
+    # Fix round 1, #1 : "page" est une chaine cote route (pas un int), pour
+    # que "/?page=abc" retombe sur la page 1 au lieu d'un 422 brut — meme
+    # principe que lire_filtres pour les autres parametres de l'URL.
+    a, client, adm = _client(tmp_path, monkeypatch)
+    r = client.get("/?page=abc", headers=adm)
+    assert r.status_code == 200
+
+
 def test_un_mois_affiche_sa_grille_de_vignettes(tmp_path, monkeypatch):
     a, client, adm = _client(tmp_path, monkeypatch)
     from phototheque import galerie_index
@@ -222,11 +232,32 @@ def test_un_nom_piege_est_echappe_partout(tmp_path, monkeypatch):
 
 def test_l_admin_est_a_son_adresse_et_montre_le_recensement(tmp_path, monkeypatch):
     a, client, adm = _client(tmp_path, monkeypatch)
+    from phototheque import web
     from phototheque.vignettes import Vignettes
     base = Vignettes(tmp_path / "g.db")
     base.enregistrer_faite(E_PHOTO, 400, 300, "photo")
     base.enregistrer_erreur(E_VIDEO, "x")
+    derniere = base.bilan()["derniere"]
     base.close()
     r = client.get("/admin", headers=adm)
     assert r.status_code == 200
     assert "Galerie" in r.text and "1 vignette" in r.text and "1 en échec" in r.text
+    # Fix round 1, #3 : le titre est AU-DESSUS de la carte, comme les autres
+    # sections (« Appareils appairés », « Application Android »).
+    assert '<h2>Galerie</h2><div class="carte">' in r.text
+    # Fix round 1, #4 : la date est mise en forme par web._date, jamais
+    # l'ISO brut renvoyé par sqlite.
+    assert derniere not in r.text
+    assert web._date(derniere) in r.text
+
+
+def test_le_style_de_la_galerie_reprend_la_palette(tmp_path, monkeypatch):
+    # Fix round 1, #2 (issue #43) : la galerie n'a pas de couleur a elle,
+    # seulement les jetons de STYLE (var(--accent), var(--ink), var(--muted)).
+    from phototheque import web
+    compact = re.sub(r"\s+", "", web.STYLE_GALERIE)
+    assert "a{color:var(--accent);}" in compact
+    assert ".blocsa{" in compact and "color:var(--ink);" in compact
+    assert ".blocs.n{color:var(--muted);" in compact
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b", web.STYLE_GALERIE)
+    assert "rgb(" not in web.STYLE_GALERIE and "rgba(" not in web.STYLE_GALERIE
