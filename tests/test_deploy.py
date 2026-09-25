@@ -735,6 +735,20 @@ def test_le_test_de_fumee_attend_les_codes_reellement_renvoyes(tmp_path, monkeyp
         )
 
 
+def test_le_test_de_fumee_verifie_aussi_admin():
+    """Régression (issue #31, fix round 1) : `/admin` est devenue
+    l'administration (`/` sert désormais la galerie). Le test précédent
+    verrouille l'ACCORD entre ce que install.sh vérifie et ce que le service
+    renvoie, mais ne remarquerait pas qu'une adresse a été oubliée de la
+    liste — seulement qu'une adresse présente répond mal. Ce test-ci verrouille
+    la PRÉSENCE de `/admin` dans la liste elle-même : sans lui, retirer
+    `/admin` du test de fumée de install.sh passerait inaperçu, et une
+    administration restée ouverte par erreur après un renommage futur ne
+    serait plus détectée à l'installation."""
+    attendus = dict(_codes_attendus_par_install())
+    assert attendus.get("/admin") == 401
+
+
 def test_identifiants_enregistre_l_identifiant_choisi(tmp_path):
     """« admin » est le premier nom que tente tout balayage automatique."""
     r, admin = lancer_identifiants(tmp_path, ["un-mot-de-passe-solide"] * 2,

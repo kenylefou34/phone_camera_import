@@ -319,19 +319,19 @@ fi
 
 # Pas de curl sur le NUC : on interroge avec urllib.
 #
-# 401 PARTOUT est le résultat CORRECT et attendu : « / » et « /pair » sont
-# derrière le mot de passe d'administration (issue #10), « /status » derrière
-# le jeton d'appareil, et ce script ne s'authentifie nulle part. Voir un 200
-# ici signifierait que le durcissement ne fonctionne plus. L'accord entre
-# cette liste et les adresses réellement protégées est verrouillé par
-# tests/test_deploy.py.
+# 401 PARTOUT est le résultat CORRECT et attendu : « / », « /admin » et
+# « /pair » sont derrière le mot de passe d'administration (issue #10, #31),
+# « /status » derrière le jeton d'appareil, et ce script ne s'authentifie
+# nulle part. Voir un 200 ici signifierait que le durcissement ne fonctionne
+# plus. L'accord entre cette liste et les adresses réellement protégées est
+# verrouillé par tests/test_deploy.py.
 "$PYTHON" - "$PORT" <<'PY' || echec "le service répond mal (voir ci-dessus)."
 import ssl, sys, urllib.request, urllib.error
 
 contexte = ssl._create_unverified_context()   # certificat auto-signé, attendu
 port = sys.argv[1]
 souci = False
-for chemin, attendu in (("/", 401), ("/pair", 401), ("/status", 401)):
+for chemin, attendu in (("/", 401), ("/admin", 401), ("/pair", 401), ("/status", 401)):
     try:
         code = urllib.request.urlopen("https://127.0.0.1:%s%s" % (port, chemin),
                                        timeout=5, context=contexte).status

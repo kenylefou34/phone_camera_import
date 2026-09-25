@@ -38,6 +38,7 @@ Neuf étapes numérotées, puis :
 
 ```
     /        401  ok
+    /admin   401  ok
     /pair    401  ok
     /status  401  ok
     état      : active / enabled
@@ -45,11 +46,11 @@ Neuf étapes numérotées, puis :
     admin     : https://IZQUIERDO-NUC.local:8787/admin
 ```
 
-`401` **partout** est le résultat correct et attendu, pas une panne : `/` et
-`/pair` sont derrière le mot de passe d'administration, `/status` derrière le
-jeton d'appareil, et le script de vérification ne s'authentifie nulle part. Un
-`200` à cet endroit voudrait dire que la protection ne fonctionne plus.
-Si le script s'arrête sur `ÉCHEC`, il dit quoi regarder.
+`401` **partout** est le résultat correct et attendu, pas une panne : `/`,
+`/admin` et `/pair` sont derrière le mot de passe d'administration, `/status`
+derrière le jeton d'appareil, et le script de vérification ne s'authentifie
+nulle part. Un `200` à cet endroit voudrait dire que la protection ne
+fonctionne plus. Si le script s'arrête sur `ÉCHEC`, il dit quoi regarder.
 
 ### Le vocabulaire, en quatre phrases
 
@@ -293,7 +294,7 @@ donc la vérification pour cet appel local, avec
 ~/.venv-server/bin/python -c "
 import ssl, urllib.request, urllib.error
 contexte = ssl._create_unverified_context()
-for p in ('/', '/pair', '/status'):
+for p in ('/', '/admin', '/pair', '/status'):
     try:
         code = urllib.request.urlopen('https://127.0.0.1:8787' + p, timeout=5,
                                        context=contexte).status
@@ -303,8 +304,8 @@ for p in ('/', '/pair', '/status'):
 "
 ```
 
-Résultat attendu : **`401` sur les trois adresses** — c'est le comportement
-correct, pas une panne. `/` et `/pair` exigent le mot de passe
+Résultat attendu : **`401` sur les quatre adresses** — c'est le comportement
+correct, pas une panne. `/`, `/admin` et `/pair` exigent le mot de passe
 d'administration, `/status` le jeton d'un appareil appairé, et cette commande
 ne s'authentifie nulle part. Le `try/except` n'est pas décoratif : sans lui,
 `urlopen` lève une `HTTPError` sur le premier `401` et la commande s'arrête sur

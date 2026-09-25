@@ -650,6 +650,9 @@ cd ~/phone_camera_import && git pull && ./deploy/install.sh
 #    ce probleme.)
 #   (le navigateur avertit au premier accès : certificat auto-signé, normal)
 #   (mot de passe affiché une seule fois par install.sh)
+# Suivre le recensement de la galerie (vignettes + dates, issue #31) :
+journalctl -u phototheque-recensement -f
+#   (ou le bloc « Galerie » de /admin)
 # Choisir/changer identifiant ET mot de passe d'admin (sans sudo ni redémarrage) :
 ./deploy/identifiants.sh
 # Lancement manuel (dev, sans TLS) :
