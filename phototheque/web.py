@@ -289,6 +289,22 @@ def _bloc_echecs(echecs: list | None) -> str:
     )
 
 
+def _erreurs_recensement(erreurs: list | None) -> str:
+    """Les derniers échecs du recensement (relecture finale #31, I3) — rien
+    du tout quand il n'y en a pas. Nom du fichier et raison viennent de la
+    bibliothèque et d'ffmpeg : tout est échappé."""
+    if not erreurs:
+        return ""
+    lignes = "".join(
+        '<li><span class="nom">{nom}</span>'
+        '<span class="quand">{quand}</span>'
+        '<span class="etiquette">{erreur}</span></li>'.format(
+            nom=html.escape(str(e["nom"])), quand=_date(e.get("quand")),
+            erreur=html.escape(str(e.get("erreur", ""))))
+        for e in erreurs)
+    return f'<p>Derniers échecs :</p><ul class="liste">{lignes}</ul>'
+
+
 def admin_html(devices: list, disk: dict, media: dict,
                apk: dict | None = None, echecs: list | None = None,
                recensement: dict | None = None) -> str:
@@ -316,7 +332,8 @@ def admin_html(devices: list, disk: dict, media: dict,
             f"<p>{_nombre(faites)} vignette(s) sur {_nombre(total)} médias · "
             f"{_nombre(erreurs)} en échec"
             + (f" · dernière le {_date(str(derniere))}" if derniere else "")
-            + '</p><p><a class="bouton" href="/">Ouvrir la galerie</a></p></div>')
+            + "</p>" + _erreurs_recensement(recensement.get("erreurs_recentes"))
+            + '<p><a class="bouton" href="/">Ouvrir la galerie</a></p></div>')
 
     if devices:
         lignes = "".join(

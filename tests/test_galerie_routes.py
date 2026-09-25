@@ -251,6 +251,41 @@ def test_l_admin_est_a_son_adresse_et_montre_le_recensement(tmp_path, monkeypatc
     assert web._date(derniere) in r.text
 
 
+def test_l_admin_montre_les_dernieres_erreurs_du_recensement(tmp_path, monkeypatch):
+    """Relecture finale #31, I3 : la doc promettait de voir les échecs sur
+    /admin. Nom de fichier retrouvé par l'index, échappé ; empreinte abrégée
+    à défaut ; date lisible."""
+    a, client, adm = _client(tmp_path, monkeypatch)
+    from phototheque import web
+    from phototheque.vignettes import Vignettes
+    piege = tmp_path / "Famille/Photos/2023/06 JUIN/<b onclick=x>piege.jpg"
+    piege.write_bytes(b"x")
+    e_piege, e_inconnue = "5" * 64, "6" * 64
+    cat = Catalog(tmp_path / "cat.db")
+    cat.add_media(e_piege, 1, str(piege), None, "seed")
+    cat.close()
+    base = Vignettes(tmp_path / "g.db")
+    base.enregistrer_erreur(e_piege, "ffmpeg : <script>alert(1)</script>")
+    base.enregistrer_erreur(e_inconnue, "fichier absent de la bibliothèque")
+    quand = base.dernieres_erreurs()[0]["quand"]
+    base.close()
+    texte = client.get("/admin", headers=adm).text
+    assert "&lt;b onclick=x&gt;piege.jpg" in texte and "<b onclick" not in texte
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in texte and "<script>alert" not in texte
+    assert e_inconnue[:12] in texte and e_inconnue not in texte
+    assert web._date(quand) in texte
+
+
+def test_l_admin_sans_erreur_de_recensement_n_affiche_pas_de_liste(tmp_path, monkeypatch):
+    a, client, adm = _client(tmp_path, monkeypatch)
+    from phototheque.vignettes import Vignettes
+    base = Vignettes(tmp_path / "g.db")
+    base.enregistrer_faite(E_PHOTO, 400, 300, "photo")
+    base.close()
+    texte = client.get("/admin", headers=adm).text
+    assert "Derniers échecs" not in texte
+
+
 def test_le_style_de_la_galerie_reprend_la_palette(tmp_path, monkeypatch):
     # Fix round 1, #2 (issue #43) : la galerie n'a pas de couleur a elle,
     # seulement les jetons de STYLE (var(--accent), var(--ink), var(--muted)).

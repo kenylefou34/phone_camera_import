@@ -816,6 +816,10 @@ def pair(_: None = Depends(require_admin)) -> str:
     return _page_appairage()
 
 
+# Nombre d'échecs du recensement montrés dans le bloc « Galerie » de /admin.
+ERREURS_RECENTES_ADMIN = 8
+
+
 def _etat_recensement() -> dict | None:
     """Bilan du recensement pour l'admin ; None si la base est illisible —
     la page d'administration ne doit jamais tomber pour ça."""
@@ -823,9 +827,20 @@ def _etat_recensement() -> dict | None:
         base = vignettes.Vignettes(config.GALERIE_DB)
         try:
             bilan = base.bilan()
+            erreurs = base.dernieres_erreurs(ERREURS_RECENTES_ADMIN)
         finally:
             base.close()
-        bilan["total"] = len(galerie_index.index_courant(config.CATALOG_DB, config.LIBRARY_DIR))
+        index = galerie_index.index_courant(config.CATALOG_DB, config.LIBRARY_DIR)
+        bilan["total"] = len(index)
+        # Les derniers échecs, avec le NOM du fichier quand l'index le connaît
+        # encore (sinon l'empreinte abrégée : le média a pu quitter le
+        # catalogue depuis). L'échappement HTML est fait par web.admin_html.
+        bilan["erreurs_recentes"] = []
+        for e in erreurs:
+            m = index.trouver(e["empreinte"])
+            bilan["erreurs_recentes"].append({
+                "nom": m.nom if m is not None else e["empreinte"][:12] + "…",
+                "erreur": e["erreur"] or "", "quand": e["quand"]})
         return bilan
     except Exception:
         _log_journal.exception("bilan du recensement illisible")
