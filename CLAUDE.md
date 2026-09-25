@@ -11,7 +11,7 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
 + revue visuelle (doublons, floues/rafales, re-datation) ; **Phase 3** visages ;
 **Phase 4** génération (livre photo…).
 
-## État actuel (2026-09-24)
+## État actuel (2026-09-25)
 - ✅ **Trieur `mediasort/`** (Python, stdlib + exiftool/ffmpeg) : range par vraie
   date (métadonnées > nom > système > `_A_TRIER/`), anti-doublon par catalogue
   SQLite d'empreintes. Testé.
@@ -137,11 +137,16 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   REPRISE.
 - ✅ **Cinq constats de cette recette corrigés, plus #36 et #38** — tous sur
   `dev` (branche `worktree-constats-recette-lot2` fusionnée le 24/09),
-  **pas encore réinstallés sur le téléphone ni le NUC** : C1 (verrou muet), C2 (aucun journal côté app), C3 (écran « Cet
-  appareil » après réappairage), C4 (QR bloqué en paysage), C5 (champ date de
-  `/pair` retiré), #36 (l'accueil annonce les dossiers gelés), #38 (décocher
-  annonce les sous-dossiers emportés). Détail des cinq premiers en section
-  REPRISE.
+  **réinstallés et rejoués le 25/09** : C1 (verrou muet : une synchro arrêtée
+  pendant un appel bloquant gardait `VerrouSynchro`, tout lancement suivant
+  sortait en « réussite » muette — relance sans plafond,
+  `Reprise.apresRefusDuVerrou`, `7792efb`), C2 (aucun journal côté app,
+  `d28e221`), C3 (écran « Cet appareil » rouvert après réappairage, avec un
+  vrai désappairage accidentel le 24/09 — `Navigation.demandeApres`,
+  `c4bb1b3`), C4 (QR bloqué en paysage — surcharge du manifeste de la
+  bibliothèque de scan, `c4bb1b3`), C5 (champ date de `/pair` retiré avec
+  `POST /pair`, `a6d5d48`), #36 (l'accueil annonce les dossiers gelés), #38
+  (décocher annonce les sous-dossiers emportés).
 - ✅ **Journal serveur + sessions abandonnées ÉCRIT** (issue #30, et #27
   réglée) : base à part `~/phototheque_journal.db` (synchros, mouvements par
   fichier, événements), purge des sessions oubliées depuis plus de 24 h
@@ -160,111 +165,95 @@ Vision : **Phase 1** import (trieur + service + app) ; **Phase 2** consultation 
   base est verrouillée, les deux purges (sessions / quarantaine) ne se
   confondent plus sur `/evenements`. **383 tests** côté serveur (299 en
   début de session), **262** côté app (240 en début de session).
+- ✅ **`dev` réinstallé et recette rejouée (25/09)** : NUC mis à jour à
+  `d3b7789` (`incoming/` vide avant le premier démarrage qui purge ; service
+  redémarré à 09:09:14, journal `~/phototheque_journal.db` créé), APK de `dev`
+  installé sur le HONOR 90 Lite **et** déposé sur le NUC (la page d'admin
+  distribuait encore celui du 24/09 07:55, antérieur à C1-C5). Validés :
+  **C3 + C4** (réappairage en portrait, arrivée sur l'accueil), **C2** (départ
+  et issue de chaque synchro dans `logcat`, une fois le filtre HONOR levé),
+  **C1** (croisement réel de deux exécutions de la file automatique au
+  branchement : la seconde refusée par `VerrouSynchro`, repartie seule 80 s
+  plus tard), **#30** (une ligne d'historique par synchro avec ses
+  destinations, événements tracés, vrai `POST /sync/abandon` au bouton
+  « Interrompre »), **étape 12** (l'accueil cache « Sauvegarder maintenant »
+  pendant une passe automatique : un seul avancement ; « Interrompre »
+  reprogramme l'automatique avec 6 h de délai, contrôlé dans `WorkManager`),
+  réappairage qui **reprogramme réellement** l'automatique. **Les exemples
+  « illustratifs » de `docs/CONTRAT-APP.md` sont remplacés par des captures
+  réelles.** Reste l'**étape 11** (nuit), ratée le 24/09 — voir REPRISE.
+  Trouvé en route : le gestionnaire d'énergie HONOR, le filtre de journaux
+  HONOR, le piège « `/pair` réaffiche le même QR », et **#42**.
 - Déploiement : `./deploy/install.sh` — voir `docs/DEPLOIEMENT.md`.
 - Spécs : `docs/superpowers/specs/` — plans : `docs/superpowers/plans/`.
 
 ## ⚠️ REPRISE — première chose à faire
 
-**Continuer la recette du lot 2**, commencée pour de vrai le 24/09 sur un
-HONOR 90 Lite (Android 15) — voir `docs/APPLICATION-ANDROID.md` §9. Quinze
-étapes sur dix-sept sont déjà validées (**1 à 8**, **9 bis**, **10**, **13 à
-17** — les étapes 13, 14 et 15 l'après-midi du 24/09 ; détail dans l'État
-actuel ci-dessus). Dans l'ordre, ce qu'il reste à faire :
+**Relever l'étape 11 de la recette du lot 2**, relancée le soir du 25/09 :
+une nuit en charge sur le WiFi, application **non ouverte**, et une passe
+`synchro auto` qui doit avoir eu lieu sans intervention. C'est la seule étape
+encore ouverte (`docs/APPLICATION-ANDROID.md` §9) ; tout le reste a été
+réinstallé et validé le 25/09 (voir l'État actuel).
 
-1. **Relever l'étape 11** : une nuit en charge sur le WiFi, « dernière
-   sauvegarde » mise à jour sans intervention. Lancée le soir du 24/09,
-   résultat non encore constaté.
-2. **Réinstaller l'APK et le serveur depuis `dev`** (la branche
-   `worktree-constats-recette-lot2` y a été fusionnée le 24/09) : la recette a
-   commencé avec l'APK du lot 2 tel qu'écrit, et cinq constats (C1 à C5,
-   ci-dessous) plus #36, #38, #30 et la relecture finale ont été corrigés
-   **après**, sans jamais être réinstallés. **Avant `install.sh` sur le
-   NUC, faire l'inventaire de `incoming/`** : le premier démarrage de cette
-   version supprime les sessions de plus de 24 h qui s'y trouvent
-   (`docs/DEPLOIEMENT.md`, « Au premier démarrage d'une version qui
-   purge » ; vide au 24/09, à revérifier).
+1. **Vérifier d'abord côté serveur**, sans le téléphone :
    ```bash
-   cd ~/dev/phone_camera_import && ./deploy/envoyer-apk.sh
-   # puis sur le telephone : page d'admin -> « Telecharger l'application »
-   # (ou adb install -r en debogage sans fil, meme cle de signature : appairage conserve)
-   # NUC : inventaire de incoming/, puis git pull sur dev et redemarrer le
-   # service : ./deploy/install.sh (qui fait le systemctl restart)
+   ssh izquierdo@$(avahi-resolve -4 -n IZQUIERDO-NUC.local | cut -f2) \
+     'journalctl -u phototheque --since "yesterday 20:00" --no-pager | grep sync/'
    ```
-3. **Rejouer l'étape 12** (croisement synchro manuelle / automatique) et ce
-   que les correctifs touchent :
-   - réappairer le téléphone tenu en **portrait** (C4) et vérifier qu'on
-     arrive sur l'accueil, pas sur l'écran « Cet appareil » (C3, un vrai
-     désappairage accidentel a eu lieu pendant la recette du 24/09) ;
-   - `adb logcat -s Phototheque` pendant une sauvegarde (C2 : l'app
-     n'écrivait auparavant **aucun** journal) ;
-   - une sauvegarde réelle, puis `/historique` (une ligne y apparaît),
-     `/historique/<id>`, une recherche, `/evenements` (#30) ;
-   - **capturer sur cet échange réel** les exemples aujourd'hui
-     **illustratifs** de `docs/CONTRAT-APP.md` (`synchro`, `bilan_app`,
-     `ignores`, `POST /sync/abandon`, le refus `410`), comme le veut l'usage
-     établi par l'issue #15.
-4. Puis **#31** (galerie de consultation, phase 2 — spec
-   `docs/superpowers/specs/2026-09-21-galerie-consultation-design.md`).
+   Des `POST /sync/plan` et `/sync/commit` dans la nuit = réussite (et une
+   ligne nocturne sur `/historique`). Rien du tout = échec : passer au 2.
+2. **En cas d'échec**, dans cet ordre (débogage sans fil, adresse et port
+   donnés par le mainteneur) :
+   - `adb shell dumpsys activity exit-info fr.izquierdo.phototheque` — une
+     ligne `iAwareR[SmartClean]` pendant la nuit = le gestionnaire d'énergie
+     HONOR a encore tué l'application : les deux réglages de
+     `docs/APPLICATION-ANDROID.md` §11 (« La sauvegarde automatique ne tourne
+     jamais la nuit ») n'ont pas pris, ou ne suffisent pas ;
+   - `adb shell dumpsys deviceidle whitelist | grep izquierdo` (doit
+     répondre si « Ne pas optimiser » a pris) ;
+   - la base `WorkManager` (`period_count` de `synchro-auto`) ;
+   - `adb shell setprop log.tag.Phototheque I` **avant** tout
+     `logcat` : ce téléphone jette les journaux des applications tierces
+     (`persist.log.tag=S`), réglage perdu à chaque redémarrage.
+3. **Si l'étape 11 passe** : fermer à la main **#12** et **#29**, puis ouvrir
+   la PR `dev` → `main` (elle fermera #36 et #38).
+4. Puis **#31** (galerie de consultation, phase 2) — spec
+   `docs/superpowers/specs/2026-09-21-galerie-consultation-design.md`. Le
+   plan est à écrire d'abord, le mainteneur choisira le mode d'exécution.
 
-**Les cinq constats de la recette du 24/09, tous corrigés sur `dev`**
-(pas encore réinstallés — voir l'étape 2 ci-dessus) :
+**Pourquoi l'étape 11 a échoué le 24/09 — deux causes, chacune suffisante :**
+l'appareil avait été révoqué depuis l'admin à 13:38 (le téléphone portait un
+jeton mort, `401` à 13:39, plus aucune requête ensuite), et le gestionnaire
+d'énergie HONOR (`iAwareR[SmartClean]`) a tué l'application à 18:43 — la
+passe périodique n'a jamais démarré (`period_count = 0`) alors que le
+téléphone est resté branché jusqu'à 07:06. Le mécanisme lui-même n'est pas en
+cause : une passe automatique a été vue aller au bout sur secteur le 25/09.
 
-- **C1** : une synchro arrêtée par Android pendant un appel réseau bloquant
-  gardait `VerrouSynchro` pris — tout lancement pendant ce temps sortait en
-  « réussite » muette, et la passe automatique perdait 6 h. Corrigé : relance
-  plus tard, sans plafond (`Reprise.apresRefusDuVerrou`, commit `7792efb`).
-- **C2** : l'application n'écrivait rien dans le journal Android. Corrigé :
-  départ et issue de chaque synchro, avec sa file (`manuelle`/`auto`),
-  visibles par `adb logcat -s Phototheque` (commit `d28e221`).
-- **C3** : après un réappairage, l'app rouvrait l'écran « Cet appareil » (et
-  son bouton désappairer) — un vrai désappairage accidentel a eu lieu pendant
-  la recette (journal du NUC, 13:30:36). Corrigé (`Navigation.demandeApres`,
-  commit `c4bb1b3`).
-- **C4** : le scan du QR restait bloqué en paysage — le correctif du 23/09 ne
-  suffisait pas, il fallait surcharger le manifeste de la bibliothèque de
-  scan. Corrigé, contrôlé sur le manifeste **fusionné** (commit `c4bb1b3`).
-- **C5** : le champ date de `/pair` semait le doute, alors que la date du
-  téléphone prime toujours. Retiré avec la route `POST /pair` (commit
-  `a6d5d48`).
+**Ce que la recette n'a pas pu trancher (aucun scénario atteignable) :**
+qu'« Interrompre » efface une nouvelle tentative programmée de la file
+**manuelle** — pendant une passe automatique, l'accueil cache « Sauvegarder
+maintenant », si bien qu'une manuelle ne peut plus être refusée par le verrou
+depuis l'écran ; et qu'un arrêt demandé affiche le compte réel et non trois
+zéros (l'arrêt du 25/09 est tombé avant le premier envoi : le compte réel
+*était* zéro).
 
-Sur l'étape 12, la recette a confirmé qu'un second lancement pendant qu'une
-synchro tourne est bien **refusé par `VerrouSynchro`** (constaté dans la base
-WorkManager) — mais pas que « Interrompre » arrête la bonne synchro ni que
-l'écran n'affiche qu'un seul avancement : le croisement n'a pas été rejoué à
-la demande, la passe automatique refusée attendant ensuite ses 6 h avant de se
-représenter. À revérifier à l'étape 3 ci-dessus.
+**Toujours vrai :** il n'existe dans ce projet **aucun test
+d'instrumentation Android**. `WorkManager`, le service de premier plan, les
+notifications, le `BroadcastReceiver`, tout Compose et `VerrouSynchro` ne
+sont couverts par rien d'automatique : seule la recette les exerce.
 
-**Pourquoi cette recette pèse lourd :** il n'existe toujours dans ce projet
-**aucun test d'instrumentation Android**. `WorkManager`, le service de premier
-plan, les notifications, le `BroadcastReceiver`, tout Compose et
-`VerrouSynchro` ne sont couverts par **rien** d'automatique ; les 262 tests
-côté app ne disent rien de ces chemins-là.
-
-**Deux limites restent ASSUMÉES** (issue #33, héritées du lot 1 bis), à ne pas
-prendre pour des régressions : interrompre pendant l'envoi d'une grosse vidéo
-n'arrête pas le téléversement en cours, et l'écran reste figé pendant ce
-temps.
-
-**Ce qu'aucun test ne peut trancher, encore jamais constaté :** qu'un arrêt
-demandé affiche le compte réel et non trois zéros ; qu'une permission retirée
-donne « Nouvelle tentative programmée » et jamais « En attente d'un réseau » ;
-que le bouton de la notification arrête sans rouvrir l'app ; **(lot 2)**
-qu'un réappairage reprogramme RÉELLEMENT l'automatique (`WorkManager`, pas
-seulement l'interrupteur affiché coché) ; **(lot 2)** que « dernière
-sauvegarde » disparaît bien de l'accueil après un réappairage plutôt que
-d'afficher une ancienne réussite qui ne dit plus rien du nouveau serveur.
+**Deux limites restent ASSUMÉES** (issue #33) : interrompre pendant l'envoi
+d'une grosse vidéo n'arrête pas le téléversement en cours, et l'écran reste
+figé pendant ce temps.
 
 ## Feuille de route (issues GitHub)
-Prochaine étape : **continuer la recette du lot 2** (voir REPRISE) — relever
-l'étape 11, réinstaller `dev` sur le téléphone et le NUC (inventaire de
-`incoming/` d'abord), rejouer
-l'étape 12, capturer les exemples réels de `docs/CONTRAT-APP.md`, puis **#31**
-galerie de consultation (phase 2). **#29** (lot 1 bis) et **#12**
-(l'application elle-même) restent ouvertes tant que la recette n'est pas menée
-à son terme. **#30** (journal serveur + purge des sessions abandonnées) et
-**#27** (compteur d'ignorés du trieur en ligne de commande) sont **FAITES sur
-`dev`** ; leurs commits ne portent pas de `closes`, elles seront à fermer à la
-main une fois la recette passée.
+Prochaine étape : **relever l'étape 11** (voir REPRISE), puis **#31** galerie
+de consultation (phase 2). **#29** (lot 1 bis) et **#12** (l'application
+elle-même) restent ouvertes jusqu'à ce que l'étape 11 passe. **#30** (journal
+serveur + purge des sessions abandonnées) et **#27** (compteur d'ignorés du
+trieur en ligne de commande) ont été **validées sur le NUC et fermées à la
+main le 25/09**. **#42**, ouverte le 25/09 : un arrêt subi s'écrit
+« terminée » dans le journal Android (faible, contournement documenté).
 
 **Quatre issues ouvertes le 24/09 par la relecture finale du lot 2.** **#36**
 (l'accueil annonce désormais les dossiers gelés par la date de début) et
@@ -307,11 +296,11 @@ d'utilisateur, devenu un secret partiel depuis `identifiants.sh`.
 
 **PR #13 (`dev` → `main`) a été fusionnée** : les issues qui portaient un
 `closes #N` se sont fermées toutes seules (#2, #3, #10, #14, #15, #19, #21).
-#12 reste ouverte : l'application tourne sur un appareil depuis le 24/09, mais
-la recette n'est pas finie (étape 11 à relever, étape 12 partielle) et les
-correctifs C1 à C5 n'y ont pas encore été réinstallés ni rejoués.
+#12 reste ouverte : l'application tourne sur un appareil depuis le 24/09, les
+correctifs C1 à C5 y ont été réinstallés et rejoués le 25/09, mais l'étape 11
+de la recette (une nuit en charge) reste à relever.
 
-**Pas de nouvelle PR `dev` → `main` avant la recette** : tout le lot 1 bis et
+**Pas de nouvelle PR `dev` → `main` avant la fin de la recette (étape 11)** : tout le lot 1 bis et
 le lot 2 restent sur `dev` tant que rien n'est validé sur un vrai téléphone.
 C'est tout l'intérêt de les avoir gardés là. La branche
 `worktree-constats-recette-lot2` (corrections C1 à C5, #30, #27, #36, #38 et
@@ -474,6 +463,26 @@ les constats différés de sa relecture finale sont dans **#41**.
   synchro se lit dans la base `WorkManager` plutôt que dans les journaux :
   `adb exec-out run-as fr.izquierdo.phototheque cat no_backup/androidx.work.workdb`
   (+ `-wal`, `-shm`) et `adb shell dumpsys jobscheduler`.
+- **Le HONOR 90 Lite jette les journaux de toutes les applications tierces**
+  (25/09) : `persist.log.tag=S`. `adb logcat -s Phototheque` reste vide même
+  avec un APK postérieur à C2 — ce n'est pas une régression. Lever le filtre
+  par `adb shell setprop log.tag.Phototheque I` (sans root, perdu au
+  redémarrage du téléphone).
+- **Le gestionnaire d'énergie HONOR tue l'application, et avec elle la
+  sauvegarde automatique** (`iAwareR[SmartClean]` dans `adb shell dumpsys
+  activity exit-info fr.izquierdo.phototheque`). Plus aucun travail planifié
+  ne part jusqu'à la prochaine ouverture à la main. Correction côté
+  téléphone uniquement : `docs/APPLICATION-ANDROID.md` §11.
+- **`/pair` réaffiche LE MÊME QR tant que l'appairage affiché n'a pas servi.**
+  Désappairer depuis le téléphone APRÈS avoir chargé `/pair` confirme puis
+  supprime cet appairage-là : le QR resté à l'écran est mort, et la première
+  sauvegarde répond « révoqué ». Toujours désappairer d'abord, charger
+  `/pair` ensuite.
+- **`cmd jobscheduler run -f` ne suffit pas à forcer la passe automatique
+  sans recharge** : WorkManager l'arrête dans la demi-seconde. Pour une passe
+  à la demande, brancher le téléphone puis décocher et recocher
+  « Sauvegarder automatiquement » (un travail périodique neuf part dès que
+  ses contraintes sont réunies).
 
 **Pièges du serveur**
 - **FastAPI publie `/docs`, `/redoc` et `/openapi.json` sans authentification.**

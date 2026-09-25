@@ -7,13 +7,15 @@ avoir à ouvrir une seule ligne de Python.
 le serveur, le 2026-09-18, et non rédigés de mémoire. C'est la seule façon
 d'éviter qu'ils divergent du code.
 
-**Exception, ajoutée le 24/09 (issue #30) :** les exemples des champs
-`synchro` / `bilan_app` (§4.4), de la clé `ignores` de la réponse du `commit`
-(§4.4), de `POST /sync/abandon` et du refus `410` (§4.6) sont
-**illustratifs**, pas capturés — la recette sur téléphone qui aurait permis de
-les capturer sur un échange réel n'a pas encore eu lieu (voir `CLAUDE.md`,
-section REPRISE). Ils seront remplacés par un échange réel à la prochaine
-recette, comme le veut l'usage établi par l'issue #15.
+**Ajouts de l'issue #30 (champs `synchro` / `bilan_app` et clé `ignores` du
+`commit` au §4.4, `POST /sync/abandon` et refus `410` au §4.6) : capturés le
+2026-09-25**, de la même façon — un client HTTP face au serveur de `dev`
+(`d3b7789`), sur un vrai échange, et non rédigés de mémoire. Ils avaient été
+écrits à la main le 24/09 en attendant la recette. Ce que le **téléphone**
+envoie réellement a été contrôlé le même jour, pendant la recette du lot 2 sur
+un HONOR 90 Lite, dans le journal du NUC : un `synchro` de 32 caractères
+hexadécimaux, un `bilan_app` repris dans l'historique, et un vrai
+`POST /sync/abandon` au bouton « Interrompre ».
 
 > Ce document décrit le contrat **figé** par le lot des issues #3, #10 et #2. Il
 > ne bougera plus sans une raison écrite. La conception d'ensemble est dans
@@ -252,23 +254,29 @@ les envoie pas continue de fonctionner à l'identique :
 | `synchro` | `str`, 1 à 64 caractères parmi lettres, chiffres, `_` et `-` | Identifiant engendré par le téléphone **au début d'une synchronisation**, répété à l'identique à chaque paquet. C'est lui qui regroupe N commits en **une seule** ligne d'historique (`/historique`) au lieu d'une par paquet. Absent, vide ou hors de cette forme : le serveur en fabrique un lui-même et journalise quand même — juste sous une ligne par commit plutôt qu'une par synchronisation. |
 | `bilan_app` | `{ envoyes, refuses, echecs }` (entiers, chacun facultatif, défaut `0`) | Ce que le téléphone a vu **de son côté**, en cumul depuis le début de la synchronisation (pas un delta du seul paquet). Les échecs de lecture locale et les coupures réseau sont invisibles au serveur : sans ce champ, la colonne « échecs » de l'historique resterait toujours incomplète. |
 
-Exemple **illustratif** (non capturé — voir la remarque en tête de document) :
+Capturé le 25/09 (un fichier envoyé dans la session) :
 
 ```json
 {
-  "session": "4bad0393fe5f4fd69635802c39699ce1",
-  "synchro": "8f2c1a7e9b4d4f5e8c3a2b1d0e9f8a7b",
-  "horizons": { "DCIM/Camera": 1789000000.0 },
-  "bilan_app": { "envoyes": 12, "refuses": 0, "echecs": 1 }
+  "session": "1c379b227b3b4115a895624388477b87",
+  "synchro": "0ab1493f67a54016b1de9e3207f82736",
+  "horizons": { "DCIM/Camera": 1790328600.0 },
+  "bilan_app": { "envoyes": 1, "refuses": 0, "echecs": 0 }
 }
 ```
+
+L'application forme `synchro` comme un UUID sans ses tirets — 32 caractères
+hexadécimaux, la forme d'une `session`. Le 25/09, les sept fichiers de la
+première sauvegarde du HONOR 90 Lite sont bien arrivés sous **une seule** ligne
+d'historique, avec les compteurs de son `bilan_app`.
 
 Détail utile à connaître, sans effet sur ce que l'application doit faire : un
 `commit` rejoué pour la **même** `session` (réponse HTTP perdue, nouvelle
 tentative avec les mêmes données) n'est pas recompté dans l'historique du
 serveur — la ligne de synchronisation ne double pas son bilan.
 
-**Réponse (200)** — le bilan détaillé du rangement :
+**Réponse (200)** — le bilan détaillé du rangement, capturée le 25/09 pour la
+requête ci-dessus :
 
 ```json
 {
@@ -281,7 +289,7 @@ serveur — la ligne de synchronisation ne double pas son bilan.
   "photos": 1,
   "videos": 0,
   "whatsapp": 0,
-  "octets_ranges": 954,
+  "octets_ranges": 907,
   "par_source_date": { "filename": 1 },
   "par_annee_mois": { "2026/09 SEPTEMBRE": 1 },
   "echecs": []
@@ -299,8 +307,7 @@ le trieur a écartés faute de savoir les ranger (extension non gérée, reliqua
 `.partiel` d'un envoi coupé). Normalement toujours `0` : le serveur refuse ces
 extensions dès l'envoi (§6). Champ additif lui aussi — l'application lit la
 réponse comme un dictionnaire de nombres, une clé de plus ne change rien pour
-elle. L'exemple ci-dessus, capturé avant cet ajout, a été complété à la main
-(voir l'exception en tête de document).
+elle.
 
 > ⚠️ **Ces treize champs ne sont pas construits par le serveur.** Ils viennent de
 > `Report.to_dict()` dans **`mediasort/sorter.py`**, c'est-à-dire du trieur.
@@ -386,20 +393,23 @@ toujours).
 **Requête :**
 
 ```json
-{ "session": "4bad0393fe5f4fd69635802c39699ce1" }
+{ "session": "39fcdae0974f489ba67161ce64c1e906" }
 ```
 
-**Réponse (200)** — exemple **illustratif** (non capturé — voir la remarque en
-tête de document) :
+**Réponse (200)**, capturée le 25/09 sur une session qui avait déjà reçu deux
+fichiers :
 
 ```json
-{ "supprimes": 12, "octets": 384102912 }
+{ "supprimes": 2, "octets": 1817 }
 ```
 
 `supprimes` compte les fichiers du dossier de session au moment de l'appel —
 ceux du seul paquet en cours : une session correspond à un paquet, les paquets
 précédents ont déjà été validés et rangés ; `octets` leur taille cumulée. Les
-deux valent zéro si la session n'existait déjà plus.
+deux valent zéro si la session n'existait déjà plus, ou si rien n'y était
+encore arrivé : c'est ce qu'a reçu le HONOR 90 Lite le 25/09, interrompu juste
+après `/sync/plan` et avant son premier envoi (`{ "supprimes": 0, "octets": 0 }`,
+tracé tel quel sur `/evenements`).
 
 **`400`** si `session` n'a pas la forme attendue (32 caractères hexadécimaux,
 celle que rend `/sync/plan`) :
@@ -431,13 +441,16 @@ depuis le premier envoi.
 > ⚠️ **N'abandonnez JAMAIS une session que vous êtes en train de valider**
 > (ni pendant, ni avant d'appeler `/sync/commit` sur elle). Abandonner
 > supprime ses fichiers **sans les ranger**. Le serveur retient les sessions
-> abandonnées ou purgées, et un `commit` sur l'une d'elles reçoit :
+> abandonnées ou purgées, et un `commit` sur l'une d'elles reçoit (capturé le
+> 25/09, `commit` rejoué sur la session abandonnée ci-dessus) :
 >
 > ```
 > 410  { "detail": "session abandonnée ou purgée : ses fichiers ont été supprimés sans être rangés — relancez une synchronisation" }
 > ```
 >
-> **aucun horizon n'est alors enregistré.** L'application doit traiter ce
+> **aucun horizon n'est alors enregistré** — vérifié le 25/09 : le
+> `GET /sync/horizon` qui a suivi rendait toujours l'horizon du dernier
+> `commit` réussi, pas celui que portait le `commit` refusé. L'application doit traiter ce
 > paquet comme un échec (horizons gelés, nouvelle synchronisation plus tard) :
 > c'est déjà ce que fait `ClientServeur.commit`, qui lève sur tout code autre
 > que 2xx. Sans ce refus, le dossier absent passait pour une session **vide**

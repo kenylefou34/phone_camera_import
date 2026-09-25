@@ -227,14 +227,26 @@ principal du débogage sans fil.
 
 1. Sur un ordinateur, ouvrir `https://IZQUIERDO-NUC.local:8787/pair`
    (identifiants d'administration demandés).
-2. La page propose une **date « à partir de »** : les médias antérieurs ne
-   seront jamais envoyés. C'est le réglage le plus important de l'appairage.
-3. Lancer l'application sur le téléphone, scanner le QR.
-4. Appuyer sur **Sauvegarder maintenant**.
+2. Lancer l'application sur le téléphone, scanner le QR (en portrait comme en
+   paysage).
+3. Appuyer sur **Sauvegarder maintenant**.
+
+La page ne propose plus de date « à partir de » (retirée le 24/09, constat
+C5) : c'est la **date de début réglée sur le téléphone** qui décide jusqu'où
+remonter (Réglages → Sauvegarde, §8). Sans date posée, le serveur ne
+propose que les médias du jour de l'appairage et après.
 
 **Le QR n'est valable que 10 minutes s'il n'est jamais scanné.** Passé ce
 délai, recharger `/pair` en produit un nouveau. Le premier usage réel le
 confirme définitivement.
+
+**Pour réappairer, désappairer D'ABORD, charger `/pair` ENSUITE.** Tant que
+l'appairage affiché n'a pas servi, `/pair` réaffiche **le même QR** à chaque
+visite, sans en créer de nouveau. Le piège, rencontré le 25/09 : QR affiché,
+puis désappairage depuis le téléphone, qui utilise le jeton de ce QR, le
+confirme au passage et le supprime aussitôt. On scanne ensuite un QR mort, et
+la première sauvegarde répond « appareil révoqué ». Recharger `/pair` après le
+désappairage produit un QR neuf.
 
 Le QR contient l'adresse du serveur, un jeton d'appareil **et l'empreinte du
 certificat**. L'application n'acceptera plus que ce certificat-là : c'est ce
@@ -431,6 +443,15 @@ les prendre pour des régressions de cette recette.
     **sans intervention**.
     *Pourquoi :* c'est `PeriodicWorkRequest` et le mode Doze pour de vrai —
     rien dans ce projet ne peut simuler le planificateur d'Android.
+    **Sur un HONOR ou un Huawei, faire d'abord les deux réglages de §11,
+    « La sauvegarde automatique ne tourne jamais la nuit »**, puis ne plus
+    ouvrir l'application de la soirée. Sans eux, le gestionnaire d'énergie
+    tue l'application dans les heures qui suivent et la passe ne part jamais.
+    C'est ce qui s'est produit le 24/09.
+    Au matin, la preuve se lit aussi côté serveur : une synchro nocturne sur
+    `/historique`, ou des `POST /sync/plan` dans la nuit
+    (`journalctl -u phototheque`). Une passe automatique **sur secteur** a
+    déjà été vue aller au bout, application ouverte, le 25/09.
 
 12. **Pendant que l'automatique tourne (ou juste après l'avoir déclenché),
     lancer une synchro manuelle.** Vérifier qu'un **seul** avancement est
@@ -456,6 +477,34 @@ les prendre pour des régressions de cette recette.
     seule protection entre deux `WorkManager` réels (la file manuelle et la
     file automatique) qui pourraient démarrer ensemble. Et la relance
     après refus (C1) ne se voit que sur un vrai `WorkManager`.
+
+    **Ce que la recette du 25/09 a réellement montré :**
+    - **Le croisement manuel/automatique n'est pas atteignable depuis
+      l'écran.** Pendant qu'une passe automatique tourne, l'accueil n'affiche
+      qu'un seul avancement et **cache « Sauvegarder maintenant »**. Le bouton
+      ne revient qu'à la fin de la passe. C'est le comportement voulu, et le
+      premier point de cette étape est acquis.
+    - **Le croisement qui se produit vraiment est celui de deux exécutions de
+      la file AUTOMATIQUE.** Au branchement du téléphone, WorkManager a lancé
+      la passe, l'a arrêtée au bout d'une demi-seconde, puis l'a relancée
+      aussitôt, alors que l'exécution arrêtée tournait encore sur un appel
+      réseau bloquant. Le verrou a refusé la seconde (`synchro auto : une
+      autre synchro tient le verrou, nouvelle tentative programmée`), qui est
+      **repartie toute seule** 80 s plus tard et a tout envoyé. C1 est ainsi
+      validé sur un vrai téléphone, sans rien provoquer.
+    - **« Interrompre » sur une passe automatique** : l'arrêt s'écrit
+      `interrompue`, le serveur reçoit un `POST /sync/abandon`, et la passe
+      automatique est reprogrammée **avec six heures de délai initial**
+      (contrôlé dans la base de `WorkManager`), sans relance immédiate.
+      Les médias non envoyés partent à la sauvegarde suivante.
+    - **Forcer la passe sans être branché ne sert à rien** : `adb shell cmd
+      jobscheduler run -f fr.izquierdo.phototheque <n°>` la démarre, mais
+      WorkManager l'arrête aussitôt faute de recharge (la ligne de sortie dit
+      « dossiers non lus », voir §11). Pour une passe automatique à la
+      demande, brancher le téléphone puis **décocher et recocher**
+      « Sauvegarder automatiquement ».
+    - Non tranché, faute d'un scénario atteignable : qu'« Interrompre » efface
+      une nouvelle tentative programmée de la file **manuelle**.
 
 13. **Couper le WiFi, puis désappairer depuis Réglages → Appareil.** Vérifier
     que l'application revient à l'écran de scan **malgré le serveur
@@ -555,6 +604,59 @@ l'application n'écrivait rien du tout (constat C2 de la recette du lot 2),
 et il fallait reconstituer l'histoire depuis la base interne de
 `WorkManager` (`run-as fr.izquierdo.phototheque cat
 no_backup/androidx.work.workdb`) et `adb shell dumpsys jobscheduler`.
+
+**Un arrêt SUBI s'écrit « terminée », pas « interrompue »** (constaté le
+25/09, issue #42). Quand WorkManager arrête une passe parce
+qu'une contrainte vient de tomber (téléphone débranché, WiFi perdu), la ligne
+de sortie dit `terminée : 0 envoyés, 0 refusés, 0 en échec, dossiers non
+lus`. Le signe qui ne trompe pas est « **dossiers non lus** » : la passe n'est
+jamais arrivée jusqu'à la lecture des dossiers. Seul un arrêt demandé par
+« Interrompre » s'écrit `interrompue`.
+
+### `adb logcat -s Phototheque` n'affiche rien du tout (HONOR, MediaTek)
+
+Sur le HONOR 90 Lite, le système jette les journaux de toutes les applications
+tierces avant même qu'ils atteignent `logcat` : la propriété
+`persist.log.tag` y vaut `S` (silencieux), et seules les étiquettes que le
+constructeur a listées une à une passent. L'application écrit bien ses
+lignes, mais elles n'arrivent nulle part. Rouvrir la nôtre :
+
+```bash
+~/outils/android-sdk/platform-tools/adb shell setprop log.tag.Phototheque I
+~/outils/android-sdk/platform-tools/adb shell getprop log.tag.Phototheque   # doit dire I
+```
+
+Sans sudo ni root. Le réglage est **perdu au redémarrage du téléphone** : à
+refaire avant chaque séance de débogage. Pour vérifier le filtre :
+`adb shell getprop persist.log.tag`.
+
+### La sauvegarde automatique ne tourne jamais la nuit (HONOR, Huawei)
+
+Constaté le 25/09 : téléphone branché toute la nuit sur le WiFi de la maison,
+travail périodique bien programmé, et **aucune passe** — jamais une seule
+(`period_count = 0` dans la base de `WorkManager`). La cause se lit dans les
+motifs de sortie du processus :
+
+```bash
+~/outils/android-sdk/platform-tools/adb shell dumpsys activity exit-info fr.izquierdo.phototheque | grep -E "timestamp|description"
+```
+
+Une ligne `description=iAwareR[SmartClean]` signe le coupable : le
+gestionnaire d'énergie propre à HONOR (« iAware ») a tué l'application. Il la
+marque alors « arrêtée » (`iAwareStopped=true` dans `adb shell dumpsys package
+fr.izquierdo.phototheque`), et plus aucun de ses travaux planifiés ne part
+jusqu'à la prochaine ouverture **à la main**. Rien, côté application, ne peut
+l'empêcher. La correction se fait dans les réglages du téléphone, une fois
+pour toutes :
+
+1. **Paramètres → Batterie → Lancement d'applications → Photothèque** :
+   passer en « Gérer manuellement » et laisser les trois options cochées
+   (lancement automatique, lancement secondaire, exécution en arrière-plan).
+2. **Paramètres → Applications → Photothèque → Batterie** : « Ne pas
+   optimiser » (ou « Autoriser l'activité en arrière-plan »).
+
+Contrôle, après le second réglage : `adb shell dumpsys deviceidle whitelist`
+doit citer `fr.izquierdo.phototheque`.
 
 ### « La sauvegarde a échoué » alors que tout est arrivé
 
